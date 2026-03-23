@@ -1,19 +1,9 @@
-# Data files (large, rebuildable from source)
-data/fit/
-*.FIT
-*.fit
-
-# Ride JSON data (large, derived from FIT files)
-data/rides/
-tp-*.json
+# Data files (has its own .gitignore)
+data/
 
 # Planned workouts (backed up to GCS)
 *.zwo
 planned_workouts/
-
-# Analysis data (large JSON outputs)
-pmc_data.json
-training_report.json
 
 # Node
 node_modules/

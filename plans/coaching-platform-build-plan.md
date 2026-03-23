@@ -2,7 +2,7 @@
 
 ## Vision
 
-A web-based cycling coaching platform that turns raw ride data into actionable training insights. The system serves as a persistent coaching relationship — it knows your history, understands your physiology as a 48-year-old experienced rider, tracks your progression toward Big Sky Biggie (late August 2026), and adapts when life gets in the way.
+A web-based cycling coaching platform that turns raw ride data into actionable training insights. The system serves as a persistent coaching relationship — it knows your history, understands your physiology as a 50-year-old experienced rider, tracks your progression toward Big Sky Biggie (late August 2026), and adapts when life gets in the way.
 
 This is not a generic training app. It's built around one athlete's data, one A-race, and the specific coaching insights we've already established from analyzing a full year of training (see `season_analysis.md`).
 
@@ -137,7 +137,7 @@ coach/
 - Verify `analyze.py` still works with updated paths
 
 ### CLAUDE.md contents (key coaching context to persist):
-- Athlete profile: 48yo male, ~163 lbs, 5'10", FTP history, W/kg
+- Athlete profile: 50yo male, ~163 lbs, 5'10", FTP history, W/kg
 - A-race: Big Sky Biggie, late August 2026, ~50mi MTB, ~6000ft climbing
 - Season history summary: 581h, peaked CTL 106.8, current CTL ~21
 - Key coaching principles established from analysis:
@@ -191,10 +191,13 @@ power_bests:
 - **Tests**: Schema creation, insert/query round-trip
 
 #### 1b. Data ingestion script
-- Read all 291 ride JSON files, extract session + record data
+- Download source data from GCS bucket (`gs://jasondel-coach-data`):
+  - `gs://jasondel-coach-data/json/` → `data/rides/` (291 ride JSON files)
+  - `gs://jasondel-coach-data/planned_workouts/` → `data/planned_workouts/` (176 ZWO files)
+- Read all ride JSON files, extract session + record data
 - Compute derived metrics (power bests, zone distribution per ride)
 - Insert into SQLite
-- Read all 176 ZWO files, parse and insert
+- Read all ZWO files, parse and insert
 - Compute and store daily PMC (CTL/ATL/TSB)
 
 - **Tests**: Ingestion of a single known ride, verify all fields. Ingestion of a ZWO file. PMC calculation against known values.
