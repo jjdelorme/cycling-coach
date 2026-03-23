@@ -120,17 +120,17 @@ coach/
 ```
 
 ### Steps:
-1. Create the directory structure
-2. Move `.FIT` files to `data/fit/`
-3. Move ride `.json` files to `data/rides/` (exclude `training_report.json` and `pmc_data.json`)
-4. Move `planned_workouts/` to `data/planned_workouts/`
-5. Move scripts to `scripts/`
-6. Move analysis outputs to `analysis/`
-7. Move old snapshots/stray files to `archive/`
-8. Verify nothing is broken (file counts match)
-9. Create `.gitignore` (ignore `data/fit/`, `*.db`, `__pycache__`, `.env`)
-10. Initialize git repo
-11. Create `CLAUDE.md` with project context and coaching knowledge
+1. ~~Create the directory structure~~ DONE
+2. ~~Move `.FIT` files to `data/fit/`~~ DONE — backed up to `gs://jasondel-coach-data/fit/`
+3. ~~Move ride `.json` files to `data/rides/`~~ DONE — backed up to `gs://jasondel-coach-data/json/`
+4. ~~Move `planned_workouts/` to `data/planned_workouts/`~~ DONE — backed up to `gs://jasondel-coach-data/planned_workouts/`
+5. ~~Move scripts to `scripts/`~~ DONE
+6. ~~Move analysis outputs to `analysis/`~~ DONE (`season_analysis.md`)
+7. ~~Delete old snapshots/stray files~~ DONE (snapshots were empty Playwright DOM dumps, deleted)
+8. ~~Verify nothing is broken (file counts match)~~ DONE (291 FIT, 291 JSON, 176 ZWO in GCS)
+9. ~~Create `.gitignore`~~ DONE
+10. ~~Initialize git repo~~ DONE — pushed to `git@github.com:jjdelorme/cycling-coach.git`
+11. Create `CLAUDE.md` with project context and coaching knowledge (partially done via `AGENTS.md`)
 
 ### Tests:
 - Verify file counts after move (291 FIT, 291 ride JSON, 176 ZWO)
