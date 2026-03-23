@@ -585,6 +585,7 @@ Raw training data is backed up to GCS for safekeeping:
 - **Bucket**: `gs://jasondel-coach-data` (project: `jasondel-cloudrun10`, region: `us-central1`)
 - **`gs://jasondel-coach-data/fit/`** — 291 raw `.FIT` files from Garmin exports
 - **`gs://jasondel-coach-data/json/`** — 291 converted ride `.json` files
+- **`gs://jasondel-coach-data/planned_workouts/`** — 176 `.zwo` planned workout files
 
 These are the source-of-truth files. The local SQLite database (Phase 1) is always rebuildable from these. If local files are cleaned up or lost, restore with:
 ```

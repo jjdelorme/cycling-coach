@@ -7,6 +7,10 @@ data/fit/
 data/rides/
 tp-*.json
 
+# Planned workouts (backed up to GCS)
+*.zwo
+planned_workouts/
+
 # Analysis data (large JSON outputs)
 pmc_data.json
 training_report.json
