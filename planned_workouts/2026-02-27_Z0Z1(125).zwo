@@ -1,0 +1,19 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>Z0/Z1 (1:25)</name>
+	<description>&lt;55% FTP, easy spin to promote recovery.</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="300" Power="0.5">
+		</SteadyState>
+		<SteadyState Duration="300" Power="0.55">
+		</SteadyState>
+		<SteadyState Duration="4200" Power="0.55">
+		</SteadyState>
+		<SteadyState Duration="180" Power="0.55">
+		</SteadyState>
+		<SteadyState Duration="120" Power="0.5">
+		</SteadyState>
+	</workout>
+</workout_file>

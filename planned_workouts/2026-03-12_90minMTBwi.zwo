@@ -1,0 +1,11 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>90min MTB w/ intensity</name>
+	<description></description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="5400" Power="0.81">
+		</SteadyState>
+	</workout>
+</workout_file>

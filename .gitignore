@@ -1,0 +1,45 @@
+# Data files (large, rebuildable from source)
+data/fit/
+*.FIT
+*.fit
+
+# Ride JSON data (large, derived from FIT files)
+data/rides/
+tp-*.json
+
+# Analysis data (large JSON outputs)
+pmc_data.json
+training_report.json
+
+# Node
+node_modules/
+
+# Database
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Environment / secrets
+.env
+config.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright MCP artifacts
+.playwright-mcp/

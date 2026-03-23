@@ -1,0 +1,11 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>3h MTB</name>
+	<description></description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="10800" Power="0.78">
+		</SteadyState>
+	</workout>
+</workout_file>

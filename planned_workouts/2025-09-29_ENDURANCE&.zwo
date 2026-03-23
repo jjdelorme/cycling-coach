@@ -1,0 +1,39 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>ENDURANCE &amp; SST 3 x 20/5 with 1 x 3min Vo2 to close out (1:58)</name>
+	<description>WU: 15 Minutes working into ENDURANCE (Power Z2, HR Z2, RPE 2-3) with 2 x 1 minute Fast Pedals to wake up legs
+------
+MS: SST Intervals. Complete 3 x 20 Minute Intervals at SST (Sweet Spot) (Power Z3.5, Heart Rate Z3.5, RPE 4) with 5 minutes recovery in-between each.
+Terrain: Flat to Rolling; Cadence: 85 - 105.
+
+MS2: 10min END (68% FTP, ~190w)
+
+MS3: 1 x 3min Vo2 effort to close out on fatigued legs (115-120% FTP, 325-350w target)
+------
+CD: 15 Minutes at ACTIVE RECOVERY (Power Z1, HR Z1, RPE &lt;2)</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="300" Power="0.55">
+			<textevent timeoffset="0" message="Complete 2 x 1 minute Fast Pedals to wake up legs during ramp up."/>
+		</SteadyState>
+		<SteadyState Duration="300" Power="0.6">
+		</SteadyState>
+		<SteadyState Duration="300" Power="0.65">
+		</SteadyState>
+		<IntervalsT Repeat="3" OnDuration="1200" OnPower="0.9" OffDuration="300" OffPower="0.75">
+			<textevent timeoffset="0" message="Terrain: Flat to Rolling.
+Cadence: 85 - 105."/>
+			<textevent timeoffset="1500" message="Terrain: Flat to Rolling.
+Cadence: 85 - 105."/>
+			<textevent timeoffset="3000" message="Terrain: Flat to Rolling.
+Cadence: 85 - 105."/>
+		</IntervalsT>
+		<SteadyState Duration="600" Power="0.68">
+		</SteadyState>
+		<SteadyState Duration="180" Power="1.15">
+		</SteadyState>
+		<Cooldown Duration="900" PowerHigh="0.45" PowerLow="0.65">
+		</Cooldown>
+	</workout>
+</workout_file>

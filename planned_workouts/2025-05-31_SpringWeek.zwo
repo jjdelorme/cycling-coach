@@ -1,0 +1,13 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>Spring Weekend</name>
+	<description>Road, gravel, MTB all in play - your choice.
+
+Keep effort easy to build back up next week.</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="10800" Power="0.67">
+		</SteadyState>
+	</workout>
+</workout_file>

@@ -1,0 +1,11 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>2h MTB (or ski)</name>
+	<description></description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="7200" Power="0.75">
+		</SteadyState>
+	</workout>
+</workout_file>

@@ -1,0 +1,13 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>Fall Weekend 4-6h</name>
+	<description>Road, gravel, MTB all in play - your choice.
+
+Great time to get a spirited group ride in.</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="14400" Power="0.7">
+		</SteadyState>
+	</workout>
+</workout_file>

@@ -1,0 +1,13 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>Winter Weekend - Sun.</name>
+	<description>Long day on slopes (4-8h), 2-3h MTB/fatty, or (gasp) shorter indoor rollers ride.
+
+If on rollers, aim for 90min-2h, 58-65% FTP (easier than Sat.)</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="10800" Power="0.7">
+		</SteadyState>
+	</workout>
+</workout_file>

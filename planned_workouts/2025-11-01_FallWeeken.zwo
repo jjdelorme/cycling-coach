@@ -1,0 +1,11 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>Fall Weekend 2-4h</name>
+	<description></description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="14400" Power="0.7">
+		</SteadyState>
+	</workout>
+</workout_file>

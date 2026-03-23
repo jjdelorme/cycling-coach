@@ -1,0 +1,15 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>Spring Weekend</name>
+	<description>Road, gravel, MTB all in play - your choice.
+
+Group ride ok on either Sat. or Sun., but try not to do a group ride on both days.
+
+Ride by feel, and if the legs are feeling good then put in a few efforts of 30sec-2min duration scattered throughout the ride.</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="10800" Power="0.67">
+		</SteadyState>
+	</workout>
+</workout_file>

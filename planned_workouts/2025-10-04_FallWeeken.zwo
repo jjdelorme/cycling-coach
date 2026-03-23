@@ -1,0 +1,11 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>Fall Weekend 6-8h</name>
+	<description>Overload ride - would love to see a 6-8h ride with as much vert as possible.</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="14400" Power="0.7">
+		</SteadyState>
+	</workout>
+</workout_file>

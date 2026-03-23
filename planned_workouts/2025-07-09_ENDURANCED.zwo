@@ -1,0 +1,48 @@
+<workout_file>
+	<author>Jason De Lorme (via TrainingPeaks)</author>
+	<name>ENDURANCE Day with FTP Bursts 10 x :20 (1:40)</name>
+	<description>WU: 15 Minutes working into ENDURANCE (Power Z2, HR Z2, RPE 2-3) with 2 x 1 minute Fast Pedals to wake up legs
+------
+MS: Today is simple, ride prescribed time at ENDURANCE (Power Z2, HR Z2, RPE 2-3). Terrain: Flat to Rolling; Cadence: 85 - 105. During the ENDURANCE effort add 10 x 20 second BURSTS at FTP (Functional Threshold Power)/LT (Lactate Threshold) (Power Z4, HR Z4, RPE 4-5) .
+------
+CD: 5 minutes of easy pedaling at ACTIVE RECOVERY (Power Z1, HR Z1, RPE &lt;2).</description>
+	<sportType>bike</sportType>
+	<tags/>
+	<workout>
+		<SteadyState Duration="300" Power="0.55">
+			<textevent timeoffset="0" message="Complete 2 x 1 minute Fast Pedals to wake up legs during ramp up."/>
+		</SteadyState>
+		<SteadyState Duration="300" Power="0.6">
+		</SteadyState>
+		<SteadyState Duration="300" Power="0.65">
+		</SteadyState>
+		<IntervalsT Repeat="8" OnDuration="20" OnPower="1" OffDuration="580" OffPower="0.75">
+			<textevent timeoffset="0" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+			<textevent timeoffset="600" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+			<textevent timeoffset="1200" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+			<textevent timeoffset="1800" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+			<textevent timeoffset="2400" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+			<textevent timeoffset="3000" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+			<textevent timeoffset="3600" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+			<textevent timeoffset="4200" message="Terrain: Flat to Rolling
+Vary cadence throughout ride and work on pedaling form. Practice “coming over the top” and “pulling through the bottom” of the pedal (pretend there is glass in shoes). Enjoy the day!! 
+Cadence: 85 - 105."/>
+		</IntervalsT>
+		<Cooldown Duration="300" PowerHigh="0.45" PowerLow="0.65">
+		</Cooldown>
+	</workout>
+</workout_file>
