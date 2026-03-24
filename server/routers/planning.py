@@ -127,6 +127,48 @@ def download_workout(req: GenerateWorkoutRequest):
     )
 
 
+@router.post("/workouts/{workout_id}/sync")
+def sync_workout_to_intervals(workout_id: int):
+    """Push a planned workout to intervals.icu for Garmin sync."""
+    from server.services.intervals_icu import push_workout, is_configured
+
+    if not is_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="intervals.icu not configured. Set INTERVALS_ICU_API_KEY and INTERVALS_ICU_ATHLETE_ID environment variables.",
+        )
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT name, date, workout_xml, total_duration_s FROM planned_workouts WHERE id = ?",
+            (workout_id,),
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    if not row["workout_xml"]:
+        raise HTTPException(status_code=400, detail="No workout file available")
+
+    result = push_workout(
+        date=row["date"],
+        name=row["name"] or "Workout",
+        zwo_xml=row["workout_xml"],
+        moving_time_secs=int(row["total_duration_s"] or 0),
+    )
+
+    if result.get("error") or result.get("status") == "error":
+        raise HTTPException(status_code=502, detail=result.get("error") or result.get("message", "Sync failed"))
+
+    return result
+
+
+@router.get("/integrations/status")
+def integration_status():
+    """Check if external integrations are configured."""
+    from server.services.intervals_icu import is_configured
+    return {"intervals_icu": is_configured()}
+
+
 def _parse_zwo_steps(xml_str: str, ftp: int = 261) -> list[dict]:
     """Parse ZWO XML into a list of workout steps with absolute watts."""
     try:

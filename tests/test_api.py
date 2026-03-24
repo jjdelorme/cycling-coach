@@ -147,3 +147,37 @@ def test_compliance(client):
     data = resp.json()
     assert "planned" in data
     assert "compliance_pct" in data
+
+
+def test_integration_status(client):
+    resp = client.get("/api/plan/integrations/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "intervals_icu" in data
+
+
+def test_workout_detail(client):
+    """Test workout detail endpoint returns steps."""
+    from server.database import get_db
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM planned_workouts WHERE workout_xml IS NOT NULL LIMIT 1").fetchone()
+    if not row:
+        pytest.skip("No workouts with XML")
+    resp = client.get(f"/api/plan/workouts/{row['id']}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "steps" in data
+    assert len(data["steps"]) > 0
+    assert "ftp" in data
+
+
+def test_workout_download_tcx(client):
+    """Test TCX download."""
+    from server.database import get_db
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM planned_workouts WHERE workout_xml IS NOT NULL LIMIT 1").fetchone()
+    if not row:
+        pytest.skip("No workouts with XML")
+    resp = client.get(f"/api/plan/workouts/{row['id']}/download?fmt=tcx")
+    assert resp.status_code == 200
+    assert "TrainingCenterDatabase" in resp.text

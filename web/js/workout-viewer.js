@@ -77,11 +77,16 @@ function renderWorkoutDetail(w) {
     // Actions
     let actionsHtml = '';
     if (w.has_xml) {
-        actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=tcx" download><button>Download .TCX (Garmin)</button></a>`;
-        actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=fit" download><button class="btn-secondary">Download .FIT (Device)</button></a>`;
+        actionsHtml += `<button id="sync-garmin-btn" class="btn-sync" data-id="${w.id}" title="Sync to Garmin via intervals.icu" style="display:none;">Sync to Garmin</button>`;
+        actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=tcx" download><button class="btn-secondary">Download .TCX</button></a>`;
         actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=zwo" download><button class="btn-secondary">Download .ZWO</button></a>`;
     }
     document.getElementById('workout-detail-actions').innerHTML = actionsHtml;
+
+    // Check if intervals.icu is configured and show sync button
+    if (w.has_xml) {
+        checkIntegrations(w.id);
+    }
 }
 
 function drawWorkoutProfile(w) {
@@ -250,6 +255,52 @@ function zoneClassForPct(pct) {
     if (pct < 1.06) return 'zone-z4';
     if (pct < 1.21) return 'zone-z5';
     return 'zone-z6';
+}
+
+// intervals.icu sync
+
+async function checkIntegrations(workoutId) {
+    try {
+        const status = await api('/api/plan/integrations/status');
+        if (status.intervals_icu) {
+            const btn = document.getElementById('sync-garmin-btn');
+            if (btn) {
+                btn.style.display = '';
+                btn.onclick = () => syncToGarmin(workoutId);
+            }
+        }
+    } catch (e) {
+        // Integration not available, keep button hidden
+    }
+}
+
+async function syncToGarmin(workoutId) {
+    const btn = document.getElementById('sync-garmin-btn');
+    const origText = btn.textContent;
+    btn.textContent = 'Syncing...';
+    btn.disabled = true;
+
+    try {
+        const resp = await apiPost(`/api/plan/workouts/${workoutId}/sync`, {});
+        btn.textContent = 'Synced!';
+        btn.style.background = 'var(--green)';
+        btn.style.color = 'var(--bg)';
+        setTimeout(() => {
+            btn.textContent = origText;
+            btn.disabled = false;
+            btn.style.background = '';
+            btn.style.color = '';
+        }, 3000);
+    } catch (e) {
+        btn.textContent = 'Sync failed';
+        btn.style.background = 'var(--red)';
+        setTimeout(() => {
+            btn.textContent = origText;
+            btn.disabled = false;
+            btn.style.background = '';
+        }, 3000);
+        console.error('Garmin sync error:', e);
+    }
 }
 
 // Initialize

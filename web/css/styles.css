@@ -546,6 +546,11 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
     font-size: 0.85rem;
 }
 .workout-detail-actions button:hover { opacity: 0.9; }
+.workout-detail-actions .btn-sync {
+    background: var(--green);
+    color: var(--bg);
+    font-weight: 600;
+}
 .workout-detail-actions .btn-secondary {
     background: var(--surface2);
     border: 1px solid var(--border);
