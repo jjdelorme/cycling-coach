@@ -77,7 +77,8 @@ function renderWorkoutDetail(w) {
     // Actions
     let actionsHtml = '';
     if (w.has_xml) {
-        actionsHtml += `<a href="/api/plan/workouts/${w.id}/download" download class="btn-download"><button>Download .ZWO</button></a>`;
+        actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=fit" download><button>Download .FIT (Garmin)</button></a>`;
+        actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=zwo" download><button class="btn-secondary">Download .ZWO</button></a>`;
     }
     document.getElementById('workout-modal-actions').innerHTML = actionsHtml;
 }

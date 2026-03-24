@@ -260,8 +260,13 @@ def get_workout_detail(workout_id: int):
 
 
 @router.get("/workouts/{workout_id}/download")
-def download_planned_workout(workout_id: int):
-    """Download the ZWO file for a planned workout."""
+def download_planned_workout(workout_id: int, fmt: str = "fit"):
+    """Download a planned workout file.
+
+    Args:
+        workout_id: The workout ID.
+        fmt: Format - 'fit' (Garmin) or 'zwo' (Zwift/TrainingPeaks).
+    """
     with get_db() as conn:
         row = conn.execute(
             "SELECT name, workout_xml FROM planned_workouts WHERE id = ?", (workout_id,)
@@ -272,9 +277,26 @@ def download_planned_workout(workout_id: int):
     if not row["workout_xml"]:
         raise HTTPException(status_code=404, detail="No workout file available")
 
-    filename = (row["name"] or "workout").lower().replace(" ", "_").replace("/", "_") + ".zwo"
-    return Response(
-        content=row["workout_xml"],
-        media_type="application/xml",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    # Get FTP for FIT export
+    with get_db() as conn:
+        ftp_row = conn.execute(
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+    ftp = ftp_row["ftp"] if ftp_row else 261
+
+    safe_name = (row["name"] or "workout").lower().replace(" ", "_").replace("/", "_")
+
+    if fmt == "zwo":
+        return Response(
+            content=row["workout_xml"],
+            media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.zwo"'},
+        )
+    else:
+        from server.services.fit_export import zwo_to_fit
+        fit_bytes = zwo_to_fit(row["workout_xml"], ftp=ftp, workout_name=row["name"] or "Workout")
+        return Response(
+            content=fit_bytes,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.fit"'},
+        )
