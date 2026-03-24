@@ -167,4 +167,12 @@ function showDayDetail(date, ridesByDate, plannedByDate) {
             }
         });
     });
+
+    // Auto-open workout detail for first planned workout, or close if none
+    const firstPlannedWithId = dayPlanned.find(p => p.id);
+    if (firstPlannedWithId && typeof showWorkoutDetail === 'function') {
+        showWorkoutDetail(firstPlannedWithId.id);
+    } else if (typeof closeWorkoutDetail === 'function') {
+        closeWorkoutDetail();
+    }
 }

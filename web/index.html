@@ -11,7 +11,10 @@
 </head>
 <body>
     <header>
-        <h1>Cycling Coach</h1>
+        <div class="brand">
+            <img src="/img/logo-full.png" alt="Cycling Coach Logo" class="header-logo desktop-logo">
+            <img src="/img/logo-icon.png" alt="Cycling Coach Icon" class="header-logo mobile-logo" style="display: none;">
+        </div>
         <nav>
             <button class="nav-btn active" data-section="dashboard">Dashboard</button>
             <button class="nav-btn" data-section="calendar">Calendar</button>
@@ -82,7 +85,6 @@
                 <div id="workout-detail" class="workout-detail-panel" style="display:none;">
                     <div class="workout-detail-header">
                         <h3 id="workout-detail-title"></h3>
-                        <button id="workout-detail-close" class="coach-close-btn" title="Close">&times;</button>
                     </div>
                     <div class="workout-detail-summary" id="workout-detail-summary"></div>
                     <div class="workout-chart-container">

@@ -171,9 +171,14 @@ DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
 DEFAULT_PLAN_MANAGEMENT = """- You can generate weekly training plans using generate_weekly_plan
 - You can reschedule missed workouts using replan_missed_day
 - You can adjust periodization phases using adjust_phase
+- After adjusting phases, ASK the athlete if they want you to regenerate workouts for the affected dates
+- Use regenerate_phase_workouts to rebuild workouts for a date range based on the current phases
+  - It automatically applies 3-week build / 1-week recovery cycles within each phase
+  - It matches workout types to the phase focus (base, build, peak, taper)
+  - It scales weekly hours to the phase's target range
 - Always check current fitness (PMC) before planning intensity
 - When generating plans, match the focus to the current periodization phase
-- After any plan changes, summarize what you did
+- After any plan changes, summarize what you did and show the updated schedule
 - You can sync planned workouts to Garmin via intervals.icu using sync_workouts_to_garmin
 - When asked to sync, you can sync by date, by workout name, or sync all remaining workouts this week
 - After generating a weekly plan, offer to sync the workouts to Garmin

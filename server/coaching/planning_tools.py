@@ -162,7 +162,10 @@ def generate_weekly_plan(start_date: str, focus: str = "base", hours: float = 12
 
 
 def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
-    """Adjust the end date of a periodization phase.
+    """Adjust the end date of a periodization phase and keep subsequent phases contiguous.
+
+    Subsequent phases retain their original durations but shift so each starts
+    the day after the previous phase ends. This prevents gaps or overlaps.
 
     Args:
         phase_name: Name of the phase to adjust (e.g., 'Base Rebuild', 'Build 1').
@@ -170,7 +173,7 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
         reason: Reason for the adjustment.
 
     Returns:
-        Status of the adjustment.
+        Status of the adjustment including updated schedule for all affected phases.
     """
     with get_db() as conn:
         phase = conn.execute(
@@ -186,21 +189,25 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
             (new_end_date, phase_name),
         )
 
-        # If extending, push subsequent phases
-        if new_end_date > old_end:
-            diff_days = (datetime.fromisoformat(new_end_date) - datetime.fromisoformat(old_end)).days
-            subsequent = conn.execute(
-                "SELECT * FROM periodization_phases WHERE start_date > ? ORDER BY start_date",
-                (old_end,),
-            ).fetchall()
+        # Cascade: keep subsequent phases contiguous, preserving each phase's duration
+        subsequent = conn.execute(
+            "SELECT * FROM periodization_phases WHERE start_date > ? ORDER BY start_date",
+            (phase["start_date"],),
+        ).fetchall()
 
-            for s in subsequent:
-                new_start = (datetime.fromisoformat(s["start_date"]) + timedelta(days=diff_days)).strftime("%Y-%m-%d")
-                new_s_end = (datetime.fromisoformat(s["end_date"]) + timedelta(days=diff_days)).strftime("%Y-%m-%d")
-                conn.execute(
-                    "UPDATE periodization_phases SET start_date = ?, end_date = ? WHERE id = ?",
-                    (new_start, new_s_end, s["id"]),
-                )
+        adjusted = []
+        cursor = datetime.fromisoformat(new_end_date) + timedelta(days=1)
+
+        for s in subsequent:
+            original_duration = (datetime.fromisoformat(s["end_date"]) - datetime.fromisoformat(s["start_date"])).days
+            new_start = cursor.strftime("%Y-%m-%d")
+            new_end = (cursor + timedelta(days=original_duration)).strftime("%Y-%m-%d")
+            conn.execute(
+                "UPDATE periodization_phases SET start_date = ?, end_date = ? WHERE id = ?",
+                (new_start, new_end, s["id"]),
+            )
+            adjusted.append({"name": s["name"], "start_date": new_start, "end_date": new_end})
+            cursor = datetime.fromisoformat(new_end) + timedelta(days=1)
 
     return {
         "status": "success",
@@ -208,6 +215,195 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
         "old_end_date": old_end,
         "new_end_date": new_end_date,
         "reason": reason,
+        "adjusted_phases": adjusted,
+        "note": "Periodization dates updated. Existing planned workouts were NOT changed. "
+                "Ask the athlete if they'd like you to regenerate workouts for the affected date range "
+                "using regenerate_phase_workouts.",
+    }
+
+
+def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
+    """Regenerate planned workouts for a date range based on the periodization phases.
+
+    Looks up which phase each week falls in and generates appropriate workouts
+    using 3-week build / 1-week recovery cycles within each phase. Replaces any
+    existing planned workouts in the date range.
+
+    Args:
+        start_date: Start date (YYYY-MM-DD). Defaults to today.
+        end_date: End date (YYYY-MM-DD). Defaults to end of last periodization phase.
+
+    Returns:
+        Summary of generated workouts by week and phase.
+    """
+    if not start_date:
+        start_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Weekly templates by focus (same as generate_weekly_plan)
+    templates = {
+        "base": [
+            ("recovery", 60),
+            ("z2_endurance", 90),
+            ("z2_endurance", 90),
+            ("sweetspot_3x15", 75),
+            None,
+            ("z2_endurance", 180),
+            ("z2_endurance", 120),
+        ],
+        "build": [
+            ("recovery", 60),
+            ("threshold_2x20", 90),
+            ("z2_endurance", 90),
+            ("vo2max_4x4", 75),
+            ("recovery", 45),
+            ("z2_endurance", 240),
+            ("z2_endurance", 150),
+        ],
+        "peak": [
+            ("recovery", 60),
+            ("threshold_2x20", 90),
+            ("z2_endurance", 75),
+            ("vo2max_4x4", 75),
+            None,
+            ("race_simulation", 180),
+            ("z2_endurance", 120),
+        ],
+        "recovery": [
+            None,
+            ("recovery", 45),
+            ("z2_endurance", 60),
+            None,
+            ("recovery", 45),
+            ("z2_endurance", 90),
+            None,
+        ],
+    }
+
+    # Map phase names to focus types
+    phase_focus_map = {
+        "base rebuild": "base",
+        "build 1": "build",
+        "build 2": "build",
+        "peak": "peak",
+        "taper": "recovery",
+    }
+
+    with get_db() as conn:
+        phases = conn.execute(
+            "SELECT * FROM periodization_phases ORDER BY start_date"
+        ).fetchall()
+
+        if not phases:
+            return {"status": "error", "message": "No periodization phases defined."}
+
+        if not end_date:
+            end_date = phases[-1]["end_date"]
+
+        # Get current FTP
+        ftp_row = conn.execute(
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        ftp = ftp_row["ftp"] if ftp_row else 261
+
+        def get_phase_for_date(d_str):
+            for p in phases:
+                if p["start_date"] <= d_str <= p["end_date"]:
+                    return p
+            return None
+
+        # Delete existing planned workouts in the range
+        conn.execute(
+            "DELETE FROM planned_workouts WHERE date >= ? AND date <= ?",
+            (start_date, end_date),
+        )
+
+        # Iterate week by week
+        dt = datetime.fromisoformat(start_date)
+        dt = dt - timedelta(days=dt.weekday())  # Align to Monday
+        end_dt = datetime.fromisoformat(end_date)
+
+        weeks_generated = []
+
+        while dt <= end_dt:
+            week_start = dt.strftime("%Y-%m-%d")
+            mid_week = (dt + timedelta(days=3)).strftime("%Y-%m-%d")
+            phase = get_phase_for_date(mid_week)
+
+            if not phase:
+                dt += timedelta(days=7)
+                continue
+
+            phase_name = phase["name"]
+            focus = phase_focus_map.get(phase_name.lower(), "base")
+            hours_low = phase["hours_per_week_low"] or 10
+            hours_high = phase["hours_per_week_high"] or 14
+            target_hours = (hours_low + hours_high) / 2
+
+            # 3-week build / 1-week recovery cycle within each phase
+            phase_start = datetime.fromisoformat(phase["start_date"])
+            # Align phase start to its Monday for consistent week counting
+            phase_monday = phase_start - timedelta(days=phase_start.weekday())
+            weeks_into_phase = max(0, (dt - phase_monday).days // 7)
+            cycle_week = weeks_into_phase % 4  # 0, 1, 2 = build; 3 = recovery
+
+            if cycle_week == 3:
+                week_focus = "recovery"
+                week_hours = hours_low * 0.6
+            elif cycle_week == 0:
+                week_focus = focus
+                week_hours = hours_low
+            elif cycle_week == 1:
+                week_focus = focus
+                week_hours = target_hours
+            else:
+                week_focus = focus
+                week_hours = hours_high
+
+            # Generate workouts for this week inline
+            week_template = templates.get(week_focus, templates["base"])
+            total_planned_min = sum(d for t in week_template if t for _, d in [t])
+            scale = (week_hours * 60) / total_planned_min if total_planned_min > 0 else 1.0
+
+            workout_count = 0
+            for day_offset, tmpl in enumerate(week_template):
+                if tmpl is None:
+                    continue
+
+                workout_type, base_duration = tmpl
+                duration = max(30, round(base_duration * scale))
+                date_str = (dt + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+
+                # Only generate within the requested range
+                if date_str < start_date or date_str > end_date:
+                    continue
+
+                conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date_str,))
+                xml_str, name = generate_zwo(workout_type, duration, ftp)
+                conn.execute(
+                    "INSERT INTO planned_workouts (date, name, sport, total_duration_s, workout_xml) VALUES (?, ?, ?, ?, ?)",
+                    (date_str, name, "bike", duration * 60, xml_str),
+                )
+                workout_count += 1
+
+            weeks_generated.append({
+                "week_start": week_start,
+                "phase": phase_name,
+                "focus": week_focus,
+                "hours": round(week_hours, 1),
+                "cycle_week": cycle_week + 1,
+                "is_recovery": cycle_week == 3,
+                "workouts": workout_count,
+            })
+
+            dt += timedelta(days=7)
+
+    return {
+        "status": "success",
+        "start_date": start_date,
+        "end_date": end_date,
+        "ftp": ftp,
+        "weeks_generated": len(weeks_generated),
+        "summary": weeks_generated,
     }
 
 

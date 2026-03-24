@@ -5,7 +5,7 @@
 let workoutChart = null;
 
 function initWorkoutViewer() {
-    document.getElementById('workout-detail-close').addEventListener('click', closeWorkoutDetail);
+    // No-op; viewer opens/closes based on calendar day selection
 }
 
 function closeWorkoutDetail() {

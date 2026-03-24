@@ -25,14 +25,23 @@ body {
 /* Header */
 header {
     background: var(--surface);
-    padding: 1rem 2rem;
+    padding: 0.8rem 2rem;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 2rem;
 }
 
-header h1 { font-size: 1.3rem; white-space: nowrap; }
+.brand {
+    display: flex;
+    align-items: center;
+}
+.header-logo {
+    height: 72px; /* Large enough to read text on the square logo */
+    width: auto;
+    object-fit: contain;
+    border-radius: 8px; /* Smooth corners just in case */
+}
 
 nav { display: flex; gap: 0.5rem; flex-wrap: wrap; flex: 1; }
 
@@ -320,6 +329,7 @@ main {
 }
 .chart-container h3 { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem; }
 .chart-container canvas { max-height: 350px; }
+#power-curve-chart { max-height: 500px !important; min-height: 400px; }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; }
@@ -639,6 +649,8 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
 /* Responsive */
 @media (max-width: 768px) {
     header { flex-direction: column; gap: 0.5rem; padding: 0.8rem 1rem; }
+    .desktop-logo { display: none !important; }
+    .mobile-logo { display: block !important; height: 50px; }
     main { padding: 1rem; }
     .metrics-row { flex-direction: column; }
     .metric-card { min-width: auto; }

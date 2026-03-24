@@ -108,28 +108,79 @@ function drawPowerCurveChart(data) {
     const ctx = document.getElementById('power-curve-chart').getContext('2d');
     if (powerCurveChart) powerCurveChart.destroy();
 
-    const labels = { 5: '5s', 30: '30s', 60: '1min', 300: '5min', 1200: '20min', 3600: '60min' };
+    // Sort by duration and build scatter points for the curve
+    const sorted = [...data].sort((a, b) => a.duration_s - b.duration_s);
+    const points = sorted.map(d => ({ x: d.duration_s, y: d.power }));
+
+    // Format duration for axis labels and tooltips
+    function fmtDur(s) {
+        if (s < 60) return s + 's';
+        if (s < 3600) return Math.round(s / 60) + 'min';
+        return (s / 3600).toFixed(1).replace('.0', '') + 'h';
+    }
 
     powerCurveChart = new Chart(ctx, {
-        type: 'bar',
+        type: 'line',
         data: {
-            labels: data.map(d => labels[d.duration_s] || d.duration_s + 's'),
             datasets: [{
-                label: 'Best Power (watts)',
-                data: data.map(d => d.power),
-                backgroundColor: data.map((_, i) => {
-                    const colors = ['#e94560', '#f5c518', '#00d4aa', '#0f3460', '#9b59b6', '#3498db'];
-                    return colors[i % colors.length];
-                }),
+                label: 'Best Power',
+                data: points,
+                borderColor: '#00d4aa',
+                borderWidth: 2.5,
+                pointRadius: 5,
+                pointBackgroundColor: '#00d4aa',
+                pointBorderColor: '#1a1a2e',
+                pointBorderWidth: 2,
+                pointHoverRadius: 8,
+                fill: true,
+                backgroundColor: 'rgba(0, 212, 170, 0.1)',
+                tension: 0.4,
+                cubicInterpolationMode: 'monotone',
             }],
         },
         options: {
             ...chartDefaults,
+            scales: {
+                x: {
+                    type: 'logarithmic',
+                    title: { display: true, text: 'Duration', color: '#999' },
+                    ticks: {
+                        color: '#999',
+                        font: { size: 10 },
+                        callback: (val) => fmtDur(val),
+                        autoSkip: false,
+                    },
+                    afterBuildTicks: (axis) => {
+                        axis.ticks = [5, 30, 60, 300, 1200, 3600].map(v => ({ value: v }));
+                    },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                },
+                y: {
+                    type: 'logarithmic',
+                    title: { display: true, text: 'Power (watts)', color: '#999' },
+                    ticks: {
+                        color: '#999',
+                        font: { size: 10 },
+                        callback: (val) => val >= 1000 ? (val/1000) + 'kw' : val + 'w',
+                        autoSkip: false,
+                    },
+                    afterBuildTicks: (axis) => {
+                        axis.ticks = [100, 200, 300, 500, 750, 1000, 2000, 3000, 5000]
+                            .filter(v => v >= (axis.min * 0.8) && v <= (axis.max * 1.2))
+                            .map(v => ({ value: v }));
+                    },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                },
+            },
             plugins: {
                 ...chartDefaults.plugins,
                 tooltip: {
                     callbacks: {
-                        afterLabel: (item) => `Date: ${data[item.dataIndex]?.date || ''}`,
+                        title: (items) => fmtDur(items[0]?.parsed?.x || 0),
+                        label: (item) => {
+                            const d = sorted[item.dataIndex];
+                            return `${Math.round(item.parsed.y)}w (${d?.date || ''})`;
+                        },
                     },
                 },
             },
