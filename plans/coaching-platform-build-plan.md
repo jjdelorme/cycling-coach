@@ -159,7 +159,7 @@ coach/
 
 ### Steps:
 
-#### 1a. Database schema design
+#### 1a. Database schema design (Status: ✅ Implemented)
 Create SQLite tables:
 
 ```
@@ -188,9 +188,9 @@ power_bests:
   id, ride_id, date, duration_s, power
 ```
 
-- **Tests**: Schema creation, insert/query round-trip
+- **Tests**: Schema creation, insert/query round-trip (Passed in `tests/test_database.py`)
 
-#### 1b. Data ingestion script
+#### 1b. Data ingestion script (Status: ✅ Implemented)
 - Download source data from GCS bucket (`gs://jasondel-coach-data`):
   - `gs://jasondel-coach-data/json/` → `data/rides/` (291 ride JSON files)
   - `gs://jasondel-coach-data/planned_workouts/` → `data/planned_workouts/` (176 ZWO files)
@@ -200,14 +200,14 @@ power_bests:
 - Read all ZWO files, parse and insert
 - Compute and store daily PMC (CTL/ATL/TSB)
 
-- **Tests**: Ingestion of a single known ride, verify all fields. Ingestion of a ZWO file. PMC calculation against known values.
+- **Tests**: Ingestion of a single known ride, verify all fields. Ingestion of a ZWO file. PMC calculation against known values. (Passed in `tests/test_ingestion.py`)
 
-#### 1c. Incremental update support
+#### 1c. Incremental update support (Status: ✅ Implemented)
 - Track which files have been ingested (by filename hash)
 - Support adding new rides without re-processing everything
 - Script: `python -m server.ingest` or `python scripts/ingest.py`
 
-- **Tests**: Re-run ingestion, verify no duplicates. Add a new file, verify it's picked up.
+- **Tests**: Re-run ingestion, verify no duplicates. Add a new file, verify it's picked up. (Passed in `tests/test_incremental_ingestion.py`)
 
 ---
 
@@ -355,200 +355,117 @@ POST /api/workouts/generate       — generate ZWO file for a prescribed workout
 
 ---
 
-## Phase 5: AI Coaching Chat
+## Phase 5: AI Coaching Agent (Google ADK & Tools)
 
-**Goal**: Interactive coaching interface powered by an LLM, with full training context. The LLM provider is abstracted so we can swap between Claude on Vertex, Gemini, open-source models, etc. without touching any coaching logic.
+**Goal**: An intelligent coaching agent powered by `google-cloud-aiplatform[agent_engines,adk]`. Instead of cramming all data into a massive system prompt, the agent uses a suite of discrete tools to query metrics, view the calendar, and take action. State and preferences are managed via ADK's native memory.
 
 ### Steps:
 
-#### 5a. LLM Provider Abstraction Layer (`server/llm/`)
+#### 5a. ADK Foundation & Configuration
+We start by wiring up the ADK with environment-based configuration. Emphasize simple, un-fancy, pragmatic design. No hardcoded models.
 
-This is the foundation — all coaching logic talks to an `LLMProvider` protocol, never to a specific SDK.
+1.  **Step 5a.1: Dependency and Env Configuration**
+    *   *Test:* Write a test in `tests/test_config.py` asserting that `Config.gemini_model` loads from `.env` correctly, and defaults to `"gemini-3.1-flash-lite-preview"` if not present.
+    *   *Implementation:* Update `requirements.txt` with `google-cloud-aiplatform[agent_engines,adk]` and `python-dotenv`. Update backend config (`server/config.py`) to load `GEMINI_MODEL`.
+    *   *Verification:* Run `pytest tests/test_config.py` and ensure it passes.
 
-**`base.py` — The contract:**
-```python
-from typing import Protocol, AsyncIterator
-from pydantic import BaseModel
+2.  **Step 5a.2: Basic Agent Instantiation**
+    *   *Test:* Write `tests/test_agent_setup.py` mocking the ADK initialization and verifying the agent is instantiated with the configured model string.
+    *   *Implementation:* Create `server/coaching/agent.py`. Initialize the ADK `Agent` using the model from configuration.
+    *   *Verification:* Run `pytest tests/test_agent_setup.py`.
 
-class ChatMessage(BaseModel):
-    role: str          # "system" | "user" | "assistant"
-    content: str
+#### 5b. Read-Only Context Tools
+The agent needs small, specific tools to fetch current data, rather than relying on a bloated prompt.
 
-class ChatResponse(BaseModel):
-    content: str
-    model: str         # actual model that responded
-    provider: str      # "vertex-claude" | "vertex-gemini" | "ollama" | etc.
-    usage: dict        # token counts, cost estimate if available
+1.  **Step 5b.1: PMC Metrics Tool**
+    *   *Test:* Write `tests/test_tools.py::test_get_pmc_metrics_tool` verifying the tool returns a cleanly formatted string/dict of current CTL, ATL, and TSB from the SQLite database.
+    *   *Implementation:* Create `server/coaching/tools.py`. Implement `@tool get_pmc_metrics(date: str)`.
+    *   *Verification:* Run `pytest tests/test_tools.py`.
 
-class LLMProvider(Protocol):
-    """Any LLM backend must implement this interface."""
+2.  **Step 5b.2: Recent Rides Tool**
+    *   *Test:* Write `tests/test_tools.py::test_get_recent_rides_tool` verifying it fetches summaries of completed rides over the last `n` days.
+    *   *Implementation:* Implement `@tool get_recent_rides(days_back: int)`.
+    *   *Verification:* Run `pytest tests/test_tools.py`.
 
-    async def chat(
-        self,
-        messages: list[ChatMessage],
-        system: str | None = None,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-    ) -> ChatResponse: ...
+3.  **Step 5b.3: Upcoming Workouts Tool**
+    *   *Test:* Write `tests/test_tools.py::test_get_upcoming_workouts_tool` asserting it retrieves planned ZWO data for the coming days.
+    *   *Implementation:* Implement `@tool get_upcoming_workouts(days_ahead: int)`.
+    *   *Verification:* Run `pytest tests/test_tools.py`.
 
-    async def chat_stream(
-        self,
-        messages: list[ChatMessage],
-        system: str | None = None,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-    ) -> AsyncIterator[str]: ...
+4.  **Step 5b.4: Agent Tool Registration**
+    *   *Test:* Write a test in `tests/test_agent_setup.py` asserting the Agent's `tools` list contains the newly created functions.
+    *   *Implementation:* Register these tools with the ADK `Agent` in `server/coaching/agent.py`.
+    *   *Verification:* Run `pytest tests/test_agent_setup.py`.
 
-    def provider_name(self) -> str: ...
-```
+#### 5c. ADK Memory Integration
+Use ADK's native memory systems to maintain conversation history and athlete context. We will not use a rigid SQLite `athlete_log` table.
 
-**`vertex_claude.py` — First implementation (ships in Phase 5):**
-- Uses `anthropic[vertex]` SDK with ADC
-- `AnthropicVertex(project_id=..., region=...)` — values from config
-- Requires `gcloud auth application-default login` once
-- Maps `ChatMessage` ↔ Anthropic message format
+1.  **Step 5c.1: InMemoryMemoryService Setup**
+    *   *Test:* Write `tests/test_memory.py` asserting that messages added to the memory service can be retrieved accurately.
+    *   *Implementation:* Initialize ADK's `InMemoryMemoryService` (or `PreloadMemoryTool` if persistent long-term context is needed) in `server/coaching/agent.py` and attach it to the Agent instance.
+    *   *Verification:* Run `pytest tests/test_memory.py`.
 
-**`vertex_gemini.py` — Future implementation:**
-- Uses `google-cloud-aiplatform` SDK with ADC
-- Same auth mechanism, same GCP project
-- Maps `ChatMessage` ↔ Gemini message format
+2.  **Step 5c.2: System Prompt Refactoring**
+    *   *Test:* Write a test asserting the agent's core system instructions initialize correctly.
+    *   *Implementation:* Define a concise, static system instruction focused *only* on the persona (expert cycling coach, direct, focuses on 50yo MTB athlete) rather than injecting massive data sets. The agent must rely on its tools for data.
+    *   *Verification:* Run `pytest tests/test_agent_setup.py`.
 
-**`ollama.py` — Future implementation:**
-- HTTP calls to local Ollama server
-- For running Llama, Mistral, etc. locally
-- No auth required
+#### 5d. Chat API Endpoint
+Expose the agent to the frontend.
 
-**`factory.py` — Provider selection:**
-```python
-def get_provider(config: AppConfig) -> LLMProvider:
-    match config.llm_provider:
-        case "vertex-claude":
-            return VertexClaudeProvider(config.gcp_project, config.gcp_region, config.claude_model)
-        case "vertex-gemini":
-            return VertexGeminiProvider(config.gcp_project, config.gcp_region, config.gemini_model)
-        case "ollama":
-            return OllamaProvider(config.ollama_host, config.ollama_model)
-        case _:
-            raise ValueError(f"Unknown LLM provider: {config.llm_provider}")
-```
+1.  **Step 5d.1: Chat Endpoint Scaffold**
+    *   *Test:* Write `tests/test_coaching_api.py::test_chat_endpoint_success`. Mock the ADK agent response and assert a 200 OK with the proper JSON format.
+    *   *Implementation:* Implement `POST /api/coaching/chat` in `server/routers/coaching.py`. Extract the user message and pass it to the ADK agent.
+    *   *Verification:* Run `pytest tests/test_coaching_api.py`.
 
-**`config.yaml` (or env vars):**
-```yaml
-llm:
-  provider: "vertex-claude"          # swap this one line to change models
-  gcp_project: "your-project-id"
-  gcp_region: "us-central1"
-  claude_model: "claude-sonnet-4-20250514"
-  # gemini_model: "gemini-2.0-flash"  # uncomment when ready
-  # ollama_host: "http://localhost:11434"
-  # ollama_model: "llama3"
-```
-
-**Why this works:**
-- Coaching logic (`coach_ai.py`) only imports `LLMProvider`, `ChatMessage`, `ChatResponse`
-- Swapping models = changing one config value
-- Adding a new provider = one new file implementing the protocol
-- The protocol uses Python's structural typing — no inheritance required, any class with the right methods works
-- Pydantic models at the boundary ensure type safety regardless of provider
-
-- **Tests**:
-  - `test_vertex_claude.py`: Provider initializes with ADC, sends a message, returns `ChatResponse`
-  - `test_factory.py`: Factory returns correct provider for each config value
-  - `test_llm_mock.py`: Mock provider implements protocol correctly, coaching logic works with mock (no real API calls in unit tests)
-
-#### 5b. Coaching system prompt construction
-Build a dynamic system prompt that includes:
-- Athlete profile (age, weight, FTP, W/kg)
-- Current fitness state (CTL, ATL, TSB)
-- This week's completed rides
-- This week's remaining planned workouts
-- Periodization phase and targets
-- Recent trends (last 4 weeks of volume/TSS)
-- Key coaching principles from season analysis
-- Known athlete tendencies (e.g., overreaches, needs recovery reminders)
-
-The system prompt is provider-agnostic — it's plain text that works with any model.
-
-- **Tests**: System prompt includes current CTL/ATL/TSB. System prompt updates when new rides are added.
-
-#### 5c. Chat API endpoint
-```
-POST /api/coaching/chat           — send message, get coaching response
-GET  /api/coaching/history        — conversation history
-POST /api/coaching/replan         — "I missed Tuesday and Wednesday, what now?"
-GET  /api/coaching/config         — current LLM provider info
-```
-
-- The coaching router gets an `LLMProvider` via dependency injection (FastAPI `Depends`)
-- No router code references any specific SDK
-- Response includes `provider` and `model` fields so the frontend can show what's answering
-
-- **Tests**: Chat returns a response. Replan adjusts the week's remaining workouts. Provider info endpoint returns correct config.
-
-#### 5d. Chat frontend
-- Chat interface in the "Coach" tab
-- Persistent conversation history (stored in SQLite)
-- Shows which model is responding (small badge: "Claude 3.5 Sonnet via Vertex AI")
-- Quick-action buttons:
-  - "What should I ride today?"
-  - "I missed a workout, help me replan"
-  - "How am I tracking toward my goal?"
-  - "I have 90 minutes, what's the best use of time?"
-  - "Rate my last ride"
-- Coach can proactively surface insights: "You've been riding 3 days straight at high TSS — consider an easy day tomorrow"
-
-- **Tests**: Chat sends and receives messages. Quick actions produce relevant responses.
-
-#### 5e. Athlete log integration
-- Log weight, notes, life events, injuries through the chat or a form
-- "Log: 162 lbs this morning" → stored in athlete_log
-- "Note: knee felt tight on the descent" → stored and surfaced to coach
-- Coach references these in future advice
-
-- **Tests**: Weight entry stored correctly. Coach references recent log entries.
+2.  **Step 5d.2: Frontend Chat Interface Integration**
+    *   *Test:* No automated UI test, but explicitly log response object in dev tools to ensure tool-calling latency is handled gracefully.
+    *   *Implementation:* Update `web/js/coaching.js` to send/receive data to the new endpoint. Handle loading states while the agent thinks or calls tools.
 
 ---
 
-## Phase 6: Training Plan Management
+## Phase 6: AI-Driven Training Plan Management
 
-**Goal**: Full periodization plan with week-by-week workouts, adaptable to real life.
+**Goal**: The agent actively manages the periodization and weekly planning using action-oriented tools, making the plan naturally adaptable to real-life interruptions.
 
 ### Steps:
 
-#### 6a. Periodization engine
-- Implement the 5-phase plan from season analysis:
-  - Base Rebuild (5 wks) → Build 1 (5 wks) → Build 2 (5 wks) → Peak (5 wks) → Taper (2 wks)
-- Each phase has: target weekly hours, TSS range, intensity distribution, key workouts
-- Phases auto-adjust dates if the athlete falls behind or gets ahead
+#### 6a. Plan Modification Tools (Agent Actions)
+Provide the agent with tools to manipulate the calendar directly.
 
-- **Tests**: Phase dates calculated correctly from race date. TSS targets match plan.
+1.  **Step 6a.1: Tool - Replan Missed Day**
+    *   *Test:* Write `tests/test_planning_tools.py::test_replan_missed_day`. Assert it successfully shifts a key workout to a new date in the SQLite DB and resolves conflicts.
+    *   *Implementation:* Implement `@tool replan_missed_day(missed_date: str, new_target_date: str)` in `server/coaching/tools.py`.
+    *   *Verification:* Run `pytest tests/test_planning_tools.py`.
 
-#### 6b. Weekly workout prescription
-- Generate a week of workouts based on:
-  - Current phase
-  - Current CTL/ATL/TSB
-  - Days available (athlete can mark unavailable days)
-  - Recent training load (don't pile on if already fatigued)
-- Protect "key workouts" — the 2-3 most important sessions of the week
-- Flexible days can shift or be dropped
+2.  **Step 6a.2: Tool - Generate Weekly Plan**
+    *   *Test:* Write `tests/test_planning_tools.py::test_generate_weekly_plan`. Assert it writes a sequence of workouts to the database for a given week based on the target hours.
+    *   *Implementation:* Implement `@tool generate_weekly_plan(start_date: str, focus: str, hours: float)`.
+    *   *Verification:* Run `pytest tests/test_planning_tools.py`.
 
-- **Tests**: Week generated with correct number of workouts. Key workouts preserved when days are removed.
+#### 6b. Periodization Phase Management
+Allow the agent to look at the macro picture and adjust.
 
-#### 6c. Adaptive replanning
-- When a workout is missed: redistribute load across remaining days
-- When an unplanned ride happens: account for its TSS in the week's budget
-- When life happens (travel, illness): drop to maintenance, extend the current phase
-- Never panic — the plan adapts, it doesn't break
+1.  **Step 6b.1: Tool - Get Periodization Status**
+    *   *Test:* Write a test asserting the tool returns the current phase (e.g., 'Build 1') and dates.
+    *   *Implementation:* Implement `@tool get_periodization_status()`.
+    *   *Verification:* Run `pytest tests/test_planning_tools.py`.
 
-- **Tests**: Missed workout redistributes correctly. Unplanned high-TSS ride reduces remaining plan.
+2.  **Step 6b.2: Tool - Adjust Periodization Phase**
+    *   *Test:* Write a test verifying the tool extends or shortens a phase's end date in the database based on the provided reason.
+    *   *Implementation:* Implement `@tool adjust_phase(phase_name: str, new_end_date: str, reason: str)`.
+    *   *Verification:* Run `pytest tests/test_planning_tools.py`.
 
-#### 6d. Plan visualization
-- Gantt-style view of phases
-- Weekly plan view with drag-and-drop to move workouts
-- Compliance tracking: green/yellow/red by week
-- Projected CTL curve: "if you follow the plan, here's where your fitness will be on race day"
+#### 6c. Plan Visualization (Frontend)
+Display the current state of the plan to the athlete, ensuring it updates when the AI takes action.
 
-- **Tests**: Visualization renders phases correctly. CTL projection matches expected curve.
+1.  **Step 6c.1: Macro Plan View**
+    *   *Test:* Verify API endpoint `GET /api/plan/macro` returns periodization data correctly.
+    *   *Implementation:* Build Gantt-style view in the UI showing Base → Build 1 → Build 2 → Peak → Taper.
+
+2.  **Step 6c.2: Weekly Calendar Sync**
+    *   *Test:* Verify calendar UI fetches new data after a chat message is sent.
+    *   *Implementation:* Ensure `web/js/calendar.js` re-fetches plan data if the chat interaction involves plan modification tool calls.
 
 ---
 

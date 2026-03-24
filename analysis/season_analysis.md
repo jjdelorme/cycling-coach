@@ -1,9 +1,9 @@
 # Season Review: March 2025 – March 2026
 
 ## The Athlete
-- **Age 48**, male, started at ~175 lbs, currently ~163 lbs, 5'10"
+- **Age 48**, male, started at ~175 lbs, currently ~166.5 lbs, 5'10"
 - **FTP progression**: 244w → 287w peak (Oct-Dec) → currently reset at 261w
-- **W/kg**: Started ~3.07, peaked ~3.62, currently ~3.53 (at 163 lbs)
+- **W/kg**: Started ~3.07, peaked ~3.62, currently ~3.45 (at 166.5 lbs)
 - **291 rides, 581 hours, 10,575 km, 140,000m of climbing**
 
 ---
@@ -74,7 +74,7 @@ You have no power data since Feb 25. For the next 5 months of race prep, you NEE
 
 ### 4. The Weight Opportunity
 
-You started the year at ~175 lbs and after a month of epic MTB riding you're down to ~163 lbs — that's already a huge win. At 163 lbs with 261w FTP = 3.53 W/kg (up from 3.07 at the start). The Biggie has ~6,000ft of climbing in 50 miles. If you can hold 160 lbs race weight and rebuild FTP to 280w, that's **3.86 W/kg** — a massive improvement on the climbs. Even at 163 lbs and 280w FTP, you're at 3.79 W/kg. That weight loss you've already achieved is worth more than any interval session.
+You started the year at ~175 lbs and you're currently at ~166.5 lbs — that's already a solid win. At 166.5 lbs with 261w FTP = 3.45 W/kg (up from 3.07 at the start). The Biggie has ~6,000ft of climbing in 50 miles. If you can get to 160 lbs race weight and rebuild FTP to 280w, that's **3.86 W/kg** — a massive improvement on the climbs. Even at 166.5 lbs and 280w FTP, you're at 3.71 W/kg. The weight loss you've already achieved is worth more than any interval session.
 
 ### 5. Recovery Protocol for a 49-Year-Old
 
