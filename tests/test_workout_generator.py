@@ -1,9 +1,10 @@
-"""Tests for workout generator and FIT export."""
+"""Tests for workout generator, FIT export, and TCX export."""
 
 import xml.etree.ElementTree as ET
 
 from server.services.workout_generator import generate_zwo, WORKOUT_TEMPLATES
 from server.services.fit_export import zwo_to_fit
+from server.services.tcx_export import zwo_to_tcx
 
 
 def test_z2_endurance():
@@ -99,3 +100,49 @@ def test_fit_export_roundtrip():
     fit_bytes = zwo_to_fit(xml_str, ftp=261, workout_name=name)
     fit_file = FitFile.from_bytes(fit_bytes)
     assert len(fit_file.records) > 0
+
+
+# TCX export tests
+
+def test_tcx_export_basic():
+    xml_str, name = generate_zwo("z2_endurance", duration_minutes=90, ftp=261)
+    tcx = zwo_to_tcx(xml_str, ftp=261, workout_name=name)
+    root = ET.fromstring(tcx)
+    ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+    workout = root.find(".//tcx:Workout", ns)
+    assert workout is not None
+    assert workout.get("Sport") == "Biking"
+    steps = workout.findall("tcx:Step", ns)
+    assert len(steps) >= 2
+
+
+def test_tcx_export_intervals_use_repeat():
+    xml_str, name = generate_zwo("vo2max_4x4", ftp=261)
+    tcx = zwo_to_tcx(xml_str, ftp=261, workout_name=name)
+    # Should contain Repeat_t for intervals
+    assert 'xsi:type="Repeat_t"' in tcx
+    assert "<Repetitions>4</Repetitions>" in tcx
+
+
+def test_tcx_export_step_names_include_watts():
+    xml_str, name = generate_zwo("sweetspot_3x15", ftp=261)
+    tcx = zwo_to_tcx(xml_str, ftp=261, workout_name=name)
+    # Sweet spot at 90% of 261 = 235w
+    assert "235w" in tcx
+    assert "90%" in tcx
+
+
+def test_tcx_export_includes_scheduled_date():
+    xml_str, name = generate_zwo("z2_endurance", ftp=261)
+    tcx = zwo_to_tcx(xml_str, ftp=261, scheduled_date="2026-03-26")
+    assert "Scheduled: 2026-03-26" in tcx
+
+
+def test_tcx_export_all_templates():
+    for workout_type in WORKOUT_TEMPLATES:
+        xml_str, name = generate_zwo(workout_type, ftp=261)
+        tcx = zwo_to_tcx(xml_str, ftp=261, workout_name=name)
+        root = ET.fromstring(tcx)
+        ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+        workout = root.find(".//tcx:Workout", ns)
+        assert workout is not None, f"TCX export failed for {workout_type}"

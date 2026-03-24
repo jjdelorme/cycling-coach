@@ -260,16 +260,16 @@ def get_workout_detail(workout_id: int):
 
 
 @router.get("/workouts/{workout_id}/download")
-def download_planned_workout(workout_id: int, fmt: str = "fit"):
+def download_planned_workout(workout_id: int, fmt: str = "tcx"):
     """Download a planned workout file.
 
     Args:
         workout_id: The workout ID.
-        fmt: Format - 'fit' (Garmin) or 'zwo' (Zwift/TrainingPeaks).
+        fmt: Format - 'tcx' (Garmin), 'fit' (Garmin device), or 'zwo' (Zwift/TrainingPeaks).
     """
     with get_db() as conn:
         row = conn.execute(
-            "SELECT name, workout_xml FROM planned_workouts WHERE id = ?", (workout_id,)
+            "SELECT name, date, workout_xml FROM planned_workouts WHERE id = ?", (workout_id,)
         ).fetchone()
 
     if not row:
@@ -277,7 +277,6 @@ def download_planned_workout(workout_id: int, fmt: str = "fit"):
     if not row["workout_xml"]:
         raise HTTPException(status_code=404, detail="No workout file available")
 
-    # Get FTP for FIT export
     with get_db() as conn:
         ftp_row = conn.execute(
             "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
@@ -292,11 +291,24 @@ def download_planned_workout(workout_id: int, fmt: str = "fit"):
             media_type="application/xml",
             headers={"Content-Disposition": f'attachment; filename="{safe_name}.zwo"'},
         )
-    else:
+    elif fmt == "fit":
         from server.services.fit_export import zwo_to_fit
         fit_bytes = zwo_to_fit(row["workout_xml"], ftp=ftp, workout_name=row["name"] or "Workout")
         return Response(
             content=fit_bytes,
             media_type="application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{safe_name}.fit"'},
+        )
+    else:  # tcx (default)
+        from server.services.tcx_export import zwo_to_tcx
+        tcx_str = zwo_to_tcx(
+            row["workout_xml"],
+            ftp=ftp,
+            workout_name=row["name"] or "Workout",
+            scheduled_date=row["date"],
+        )
+        return Response(
+            content=tcx_str,
+            media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.tcx"'},
         )
