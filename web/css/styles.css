@@ -437,48 +437,36 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
     white-space: nowrap;
 }
 
-/* Workout detail modal */
-.workout-modal {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    z-index: 200;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.workout-modal-content {
+/* Workout detail inline panel */
+.workout-detail-panel {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    width: 90%;
-    max-width: 700px;
-    max-height: 85vh;
-    overflow-y: auto;
+    border-radius: 8px;
     padding: 1.5rem;
+    margin-top: 1rem;
 }
-.workout-modal-header {
+.workout-detail-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
 }
-.workout-modal-header h3 { font-size: 1.1rem; }
-.workout-modal-summary {
+.workout-detail-header h3 { font-size: 1.1rem; }
+.workout-detail-summary {
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
     margin-bottom: 1rem;
     font-size: 0.85rem;
 }
-.workout-modal-summary .ws-item {
+.workout-detail-summary .ws-item {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.4rem 0.8rem;
 }
-.workout-modal-summary .ws-label { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; display: block; }
-.workout-modal-summary .ws-value { font-weight: 700; font-size: 1rem; }
+.workout-detail-summary .ws-label { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; display: block; }
+.workout-detail-summary .ws-value { font-weight: 700; font-size: 1rem; }
 .workout-chart-container {
     background: var(--bg);
     border: 1px solid var(--border);
@@ -494,12 +482,12 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
 }
 #workout-steps-table td { padding: 0.4rem 0.6rem; }
 #workout-steps-table tr:hover { background: rgba(233, 69, 96, 0.05); }
-.workout-modal-actions {
+.workout-detail-actions {
     display: flex;
     gap: 0.5rem;
     justify-content: flex-end;
 }
-.workout-modal-actions button {
+.workout-detail-actions button {
     background: var(--accent);
     border: none;
     color: white;
@@ -508,8 +496,8 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
     cursor: pointer;
     font-size: 0.85rem;
 }
-.workout-modal-actions button:hover { opacity: 0.9; }
-.workout-modal-actions .btn-secondary {
+.workout-detail-actions button:hover { opacity: 0.9; }
+.workout-detail-actions .btn-secondary {
     background: var(--surface2);
     border: 1px solid var(--border);
 }

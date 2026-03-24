@@ -1,18 +1,15 @@
 /**
- * Workout detail viewer - power profile visualization and ZWO export.
+ * Workout detail viewer - inline panel with power profile visualization and export.
  */
 
 let workoutChart = null;
 
-function initWorkoutModal() {
-    document.getElementById('workout-modal-close').addEventListener('click', closeWorkoutModal);
-    document.getElementById('workout-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'workout-modal') closeWorkoutModal();
-    });
+function initWorkoutViewer() {
+    document.getElementById('workout-detail-close').addEventListener('click', closeWorkoutDetail);
 }
 
-function closeWorkoutModal() {
-    document.getElementById('workout-modal').style.display = 'none';
+function closeWorkoutDetail() {
+    document.getElementById('workout-detail').style.display = 'none';
     if (workoutChart) {
         workoutChart.destroy();
         workoutChart = null;
@@ -20,24 +17,27 @@ function closeWorkoutModal() {
 }
 
 async function showWorkoutDetail(workoutId) {
-    const modal = document.getElementById('workout-modal');
-    modal.style.display = 'flex';
-    document.getElementById('workout-modal-title').textContent = 'Loading...';
-    document.getElementById('workout-modal-summary').innerHTML = '';
+    const panel = document.getElementById('workout-detail');
+    panel.style.display = 'block';
+    document.getElementById('workout-detail-title').textContent = 'Loading...';
+    document.getElementById('workout-detail-summary').innerHTML = '';
     document.getElementById('workout-steps-table').innerHTML = '';
-    document.getElementById('workout-modal-actions').innerHTML = '';
+    document.getElementById('workout-detail-actions').innerHTML = '';
+
+    // Scroll to the panel
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     try {
         const w = await api(`/api/plan/workouts/${workoutId}`);
         renderWorkoutDetail(w);
     } catch (e) {
-        document.getElementById('workout-modal-title').textContent = 'Error loading workout';
+        document.getElementById('workout-detail-title').textContent = 'Error loading workout';
         console.error('Workout detail error:', e);
     }
 }
 
 function renderWorkoutDetail(w) {
-    document.getElementById('workout-modal-title').textContent = w.name || 'Workout';
+    document.getElementById('workout-detail-title').textContent = w.name || 'Workout';
 
     // Summary bar
     const totalMin = Math.round((w.total_duration_s || 0) / 60);
@@ -59,7 +59,7 @@ function renderWorkoutDetail(w) {
     const ifactor = w.ftp > 0 ? (avgWatts / w.ftp) : 0;
     const tssEst = totalPowerTime > 0 ? Math.round((totalPowerTime * avgWatts * ifactor) / (w.ftp * 3600) * 100) : 0;
 
-    document.getElementById('workout-modal-summary').innerHTML = `
+    document.getElementById('workout-detail-summary').innerHTML = `
         <div class="ws-item"><span class="ws-label">Duration</span><span class="ws-value">${durStr}</span></div>
         <div class="ws-item"><span class="ws-label">FTP</span><span class="ws-value">${w.ftp}w</span></div>
         <div class="ws-item"><span class="ws-label">Avg Power</span><span class="ws-value">${avgWatts}w</span></div>
@@ -80,7 +80,7 @@ function renderWorkoutDetail(w) {
         actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=fit" download><button>Download .FIT (Garmin)</button></a>`;
         actionsHtml += `<a href="/api/plan/workouts/${w.id}/download?fmt=zwo" download><button class="btn-secondary">Download .ZWO</button></a>`;
     }
-    document.getElementById('workout-modal-actions').innerHTML = actionsHtml;
+    document.getElementById('workout-detail-actions').innerHTML = actionsHtml;
 }
 
 function drawWorkoutProfile(w) {
@@ -128,7 +128,6 @@ function drawWorkoutProfile(w) {
         }
     }
 
-    // Use a bar chart where bar width represents duration
     workoutChart = new Chart(canvas, {
         type: 'bar',
         data: {
@@ -253,4 +252,4 @@ function zoneClassForPct(pct) {
 }
 
 // Initialize
-initWorkoutModal();
+initWorkoutViewer();
