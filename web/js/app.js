@@ -55,6 +55,10 @@ function loadSection(name) {
         }
         return;
     }
+    if (name === 'settings') {
+        loadSettings();
+        return;
+    }
     if (loaded[name]) return;
     loaded[name] = true;
     switch (name) {
@@ -276,6 +280,60 @@ function renderCompliance(data) {
         <div class="metric-card"><span class="metric-label">Compliance</span><span class="metric-value">${data.compliance_pct}%</span></div>
     `;
 }
+
+// Settings
+async function loadSettings() {
+    try {
+        const settings = await api('/api/coaching/settings');
+        for (const [key, value] of Object.entries(settings)) {
+            const el = document.getElementById(`setting-${key}`);
+            if (el) el.value = value;
+        }
+    } catch (e) {
+        console.error('Settings load error:', e);
+    }
+}
+
+document.getElementById('settings-save')?.addEventListener('click', async () => {
+    const keys = ['athlete_profile', 'coaching_principles', 'coach_role', 'plan_management'];
+    const status = document.getElementById('settings-status');
+    try {
+        for (const key of keys) {
+            const el = document.getElementById(`setting-${key}`);
+            if (el) {
+                await fetch('/api/coaching/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key, value: el.value }),
+                });
+            }
+        }
+        status.textContent = 'Saved!';
+        status.style.color = 'var(--green)';
+        status.style.display = 'inline';
+        setTimeout(() => status.style.display = 'none', 3000);
+    } catch (e) {
+        status.textContent = 'Save failed';
+        status.style.color = 'var(--red)';
+        status.style.display = 'inline';
+        console.error('Settings save error:', e);
+    }
+});
+
+document.getElementById('settings-reset')?.addEventListener('click', async () => {
+    if (!confirm('Reset all settings to defaults? This cannot be undone.')) return;
+    try {
+        await apiPost('/api/coaching/settings/reset', {});
+        await loadSettings();
+        const status = document.getElementById('settings-status');
+        status.textContent = 'Reset to defaults!';
+        status.style.color = 'var(--green)';
+        status.style.display = 'inline';
+        setTimeout(() => status.style.display = 'none', 3000);
+    } catch (e) {
+        console.error('Settings reset error:', e);
+    }
+});
 
 // Boot
 loadSection('dashboard');

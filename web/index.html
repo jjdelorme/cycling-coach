@@ -18,6 +18,7 @@
             <button class="nav-btn" data-section="rides">Rides</button>
             <button class="nav-btn" data-section="analysis">Analysis</button>
             <button class="nav-btn" data-section="plan">Plan</button>
+            <button class="nav-btn" data-section="settings">Settings</button>
         </nav>
         <button id="coach-toggle" class="coach-toggle-btn" title="Toggle Coach Panel">Coach</button>
     </header>
@@ -163,6 +164,38 @@
                 <div id="periodization-gantt" class="gantt-container"></div>
                 <h3>Plan Compliance</h3>
                 <div id="compliance-stats" class="metrics-row"></div>
+            </section>
+            <!-- Settings -->
+            <section id="settings" class="section">
+                <h3>Coach Settings</h3>
+                <p style="color:var(--text-muted);margin-bottom:1rem;">These settings shape how the AI coach understands you and gives advice. You can also update them by chatting with the coach (e.g. "my FTP is now 270").</p>
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h4>Athlete Profile</h4>
+                        <p class="settings-hint">Your physical stats, current fitness, target events, experience level.</p>
+                        <textarea id="setting-athlete_profile" class="settings-textarea" rows="8"></textarea>
+                    </div>
+                    <div class="settings-card">
+                        <h4>Coaching Principles</h4>
+                        <p class="settings-hint">Training philosophy, recovery rules, periodization approach.</p>
+                        <textarea id="setting-coaching_principles" class="settings-textarea" rows="8"></textarea>
+                    </div>
+                    <div class="settings-card">
+                        <h4>Coach Behavior</h4>
+                        <p class="settings-hint">How the coach communicates, what data to reference, response style.</p>
+                        <textarea id="setting-coach_role" class="settings-textarea" rows="8"></textarea>
+                    </div>
+                    <div class="settings-card">
+                        <h4>Plan Management</h4>
+                        <p class="settings-hint">What tools the coach can use, when to offer syncing, plan generation rules.</p>
+                        <textarea id="setting-plan_management" class="settings-textarea" rows="8"></textarea>
+                    </div>
+                </div>
+                <div style="margin-top:1rem;">
+                    <button id="settings-save" class="btn-primary">Save Settings</button>
+                    <button id="settings-reset" class="btn-secondary" style="margin-left:0.5rem;">Reset to Defaults</button>
+                    <span id="settings-status" style="margin-left:1rem;color:var(--green);display:none;">Saved!</span>
+                </div>
             </section>
         </main>
 

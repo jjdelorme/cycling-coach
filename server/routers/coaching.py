@@ -2,11 +2,12 @@
 
 import uuid
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from server.models.schemas import (
     ChatRequest, ChatResponse, SessionSummary, SessionDetail, SessionMessage,
 )
-from server.database import get_db
+from server.database import get_db, get_all_settings, set_setting
 
 router = APIRouter(prefix="/api/coaching", tags=["coaching"])
 
@@ -83,3 +84,33 @@ async def delete_session(session_id: str):
         conn.execute("DELETE FROM chat_events WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM chat_sessions WHERE session_id = ?", (session_id,))
     return {"status": "deleted"}
+
+
+@router.get("/settings")
+async def get_settings():
+    """Get all coach settings (athlete profile, principles, etc.)."""
+    return get_all_settings()
+
+
+class SettingUpdate(BaseModel):
+    key: str
+    value: str
+
+
+@router.put("/settings")
+async def update_setting(req: SettingUpdate):
+    """Update a single coach setting."""
+    valid_keys = {"athlete_profile", "coaching_principles", "coach_role", "plan_management"}
+    if req.key not in valid_keys:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid key. Must be one of: {', '.join(sorted(valid_keys))}")
+    set_setting(req.key, req.value)
+    return {"status": "updated", "key": req.key}
+
+
+@router.post("/settings/reset")
+async def reset_settings():
+    """Reset all coach settings to defaults."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM coach_settings")
+    return {"status": "reset"}

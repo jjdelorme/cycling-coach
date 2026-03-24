@@ -1,8 +1,9 @@
 """ADK tools for the coaching agent to manage the training plan."""
 
 from datetime import datetime, timedelta
-from server.database import get_db
+from server.database import get_db, get_setting, set_setting, get_all_settings
 from server.services.workout_generator import generate_zwo, WORKOUT_TEMPLATES
+from server.services.intervals_icu import push_workout, is_configured as icu_is_configured
 
 
 def replan_missed_day(missed_date: str, new_target_date: str) -> dict:
@@ -266,4 +267,106 @@ def get_week_summary(date: str = "") -> dict:
         "total_tss": round(total_tss),
         "rides_count": len(actual),
         "planned_count": len(planned),
+    }
+
+
+def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
+    """Sync planned workouts to Garmin via intervals.icu so they appear on the athlete's device.
+
+    Can sync a single workout by date or name, or all workouts for a given week.
+    The athlete can then see structured workouts on their Garmin device.
+
+    Args:
+        date: Date (YYYY-MM-DD) to sync workout(s) for. If empty, syncs all upcoming workouts for the current week.
+        workout_name: Optional workout name to match. If provided with a date, syncs only that specific workout.
+
+    Returns:
+        Status of the sync operation with details of synced workouts.
+    """
+    if not icu_is_configured():
+        return {"status": "error", "message": "intervals.icu is not configured. Cannot sync to Garmin."}
+
+    with get_db() as conn:
+        # Get FTP for the workout
+        ftp_row = conn.execute(
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        ftp = ftp_row["ftp"] if ftp_row else 261
+
+        if date:
+            # Sync workout(s) for a specific date
+            if workout_name:
+                rows = conn.execute(
+                    "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts WHERE date = ? AND name LIKE ?",
+                    (date, f"%{workout_name}%"),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts WHERE date = ?",
+                    (date,),
+                ).fetchall()
+        else:
+            # Sync all upcoming workouts for the current week
+            today = datetime.now().strftime("%Y-%m-%d")
+            dt = datetime.now()
+            end = dt + timedelta(days=(6 - dt.weekday()))
+            end_str = end.strftime("%Y-%m-%d")
+            rows = conn.execute(
+                "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL",
+                (today, end_str),
+            ).fetchall()
+
+    if not rows:
+        return {"status": "no_workouts", "message": f"No planned workouts with structured data found for the specified criteria."}
+
+    synced = []
+    errors = []
+    for row in rows:
+        if not row["workout_xml"]:
+            errors.append({"name": row["name"], "date": row["date"], "error": "No structured workout data (ZWO) available"})
+            continue
+
+        result = push_workout(
+            date=row["date"],
+            name=row["name"] or "Workout",
+            zwo_xml=row["workout_xml"],
+            moving_time_secs=int(row["total_duration_s"] or 0),
+        )
+
+        if result.get("status") == "success":
+            synced.append({"name": row["name"], "date": row["date"]})
+        else:
+            errors.append({"name": row["name"], "date": row["date"], "error": result.get("message", "Unknown error")})
+
+    return {
+        "status": "success" if synced else "error",
+        "synced": synced,
+        "errors": errors,
+        "message": f"Synced {len(synced)} workout(s) to Garmin via intervals.icu" + (f", {len(errors)} failed" if errors else ""),
+    }
+
+
+def update_coach_settings(section: str, new_value: str) -> dict:
+    """Update coaching configuration settings like athlete profile, coaching principles, or coach behavior.
+
+    Use this when the athlete tells you about changes to their profile (new FTP, weight, goals, target events),
+    or when they want to adjust coaching style or principles.
+
+    Args:
+        section: Which setting to update. One of: 'athlete_profile', 'coaching_principles', 'coach_role', 'plan_management'.
+        new_value: The full new value for that section. For athlete_profile and coaching_principles, use bullet points starting with '- '.
+
+    Returns:
+        Status of the update.
+    """
+    valid_sections = {"athlete_profile", "coaching_principles", "coach_role", "plan_management"}
+    if section not in valid_sections:
+        return {"status": "error", "message": f"Invalid section '{section}'. Must be one of: {', '.join(sorted(valid_sections))}"}
+
+    set_setting(section, new_value)
+
+    return {
+        "status": "success",
+        "section": section,
+        "message": f"Updated {section.replace('_', ' ')}. Changes take effect immediately.",
     }

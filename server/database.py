@@ -135,10 +135,84 @@ CREATE TABLE IF NOT EXISTS coach_memory (
     timestamp TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS coach_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
 """
+
+DEFAULT_ATHLETE_PROFILE = """- 50-year-old male, ~163 lbs (75 kg), 5'10"
+- Current FTP: ~261w, W/kg: ~3.45
+- A-race: Big Sky Biggie (late August 2026) - ~50mi MTB, ~6,000ft climbing
+- Experience: 291 rides / 581 hours over the past year
+- Peaked at CTL 106.8 (Oct 2025), FTP 287w
+- Power meter has been broken since ~Feb 25, 2026"""
+
+DEFAULT_COACHING_PRINCIPLES = """- 12-14h/week is the sweet spot (not 15-19h)
+- 3-week build / 1-week recovery cycles
+- Structured intervals are essential, not just terrain-driven intensity
+- 48-72h recovery after hard efforts (age-appropriate)
+- Polarized approach: easy days easy, hard days hard
+- Weight is a lever: every pound matters on the climbs
+- When days are missed, adjust the week - don't panic, protect key workouts"""
+
+DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
+- Use the tools to check current fitness data before giving advice
+- Reference specific numbers (CTL, TSS, power) when relevant
+- Consider the athlete's age and recovery needs
+- Always relate advice back to the athlete's goals and target events
+- If asked about the plan, check the periodization status tool
+- Keep responses concise - this athlete wants coaching, not lectures"""
+
+DEFAULT_PLAN_MANAGEMENT = """- You can generate weekly training plans using generate_weekly_plan
+- You can reschedule missed workouts using replan_missed_day
+- You can adjust periodization phases using adjust_phase
+- Always check current fitness (PMC) before planning intensity
+- When generating plans, match the focus to the current periodization phase
+- After any plan changes, summarize what you did
+- You can sync planned workouts to Garmin via intervals.icu using sync_workouts_to_garmin
+- When asked to sync, you can sync by date, by workout name, or sync all remaining workouts this week
+- After generating a weekly plan, offer to sync the workouts to Garmin
+- You can update the athlete profile and coaching settings using update_coach_settings when the athlete tells you about changes (new FTP, new goals, weight changes, etc.)"""
+
+SETTINGS_DEFAULTS = {
+    "athlete_profile": DEFAULT_ATHLETE_PROFILE,
+    "coaching_principles": DEFAULT_COACHING_PRINCIPLES,
+    "coach_role": DEFAULT_COACH_ROLE,
+    "plan_management": DEFAULT_PLAN_MANAGEMENT,
+}
+
+
+def get_setting(key: str) -> str:
+    """Get a coach setting value, returning the default if not set."""
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM coach_settings WHERE key = ?", (key,)).fetchone()
+    if row:
+        return row["value"]
+    return SETTINGS_DEFAULTS.get(key, "")
+
+
+def set_setting(key: str, value: str):
+    """Set a coach setting value."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO coach_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+
+def get_all_settings() -> dict:
+    """Get all coach settings, filling in defaults for any not yet customized."""
+    result = dict(SETTINGS_DEFAULTS)
+    with get_db() as conn:
+        rows = conn.execute("SELECT key, value FROM coach_settings").fetchall()
+    for row in rows:
+        result[row["key"]] = row["value"]
+    return result
 
 
 def get_db_path():
