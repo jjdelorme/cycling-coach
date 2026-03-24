@@ -96,7 +96,8 @@ async function renderCalendar() {
         });
 
         dayPlanned.forEach(p => {
-            content += `<div class="day-planned">${p.name || 'planned'}</div>`;
+            const wid = p.id ? `data-workout-id="${p.id}"` : '';
+            content += `<div class="day-planned" ${wid} style="${p.id ? 'cursor:pointer;text-decoration:underline;' : ''}">${p.name || 'planned'}</div>`;
         });
 
         if (dayRides.length > 0) {
@@ -111,7 +112,16 @@ async function renderCalendar() {
 
     // Click handler for day detail
     grid.querySelectorAll('.cal-day:not(.empty)').forEach(el => {
-        el.addEventListener('click', () => showDayDetail(el.dataset.date, ridesByDate, plannedByDate));
+        el.addEventListener('click', (e) => {
+            // If clicking a planned workout with an id, open the workout viewer
+            const plannedEl = e.target.closest('[data-workout-id]');
+            if (plannedEl && typeof showWorkoutDetail === 'function') {
+                e.stopPropagation();
+                showWorkoutDetail(parseInt(plannedEl.dataset.workoutId));
+                return;
+            }
+            showDayDetail(el.dataset.date, ridesByDate, plannedByDate);
+        });
     });
 }
 
@@ -132,7 +142,12 @@ function showDayDetail(date, ridesByDate, plannedByDate) {
     if (dayPlanned.length > 0) {
         html += '<h4>Planned</h4>';
         dayPlanned.forEach(p => {
-            html += `<p>${p.name || 'Workout'} (${Math.round((p.total_duration_s || 0) / 60)}min)</p>`;
+            const durMin = Math.round((p.total_duration_s || 0) / 60);
+            if (p.id) {
+                html += `<p><a href="#" class="workout-link" data-workout-id="${p.id}" style="color:var(--yellow);text-decoration:underline;cursor:pointer;">${p.name || 'Workout'}</a> (${durMin}min)</p>`;
+            } else {
+                html += `<p>${p.name || 'Workout'} (${durMin}min)</p>`;
+            }
         });
     }
 
@@ -142,4 +157,14 @@ function showDayDetail(date, ridesByDate, plannedByDate) {
 
     detail.innerHTML = html;
     detail.classList.add('visible');
+
+    // Wire up workout links
+    detail.querySelectorAll('.workout-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (typeof showWorkoutDetail === 'function') {
+                showWorkoutDetail(parseInt(link.dataset.workoutId));
+            }
+        });
+    });
 }

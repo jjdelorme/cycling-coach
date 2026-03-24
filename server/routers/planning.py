@@ -1,5 +1,6 @@
 """Training plan endpoints."""
 
+import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import Response
 from typing import Optional
@@ -121,6 +122,159 @@ def download_workout(req: GenerateWorkoutRequest):
     filename = name.lower().replace(" ", "_") + ".zwo"
     return Response(
         content=xml_str,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _parse_zwo_steps(xml_str: str, ftp: int = 261) -> list[dict]:
+    """Parse ZWO XML into a list of workout steps with absolute watts."""
+    try:
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return []
+
+    workout_el = root.find("workout")
+    if workout_el is None:
+        return []
+
+    steps = []
+    elapsed = 0
+
+    for el in workout_el:
+        tag = el.tag
+
+        if tag == "IntervalsT":
+            repeat = int(el.get("Repeat", "1"))
+            on_dur = int(float(el.get("OnDuration", "0")))
+            off_dur = int(float(el.get("OffDuration", "0")))
+            on_pct = float(el.get("OnPower", "1.0"))
+            off_pct = float(el.get("OffPower", "0.5"))
+            for i in range(repeat):
+                steps.append({
+                    "type": "Interval",
+                    "label": f"Interval {i+1}/{repeat}",
+                    "duration_s": on_dur,
+                    "start_s": elapsed,
+                    "power_pct": on_pct,
+                    "power_watts": round(on_pct * ftp),
+                })
+                elapsed += on_dur
+                steps.append({
+                    "type": "Recovery",
+                    "label": "Recovery",
+                    "duration_s": off_dur,
+                    "start_s": elapsed,
+                    "power_pct": off_pct,
+                    "power_watts": round(off_pct * ftp),
+                })
+                elapsed += off_dur
+
+        elif tag in ("Warmup", "Cooldown"):
+            dur = int(float(el.get("Duration", "0")))
+            low_pct = float(el.get("PowerLow", "0.4"))
+            high_pct = float(el.get("PowerHigh", "0.65"))
+            avg_pct = (low_pct + high_pct) / 2
+            steps.append({
+                "type": tag,
+                "label": tag,
+                "duration_s": dur,
+                "start_s": elapsed,
+                "power_pct": avg_pct,
+                "power_low_pct": low_pct,
+                "power_high_pct": high_pct,
+                "power_watts": round(avg_pct * ftp),
+                "power_low_watts": round(low_pct * ftp),
+                "power_high_watts": round(high_pct * ftp),
+            })
+            elapsed += dur
+
+        elif tag == "SteadyState":
+            dur = int(float(el.get("Duration", "0")))
+            pct = float(el.get("Power", "0.65"))
+            steps.append({
+                "type": "SteadyState",
+                "label": _zone_label(pct),
+                "duration_s": dur,
+                "start_s": elapsed,
+                "power_pct": pct,
+                "power_watts": round(pct * ftp),
+            })
+            elapsed += dur
+
+    return steps
+
+
+def _zone_label(pct: float) -> str:
+    """Return a human-readable zone label for a given FTP percentage."""
+    if pct < 0.56:
+        return "Z1 Recovery"
+    elif pct < 0.76:
+        return "Z2 Endurance"
+    elif pct < 0.91:
+        return "Z3 Tempo / Sweet Spot"
+    elif pct < 1.06:
+        return "Z4 Threshold"
+    elif pct < 1.21:
+        return "Z5 VO2max"
+    else:
+        return "Z6 Anaerobic"
+
+
+@router.get("/workouts/{workout_id}")
+def get_workout_detail(workout_id: int):
+    """Get parsed workout detail with steps for visualization."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM planned_workouts WHERE id = ?", (workout_id,)
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    workout = dict(row)
+
+    # Get FTP for absolute watts
+    with get_db() as conn:
+        ftp_row = conn.execute(
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+    ftp = ftp_row["ftp"] if ftp_row else 261
+
+    steps = []
+    if workout.get("workout_xml"):
+        steps = _parse_zwo_steps(workout["workout_xml"], ftp)
+
+    total_duration = sum(s["duration_s"] for s in steps) if steps else workout.get("total_duration_s", 0)
+
+    return {
+        "id": workout["id"],
+        "date": workout["date"],
+        "name": workout["name"],
+        "sport": workout["sport"],
+        "total_duration_s": total_duration,
+        "ftp": ftp,
+        "steps": steps,
+        "has_xml": bool(workout.get("workout_xml")),
+    }
+
+
+@router.get("/workouts/{workout_id}/download")
+def download_planned_workout(workout_id: int):
+    """Download the ZWO file for a planned workout."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT name, workout_xml FROM planned_workouts WHERE id = ?", (workout_id,)
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    if not row["workout_xml"]:
+        raise HTTPException(status_code=404, detail="No workout file available")
+
+    filename = (row["name"] or "workout").lower().replace(" ", "_").replace("/", "_") + ".zwo"
+    return Response(
+        content=row["workout_xml"],
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

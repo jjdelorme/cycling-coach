@@ -437,6 +437,96 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
     white-space: nowrap;
 }
 
+/* Workout detail modal */
+.workout-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.workout-modal-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 85vh;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+.workout-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.workout-modal-header h3 { font-size: 1.1rem; }
+.workout-modal-summary {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+.workout-modal-summary .ws-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+}
+.workout-modal-summary .ws-label { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; display: block; }
+.workout-modal-summary .ws-value { font-weight: 700; font-size: 1rem; }
+.workout-chart-container {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.8rem;
+    margin-bottom: 1rem;
+}
+.workout-chart-container canvas { max-height: 220px; }
+#workout-steps-table table {
+    width: 100%;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+}
+#workout-steps-table td { padding: 0.4rem 0.6rem; }
+#workout-steps-table tr:hover { background: rgba(233, 69, 96, 0.05); }
+.workout-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+.workout-modal-actions button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0.5rem 1.2rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.workout-modal-actions button:hover { opacity: 0.9; }
+.workout-modal-actions .btn-secondary {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+}
+.step-zone-bar {
+    height: 6px;
+    border-radius: 3px;
+    margin-top: 2px;
+}
+.zone-z1 { background: #7ec8e3; }
+.zone-z2 { background: #00d4aa; }
+.zone-z3 { background: #f5c518; }
+.zone-z4 { background: #e8913a; }
+.zone-z5 { background: #e94560; }
+.zone-z6 { background: #9b59b6; }
+.zone-warmup { background: linear-gradient(to right, #7ec8e3, #f5c518); }
+.zone-cooldown { background: linear-gradient(to right, #f5c518, #7ec8e3); }
+
 /* Responsive */
 @media (max-width: 768px) {
     header { flex-direction: column; gap: 0.5rem; padding: 0.8rem 1rem; }
