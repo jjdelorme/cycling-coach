@@ -1,10 +1,18 @@
 /**
- * Chat interface for AI coaching.
+ * Chat interface for AI coaching - slide-out panel.
  */
 
 let sessionId = null;
+let coachInitialized = false;
 
-function initCoach() {
+function initCoachPanel() {
+    const panel = document.getElementById('coach-panel');
+    const toggleBtn = document.getElementById('coach-toggle');
+    const closeBtn = document.getElementById('coach-close');
+
+    toggleBtn.addEventListener('click', () => toggleCoachPanel());
+    closeBtn.addEventListener('click', () => toggleCoachPanel(false));
+
     const input = document.getElementById('chat-input');
     const sendBtn = document.getElementById('chat-send');
 
@@ -16,7 +24,30 @@ function initCoach() {
         }
     });
 
-    addMessage('assistant', 'Hey! I\'m your cycling coach. Ask me anything about your training, upcoming workouts, or race prep for Big Sky Biggie. What\'s on your mind?');
+    // Auto-resize textarea
+    input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    });
+}
+
+function toggleCoachPanel(forceState) {
+    const panel = document.getElementById('coach-panel');
+    const toggleBtn = document.getElementById('coach-toggle');
+    const isOpen = typeof forceState === 'boolean' ? forceState : !panel.classList.contains('open');
+
+    panel.classList.toggle('open', isOpen);
+    toggleBtn.classList.toggle('active', isOpen);
+
+    if (isOpen && !coachInitialized) {
+        coachInitialized = true;
+        addMessage('assistant', 'Hey! I\'m your cycling coach. Ask me anything about your training, upcoming workouts, or race prep for Big Sky Biggie. I can see the same data you\'re looking at.');
+    }
+
+    if (isOpen) {
+        // Focus the input when panel opens
+        setTimeout(() => document.getElementById('chat-input').focus(), 350);
+    }
 }
 
 function addMessage(role, text) {
@@ -35,6 +66,7 @@ async function sendMessage() {
     if (!text) return;
 
     input.value = '';
+    input.style.height = 'auto';
     addMessage('user', text);
 
     const sendBtn = document.getElementById('chat-send');
@@ -52,8 +84,12 @@ async function sendMessage() {
         addMessage('assistant', resp.response);
     } catch (e) {
         thinking.remove();
-        addMessage('assistant', 'Sorry, I had trouble processing that. The coaching endpoint may not be configured yet. Error: ' + e.message);
+        addMessage('assistant', 'Sorry, I had trouble processing that. Error: ' + e.message);
     } finally {
         sendBtn.disabled = false;
+        document.getElementById('chat-input').focus();
     }
 }
+
+// Initialize on load
+initCoachPanel();

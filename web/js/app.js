@@ -53,7 +53,7 @@ function loadSection(name) {
         case 'rides': loadRides(); break;
         case 'analysis': loadAnalysis(); break;
         case 'plan': loadPlan(); break;
-        case 'coach': initCoach(); break;
+        // Coach is now a panel, not a section
     }
 }
 

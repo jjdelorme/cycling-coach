@@ -11,6 +11,7 @@
     --text: #eee;
     --text-muted: #999;
     --border: #2a2a4a;
+    --coach-width: 400px;
 }
 
 body {
@@ -18,8 +19,10 @@ body {
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
+    overflow-x: hidden;
 }
 
+/* Header */
 header {
     background: var(--surface);
     padding: 1rem 2rem;
@@ -31,7 +34,7 @@ header {
 
 header h1 { font-size: 1.3rem; white-space: nowrap; }
 
-nav { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+nav { display: flex; gap: 0.5rem; flex-wrap: wrap; flex: 1; }
 
 .nav-btn {
     background: transparent;
@@ -45,10 +48,139 @@ nav { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .nav-btn:hover { color: var(--text); border-color: var(--text-muted); }
 .nav-btn.active { background: var(--surface2); color: var(--text); border-color: var(--accent); }
 
-main { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
+/* Coach toggle button in header */
+.coach-toggle-btn {
+    background: var(--green);
+    border: none;
+    color: var(--bg);
+    padding: 0.4rem 1.2rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background 0.2s, transform 0.15s;
+}
+.coach-toggle-btn:hover { background: #00e8bb; transform: scale(1.03); }
+.coach-toggle-btn.active { background: var(--accent); color: white; }
+
+/* App layout: main + coach panel side by side */
+.app-layout {
+    display: flex;
+    height: calc(100vh - 57px); /* header height */
+}
+
+main {
+    flex: 1;
+    padding: 1.5rem 2rem;
+    overflow-y: auto;
+    transition: margin-right 0.3s ease;
+}
 
 .section { display: none; }
 .section.active { display: block; }
+
+/* Coach panel - slide out from right */
+.coach-panel {
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transition: width 0.3s ease, min-width 0.3s ease;
+    flex-shrink: 0;
+}
+
+.coach-panel.open {
+    width: var(--coach-width);
+    min-width: var(--coach-width);
+}
+
+.coach-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.coach-panel-header h3 {
+    font-size: 1rem;
+    color: var(--green);
+}
+
+.coach-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: 0 0.3rem;
+    line-height: 1;
+}
+.coach-close-btn:hover { color: var(--text); }
+
+/* Chat inside the panel */
+.coach-panel .chat-messages {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0.8rem;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    margin-bottom: 0;
+}
+
+.coach-panel .chat-input-row {
+    padding: 0.6rem 0.8rem;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.chat-msg {
+    margin-bottom: 0.8rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    max-width: 95%;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.chat-msg.user { background: var(--surface2); margin-left: auto; text-align: right; }
+.chat-msg.assistant { background: rgba(0, 212, 170, 0.08); border: 1px solid rgba(0, 212, 170, 0.15); }
+.chat-msg.thinking { color: var(--text-muted); font-style: italic; }
+
+#chat-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    resize: none;
+    min-height: 38px;
+    max-height: 120px;
+}
+#chat-send {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    align-self: flex-end;
+}
+#chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Metrics cards */
 .metrics-row {
@@ -253,62 +385,11 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
     white-space: nowrap;
 }
 
-/* Chat */
-.chat-messages {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem;
-    min-height: 400px;
-    max-height: 60vh;
-    overflow-y: auto;
-    margin-bottom: 1rem;
-}
-.chat-msg {
-    margin-bottom: 1rem;
-    padding: 0.6rem 1rem;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    max-width: 80%;
-    white-space: pre-wrap;
-}
-.chat-msg.user { background: var(--surface2); margin-left: auto; text-align: right; }
-.chat-msg.assistant { background: rgba(0, 212, 170, 0.1); border: 1px solid rgba(0, 212, 170, 0.2); }
-.chat-msg.thinking { color: var(--text-muted); font-style: italic; }
-
-.chat-input-row {
-    display: flex;
-    gap: 0.5rem;
-}
-#chat-input {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 0.6rem;
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 0.9rem;
-    resize: vertical;
-}
-#chat-send {
-    background: var(--accent);
-    border: none;
-    color: white;
-    padding: 0.6rem 1.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    align-self: flex-end;
-}
-#chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
-
 /* Responsive */
 @media (max-width: 768px) {
     header { flex-direction: column; gap: 0.5rem; padding: 0.8rem 1rem; }
     main { padding: 1rem; }
     .metrics-row { flex-direction: column; }
     .metric-card { min-width: auto; }
-    .chat-msg { max-width: 95%; }
+    .coach-panel.open { width: 100vw; min-width: 100vw; position: fixed; top: 57px; right: 0; bottom: 0; z-index: 100; }
 }
