@@ -111,6 +111,22 @@ main {
     color: var(--green);
 }
 
+.coach-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+.coach-icon-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    line-height: 1;
+}
+.coach-icon-btn:hover { color: var(--text); border-color: var(--text-muted); }
 .coach-close-btn {
     background: transparent;
     border: none;
@@ -121,6 +137,42 @@ main {
     line-height: 1;
 }
 .coach-close-btn:hover { color: var(--text); }
+
+/* Session list */
+.session-list {
+    border-bottom: 1px solid var(--border);
+    max-height: 250px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+.session-item {
+    padding: 0.5rem 0.8rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.session-item:hover { background: rgba(233, 69, 96, 0.08); }
+.session-item.active { background: rgba(0, 212, 170, 0.1); border-left: 3px solid var(--green); }
+.session-item .session-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.session-item .session-date { color: var(--text-muted); font-size: 0.7rem; margin-left: 0.5rem; white-space: nowrap; }
+.session-item .session-delete {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0 0.3rem;
+    margin-left: 0.3rem;
+}
+.session-item .session-delete:hover { color: var(--red); }
 
 /* Chat inside the panel */
 .coach-panel .chat-messages {

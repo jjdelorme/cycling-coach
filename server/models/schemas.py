@@ -122,3 +122,25 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     session_id: str
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    title: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class SessionMessage(BaseModel):
+    author: Optional[str] = None
+    role: Optional[str] = None
+    content_text: Optional[str] = None
+    timestamp: str
+
+
+class SessionDetail(BaseModel):
+    session_id: str
+    title: Optional[str] = None
+    created_at: str
+    updated_at: str
+    messages: list[SessionMessage] = []

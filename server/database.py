@@ -108,6 +108,36 @@ CREATE INDEX IF NOT EXISTS idx_ride_records_ride_id ON ride_records(ride_id);
 CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date);
 CREATE INDEX IF NOT EXISTS idx_power_bests_date ON power_bests(date);
 CREATE INDEX IF NOT EXISTS idx_power_bests_duration ON power_bests(duration_s);
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT 'athlete',
+    title TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    author TEXT,
+    role TEXT,
+    content_text TEXT,
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS coach_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL DEFAULT 'athlete',
+    author TEXT,
+    content_text TEXT NOT NULL,
+    timestamp TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
+CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
 """
 
 

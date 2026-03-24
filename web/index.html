@@ -156,8 +156,13 @@
         <aside id="coach-panel" class="coach-panel">
             <div class="coach-panel-header">
                 <h3>Coach</h3>
-                <button id="coach-close" class="coach-close-btn" title="Close">&times;</button>
+                <div class="coach-header-actions">
+                    <button id="coach-sessions-btn" class="coach-icon-btn" title="Chat History">&#9776;</button>
+                    <button id="coach-new-btn" class="coach-icon-btn" title="New Conversation">+</button>
+                    <button id="coach-close" class="coach-close-btn" title="Close">&times;</button>
+                </div>
             </div>
+            <div id="session-list" class="session-list" style="display:none;"></div>
             <div id="chat-messages" class="chat-messages"></div>
             <div class="chat-input-row">
                 <textarea id="chat-input" placeholder="Ask your coach..." rows="2"></textarea>

@@ -2,10 +2,12 @@
 
 from google.adk.agents import Agent
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
+from google.adk.tools.preload_memory_tool import preload_memory_tool
 from google.genai import types
 
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION
+from server.coaching.sqlite_session_service import SqliteSessionService
+from server.coaching.sqlite_memory_service import SqliteMemoryService
 from server.coaching.tools import (
     get_pmc_metrics,
     get_recent_rides,
@@ -62,6 +64,7 @@ APP_NAME = "cycling-coach"
 
 # Singleton instances
 _session_service = None
+_memory_service = None
 _runner = None
 
 
@@ -83,20 +86,23 @@ def _get_agent():
             generate_weekly_plan,
             adjust_phase,
             get_week_summary,
+            preload_memory_tool,
         ],
     )
 
 
 def get_runner():
-    global _session_service, _runner
+    global _session_service, _runner, _memory_service
     if _runner is None:
-        _session_service = InMemorySessionService()
+        _session_service = SqliteSessionService()
+        _memory_service = SqliteMemoryService()
         _runner = Runner(
             agent=_get_agent(),
             app_name=APP_NAME,
             session_service=_session_service,
+            memory_service=_memory_service,
         )
-    return _runner, _session_service
+    return _runner, _session_service, _memory_service
 
 
 async def chat(message: str, user_id: str = "athlete", session_id: str = "default") -> str:
@@ -106,7 +112,7 @@ async def chat(message: str, user_id: str = "athlete", session_id: str = "defaul
     os.environ.setdefault("GOOGLE_CLOUD_LOCATION", GCP_LOCATION)
     os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
-    runner, session_service = get_runner()
+    runner, session_service, memory_service = get_runner()
 
     # Ensure session exists
     session = await session_service.get_session(
@@ -132,5 +138,12 @@ async def chat(message: str, user_id: str = "athlete", session_id: str = "defaul
             for part in event.content.parts:
                 if part.text and event.author == "cycling_coach":
                     response_text += part.text
+
+    # Save session to long-term memory after each interaction
+    updated_session = await session_service.get_session(
+        app_name=APP_NAME, user_id=user_id, session_id=session_id
+    )
+    if updated_session:
+        await memory_service.add_session_to_memory(updated_session)
 
     return response_text or "I couldn't generate a response. Please try again."
