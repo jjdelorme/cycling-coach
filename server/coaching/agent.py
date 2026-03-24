@@ -15,6 +15,12 @@ from server.coaching.tools import (
     get_ftp_history,
     get_periodization_status,
 )
+from server.coaching.planning_tools import (
+    replan_missed_day,
+    generate_weekly_plan,
+    adjust_phase,
+    get_week_summary,
+)
 
 SYSTEM_INSTRUCTION = """You are an expert cycling coach working with a specific athlete:
 
@@ -42,7 +48,15 @@ YOUR ROLE:
 - Consider the athlete's age and recovery needs
 - Always relate advice back to Big Sky Biggie preparation
 - If asked about the plan, check the periodization status tool
-- Keep responses concise - this athlete wants coaching, not lectures"""
+- Keep responses concise - this athlete wants coaching, not lectures
+
+PLAN MANAGEMENT:
+- You can generate weekly training plans using generate_weekly_plan
+- You can reschedule missed workouts using replan_missed_day
+- You can adjust periodization phases using adjust_phase
+- Always check current fitness (PMC) before planning intensity
+- When generating plans, match the focus to the current periodization phase
+- After any plan changes, summarize what you did"""
 
 APP_NAME = "cycling-coach"
 
@@ -65,6 +79,10 @@ def _get_agent():
             get_training_summary,
             get_ftp_history,
             get_periodization_status,
+            replan_missed_day,
+            generate_weekly_plan,
+            adjust_phase,
+            get_week_summary,
         ],
     )
 
