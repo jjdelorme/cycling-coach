@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 from server.database import get_db, get_setting, set_setting, get_all_settings
-from server.services.workout_generator import generate_zwo, WORKOUT_TEMPLATES
+from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates
 from server.services.intervals_icu import push_workout, is_configured as icu_is_configured
 
 
@@ -407,6 +407,118 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
     }
 
 
+def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0,
+                     name: str = "", description: str = "", steps: list = []) -> dict:
+    """Replace or create a single day's planned workout without affecting other days.
+
+    Use this when the athlete wants to change, customize, or add a workout for one day.
+
+    There are three modes:
+    1. **Template mode**: Set workout_type to a template key from the database.
+       Use list_workout_templates to see available templates. Optionally set duration_minutes.
+    2. **Custom mode**: Set name, description, and steps to design a fully custom workout.
+       Each step is a dict with 'type' and type-specific fields:
+       - Warmup: {type: "Warmup", duration_seconds: 600, power_low: 0.40, power_high: 0.75}
+       - Cooldown: {type: "Cooldown", duration_seconds: 300, power_low: 0.65, power_high: 0.40}
+       - SteadyState: {type: "SteadyState", duration_seconds: 900, power: 0.90}
+       - Intervals: {type: "Intervals", repeat: 4, on_duration_seconds: 240,
+         off_duration_seconds: 240, on_power: 1.18, off_power: 0.50}
+       Power values are FTP fractions (e.g., 0.75 = 75% FTP, 1.0 = FTP, 1.18 = 118% FTP).
+    3. **Rest mode**: Set workout_type to "rest" to remove the workout.
+
+    Prefer custom mode when the athlete needs a specific workout structure. Use template mode
+    for quick standard workouts. Include coaching notes in description (RPE cues, cadence
+    targets, terrain notes, what to focus on).
+
+    Args:
+        date: The date to replace (YYYY-MM-DD).
+        workout_type: Template name or "rest". Leave empty for custom mode.
+        duration_minutes: Duration for template mode. Ignored in custom mode.
+        name: Workout name for custom mode (e.g., "3x8 Climbing Threshold").
+        description: Coaching notes for custom mode (instructions, RPE cues, cadence targets, etc.).
+        steps: List of step dicts for custom mode. See above for format.
+
+    Returns:
+        Details of the new workout, or confirmation of rest day.
+    """
+    # Rest mode: clear the day
+    if workout_type == "rest":
+        with get_db() as conn:
+            deleted = conn.execute(
+                "SELECT name FROM planned_workouts WHERE date = ?", (date,)
+            ).fetchone()
+            conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date,))
+        return {
+            "status": "success",
+            "date": date,
+            "action": "removed",
+            "previous_workout": deleted["name"] if deleted else None,
+            "message": f"Cleared workout on {date} — now a rest day.",
+        }
+
+    with get_db() as conn:
+        ftp_row = conn.execute(
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        ftp = ftp_row["ftp"] if ftp_row else 261
+
+        previous = conn.execute(
+            "SELECT name FROM planned_workouts WHERE date = ?", (date,)
+        ).fetchone()
+
+        # Custom mode: agent-designed workout with specific steps
+        if steps and name:
+            xml_str, workout_name = generate_custom_zwo(name, description or "", steps, ftp)
+            total_s = 0
+            for s in steps:
+                if s["type"] == "Intervals":
+                    total_s += s["repeat"] * (s["on_duration_seconds"] + s["off_duration_seconds"])
+                else:
+                    total_s += s.get("duration_seconds", 0)
+            duration_minutes = max(1, round(total_s / 60))
+
+        # Template mode: use a database template
+        elif workout_type:
+            tmpl = get_template(workout_type)
+            if not tmpl:
+                available = [t["key"] for t in _list_templates()]
+                return {
+                    "status": "error",
+                    "message": f"Unknown workout type '{workout_type}'. "
+                               f"Available: {', '.join(sorted(available))}, rest",
+                }
+            if duration_minutes <= 0:
+                total_s = 0
+                for s in tmpl["steps"]:
+                    if s["type"] in ("Intervals", "IntervalsT"):
+                        total_s += s.get("repeat", 1) * (s.get("on_duration_seconds", s.get("on_duration", 0)) + s.get("off_duration_seconds", s.get("off_duration", 0)))
+                    else:
+                        total_s += s.get("duration_seconds", s.get("duration", 0)) or 0
+                duration_minutes = max(30, round(total_s / 60))
+            xml_str, workout_name = generate_zwo(workout_type, duration_minutes, ftp)
+        else:
+            return {
+                "status": "error",
+                "message": "Provide either workout_type (template mode) or name + steps (custom mode).",
+            }
+
+        conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date,))
+        conn.execute(
+            "INSERT INTO planned_workouts (date, name, sport, total_duration_s, workout_xml) VALUES (?, ?, ?, ?, ?)",
+            (date, workout_name, "bike", duration_minutes * 60, xml_str),
+        )
+
+    return {
+        "status": "success",
+        "date": date,
+        "action": "replaced" if previous else "created",
+        "previous_workout": previous["name"] if previous else None,
+        "new_workout": workout_name,
+        "duration_min": duration_minutes,
+        "ftp": ftp,
+    }
+
+
 def get_week_summary(date: str = "") -> dict:
     """Get a combined view of planned vs actual workouts for a week.
 
@@ -539,6 +651,159 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
         "synced": synced,
         "errors": errors,
         "message": f"Synced {len(synced)} workout(s) to Garmin via intervals.icu" + (f", {len(errors)} failed" if errors else ""),
+    }
+
+
+def list_workout_templates(category: str = "") -> dict:
+    """List available workout templates from the database.
+
+    Use this to see what templates are available before using replace_workout in template mode,
+    or to show the athlete their template library.
+
+    Args:
+        category: Optional filter by category (base, build, peak, recovery, general).
+            Leave empty to list all templates.
+
+    Returns:
+        List of templates with key, name, description, category, and step count.
+    """
+    templates = _list_templates()
+    if category:
+        templates = [t for t in templates if t["category"] == category]
+
+    return {
+        "status": "success",
+        "count": len(templates),
+        "templates": [
+            {
+                "key": t["key"],
+                "name": t["name"],
+                "description": t["description"],
+                "category": t["category"],
+                "source": t["source"],
+                "step_count": len(t["steps"]),
+            }
+            for t in templates
+        ],
+    }
+
+
+def save_workout_template(key: str, name: str, description: str, category: str,
+                           steps: list, from_workout_id: int = 0) -> dict:
+    """Save a new workout template to the database for future reuse.
+
+    Use this when:
+    - The athlete likes a workout and wants to save it as a template
+    - You want to create a new template based on a workout you designed
+    - The athlete asks you to create a template from a planned workout
+
+    If from_workout_id is provided, the steps are extracted from that planned workout's
+    ZWO data (ignoring the steps parameter).
+
+    Args:
+        key: Unique identifier slug (e.g., "tempo_over_unders", "mtb_climbing_repeats").
+            Use lowercase with underscores. Must be unique.
+        name: Human-readable name (e.g., "Tempo Over-Unders", "MTB Climbing Repeats").
+        description: Coaching notes — what the workout targets, how it should feel,
+            RPE cues, cadence guidance, terrain suggestions.
+        category: One of: base, build, peak, recovery, general.
+        steps: List of step dicts (same format as replace_workout custom mode):
+            - Warmup: {type: "Warmup", duration_seconds: 600, power_low: 0.40, power_high: 0.75}
+            - Cooldown: {type: "Cooldown", duration_seconds: 300, power_low: 0.65, power_high: 0.40}
+            - SteadyState: {type: "SteadyState", duration_seconds: 900, power: 0.90}
+            - Intervals: {type: "Intervals", repeat: 4, on_duration_seconds: 240,
+              off_duration_seconds: 240, on_power: 1.18, off_power: 0.50}
+        from_workout_id: Optional. If set, extract steps from this planned workout instead
+            of using the steps parameter.
+
+    Returns:
+        The saved template details.
+    """
+    import json
+
+    # Extract steps from an existing planned workout if requested
+    if from_workout_id:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT name, workout_xml FROM planned_workouts WHERE id = ?",
+                (from_workout_id,),
+            ).fetchone()
+        if not row:
+            return {"status": "error", "message": f"Planned workout {from_workout_id} not found."}
+        if not row["workout_xml"]:
+            return {"status": "error", "message": f"Planned workout {from_workout_id} has no structured data."}
+
+        # Parse ZWO XML back into step format
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(row["workout_xml"])
+        except ET.ParseError:
+            return {"status": "error", "message": "Could not parse workout XML."}
+
+        workout_el = root.find("workout")
+        if workout_el is None:
+            return {"status": "error", "message": "No workout element found in XML."}
+
+        steps = []
+        for el in workout_el:
+            tag = el.tag
+            if tag == "IntervalsT":
+                steps.append({
+                    "type": "Intervals",
+                    "repeat": int(el.get("Repeat", "1")),
+                    "on_duration_seconds": int(float(el.get("OnDuration", "0"))),
+                    "off_duration_seconds": int(float(el.get("OffDuration", "0"))),
+                    "on_power": float(el.get("OnPower", "1.0")),
+                    "off_power": float(el.get("OffPower", "0.5")),
+                })
+            elif tag in ("Warmup", "Cooldown"):
+                steps.append({
+                    "type": tag,
+                    "duration_seconds": int(float(el.get("Duration", "0"))),
+                    "power_low": float(el.get("PowerLow", "0.4")),
+                    "power_high": float(el.get("PowerHigh", "0.65")),
+                })
+            elif tag == "SteadyState":
+                steps.append({
+                    "type": "SteadyState",
+                    "duration_seconds": int(float(el.get("Duration", "0"))),
+                    "power": float(el.get("Power", "0.65")),
+                })
+
+        if not name:
+            name = row["name"] or key
+
+    if not steps:
+        return {"status": "error", "message": "No steps provided and no workout to extract from."}
+
+    valid_categories = {"base", "build", "peak", "recovery", "general"}
+    if category not in valid_categories:
+        return {"status": "error", "message": f"Invalid category. Must be one of: {', '.join(sorted(valid_categories))}"}
+
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM workout_templates WHERE key = ?", (key,)).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE workout_templates SET name = ?, description = ?, category = ?, steps = ?, source = ? WHERE key = ?",
+                (name, description, category, json.dumps(steps), "coach", key),
+            )
+            action = "updated"
+        else:
+            conn.execute(
+                "INSERT INTO workout_templates (key, name, description, category, steps, source) VALUES (?, ?, ?, ?, ?, ?)",
+                (key, name, description, category, json.dumps(steps), "coach"),
+            )
+            action = "created"
+
+    return {
+        "status": "success",
+        "action": action,
+        "key": key,
+        "name": name,
+        "category": category,
+        "step_count": len(steps),
+        "message": f"Template '{name}' {action}. It can now be used with replace_workout(workout_type='{key}') "
+                   f"or in weekly plan generation.",
     }
 
 

@@ -2,7 +2,7 @@
 
 import xml.etree.ElementTree as ET
 
-from server.services.workout_generator import generate_zwo, WORKOUT_TEMPLATES
+from server.services.workout_generator import generate_zwo, list_templates, generate_custom_zwo
 from server.services.fit_export import zwo_to_fit
 from server.services.tcx_export import zwo_to_tcx
 
@@ -39,8 +39,10 @@ def test_vo2max_intervals():
 
 
 def test_all_templates_generate_valid_xml():
-    for workout_type in WORKOUT_TEMPLATES:
-        xml_str, name = generate_zwo(workout_type, ftp=261)
+    templates = list_templates()
+    assert len(templates) >= 6
+    for t in templates:
+        xml_str, name = generate_zwo(t["key"], ftp=261)
         root = ET.fromstring(xml_str)
         assert root.tag == "workout_file"
         assert root.find("workout") is not None
@@ -48,7 +50,7 @@ def test_all_templates_generate_valid_xml():
 
 def test_unknown_type():
     import pytest
-    with pytest.raises(ValueError, match="Unknown workout type"):
+    with pytest.raises(ValueError, match="Unknown workout template"):
         generate_zwo("nonexistent")
 
 
@@ -66,6 +68,27 @@ def test_duration_applied_to_endurance():
     dur_120 = int(w120[1].get("Duration"))
 
     assert dur_120 > dur_60
+
+
+def test_custom_zwo():
+    xml_str, name = generate_custom_zwo(
+        "Test Custom",
+        "Custom coaching notes",
+        [
+            {"type": "Warmup", "duration_seconds": 600, "power_low": 0.40, "power_high": 0.75},
+            {"type": "SteadyState", "duration_seconds": 1200, "power": 0.90},
+            {"type": "Intervals", "repeat": 3, "on_duration_seconds": 300, "off_duration_seconds": 180, "on_power": 1.10, "off_power": 0.50},
+            {"type": "Cooldown", "duration_seconds": 300, "power_low": 0.65, "power_high": 0.40},
+        ],
+        ftp=261,
+    )
+    assert name == "Test Custom"
+    root = ET.fromstring(xml_str)
+    workout = root.find("workout")
+    elements = list(workout)
+    assert len(elements) == 4
+    assert elements[2].tag == "IntervalsT"
+    assert elements[2].get("Repeat") == "3"
 
 
 # FIT export tests
@@ -86,11 +109,11 @@ def test_fit_export_intervals():
 
 
 def test_fit_export_all_templates():
-    for workout_type in WORKOUT_TEMPLATES:
-        xml_str, name = generate_zwo(workout_type, ftp=261)
+    for t in list_templates():
+        xml_str, name = generate_zwo(t["key"], ftp=261)
         fit_bytes = zwo_to_fit(xml_str, ftp=261, workout_name=name)
-        assert len(fit_bytes) > 50, f"FIT export failed for {workout_type}"
-        assert fit_bytes[8:12] == b'.FIT', f"Invalid FIT header for {workout_type}"
+        assert len(fit_bytes) > 50, f"FIT export failed for {t['key']}"
+        assert fit_bytes[8:12] == b'.FIT', f"Invalid FIT header for {t['key']}"
 
 
 def test_fit_export_roundtrip():
@@ -139,10 +162,10 @@ def test_tcx_export_includes_scheduled_date():
 
 
 def test_tcx_export_all_templates():
-    for workout_type in WORKOUT_TEMPLATES:
-        xml_str, name = generate_zwo(workout_type, ftp=261)
+    for t in list_templates():
+        xml_str, name = generate_zwo(t["key"], ftp=261)
         tcx = zwo_to_tcx(xml_str, ftp=261, workout_name=name)
         root = ET.fromstring(tcx)
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
         workout = root.find(".//tcx:Workout", ns)
-        assert workout is not None, f"TCX export failed for {workout_type}"
+        assert workout is not None, f"TCX export failed for {t['key']}"

@@ -22,8 +22,16 @@ function initCalendar() {
         renderCalendar();
     });
 
-    document.getElementById('cal-refresh').addEventListener('click', () => {
-        renderCalendar();
+    document.getElementById('cal-refresh').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = '↻ Refreshing…';
+        try {
+            await renderCalendar();
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '&#x21bb; Refresh';
+        }
     });
 }
 

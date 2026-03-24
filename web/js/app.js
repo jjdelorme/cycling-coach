@@ -234,15 +234,69 @@ async function loadAnalysis() {
 // Plan
 async function loadPlan() {
     try {
-        const [phases, compliance] = await Promise.all([
+        const [phases, compliance, templates] = await Promise.all([
             api('/api/plan/macro'),
             api('/api/plan/compliance'),
+            api('/api/plan/templates'),
         ]);
         drawGantt(phases);
         renderCompliance(compliance);
+        renderTemplates(templates);
+        initTemplateFilters(templates);
     } catch (e) {
         console.error('Plan error:', e);
     }
+}
+
+function renderTemplates(templates, filter = '') {
+    const container = document.getElementById('templates-list');
+    const filtered = filter ? templates.filter(t => t.category === filter) : templates;
+
+    if (!filtered.length) {
+        container.innerHTML = '<p style="color:var(--text-muted);">No templates found.</p>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(t => {
+        const totalS = t.steps.reduce((sum, s) => {
+            if (s.type === 'Intervals' || s.type === 'IntervalsT')
+                return sum + (s.repeat || 1) * ((s.on_duration_seconds || 0) + (s.off_duration_seconds || 0));
+            return sum + (s.duration_seconds || 0);
+        }, 0);
+        const durMin = Math.round(totalS / 60);
+
+        const stepsHtml = t.steps.map(s => {
+            if (s.type === 'Intervals' || s.type === 'IntervalsT') {
+                return `<div class="step-row"><span>${s.repeat}x Intervals</span><span>${Math.round(s.on_duration_seconds/60)}min on @ ${Math.round(s.on_power*100)}% / ${Math.round(s.off_duration_seconds/60)}min off</span></div>`;
+            } else if (s.type === 'Warmup' || s.type === 'Cooldown') {
+                return `<div class="step-row"><span>${s.type}</span><span>${Math.round((s.duration_seconds||0)/60)}min ${Math.round(s.power_low*100)}-${Math.round(s.power_high*100)}%</span></div>`;
+            } else {
+                const dur = s.duration_seconds ? `${Math.round(s.duration_seconds/60)}min` : 'fill';
+                return `<div class="step-row"><span>Steady</span><span>${dur} @ ${Math.round(s.power*100)}% FTP</span></div>`;
+            }
+        }).join('');
+
+        return `<div class="template-card">
+            <h4>${t.name}</h4>
+            <div class="template-meta">
+                <span class="template-badge">${t.category}</span>
+                <span>${durMin > 0 ? durMin + 'min' : 'variable'}</span>
+                <span>${t.source}</span>
+            </div>
+            <div class="template-desc">${t.description || ''}</div>
+            <div class="template-steps">${stepsHtml}</div>
+        </div>`;
+    }).join('');
+}
+
+function initTemplateFilters(templates) {
+    document.querySelectorAll('.template-filter').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.template-filter').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderTemplates(templates, btn.dataset.cat);
+        });
+    });
 }
 
 function drawGantt(phases) {

@@ -1,128 +1,129 @@
-"""Generate ZWO workout files based on current FTP."""
+"""Generate ZWO workout files from database templates or custom step definitions."""
 
+import json
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
-WORKOUT_TEMPLATES = {
-    "z2_endurance": {
-        "name": "Z2 Endurance",
-        "description": "Steady aerobic endurance ride. Keep power in Z2 (65-75% FTP).",
-        "intervals": [
-            {"type": "Warmup", "duration": 600, "power_low": 0.40, "power_high": 0.65},
-            {"type": "SteadyState", "duration": None, "power": 0.65},  # duration set by caller
-            {"type": "Cooldown", "duration": 300, "power_low": 0.65, "power_high": 0.40},
-        ],
-    },
-    "threshold_2x20": {
-        "name": "2x20 Threshold",
-        "description": "Two 20-minute intervals at FTP. Key workout for building sustained power.",
-        "intervals": [
-            {"type": "Warmup", "duration": 600, "power_low": 0.40, "power_high": 0.75},
-            {"type": "SteadyState", "duration": 1200, "power": 1.00},
-            {"type": "SteadyState", "duration": 300, "power": 0.50},
-            {"type": "SteadyState", "duration": 1200, "power": 1.00},
-            {"type": "Cooldown", "duration": 600, "power_low": 0.65, "power_high": 0.40},
-        ],
-    },
-    "sweetspot_3x15": {
-        "name": "3x15 Sweet Spot",
-        "description": "Three 15-minute intervals at 88-93% FTP. High training stress with manageable fatigue.",
-        "intervals": [
-            {"type": "Warmup", "duration": 600, "power_low": 0.40, "power_high": 0.75},
-            {"type": "SteadyState", "duration": 900, "power": 0.90},
-            {"type": "SteadyState", "duration": 300, "power": 0.50},
-            {"type": "SteadyState", "duration": 900, "power": 0.90},
-            {"type": "SteadyState", "duration": 300, "power": 0.50},
-            {"type": "SteadyState", "duration": 900, "power": 0.90},
-            {"type": "Cooldown", "duration": 600, "power_low": 0.65, "power_high": 0.40},
-        ],
-    },
-    "vo2max_4x4": {
-        "name": "4x4min VO2max",
-        "description": "Four 4-minute intervals at 115-120% FTP. Builds aerobic ceiling.",
-        "intervals": [
-            {"type": "Warmup", "duration": 600, "power_low": 0.40, "power_high": 0.75},
-            {"type": "IntervalsT", "repeat": 4, "on_duration": 240, "off_duration": 240, "on_power": 1.18, "off_power": 0.50},
-            {"type": "Cooldown", "duration": 600, "power_low": 0.65, "power_high": 0.40},
-        ],
-    },
-    "race_simulation": {
-        "name": "Race Simulation",
-        "description": "Variable-terrain simulation with surges. Mimics MTB race demands.",
-        "intervals": [
-            {"type": "Warmup", "duration": 600, "power_low": 0.40, "power_high": 0.65},
-            {"type": "SteadyState", "duration": 600, "power": 0.75},
-            {"type": "SteadyState", "duration": 180, "power": 1.10},
-            {"type": "SteadyState", "duration": 300, "power": 0.65},
-            {"type": "SteadyState", "duration": 240, "power": 1.15},
-            {"type": "SteadyState", "duration": 600, "power": 0.70},
-            {"type": "SteadyState", "duration": 300, "power": 1.05},
-            {"type": "SteadyState", "duration": 300, "power": 0.55},
-            {"type": "SteadyState", "duration": 180, "power": 1.20},
-            {"type": "SteadyState", "duration": 600, "power": 0.65},
-            {"type": "Cooldown", "duration": 300, "power_low": 0.65, "power_high": 0.40},
-        ],
-    },
-    "recovery": {
-        "name": "Recovery Spin",
-        "description": "Easy recovery ride. Keep it in Z1, legs spinning, no effort.",
-        "intervals": [
-            {"type": "SteadyState", "duration": None, "power": 0.45},
-        ],
-    },
-}
 
+def get_template(key):
+    """Look up a workout template by key from the database.
 
-def generate_zwo(workout_type, duration_minutes=60, ftp=261):
-    """Generate a ZWO XML string for the given workout type.
-
-    Args:
-        workout_type: Key from WORKOUT_TEMPLATES
-        duration_minutes: Target duration for endurance/recovery workouts
-        ftp: Current FTP (used in description, not in ZWO power which is FTP-relative)
-
-    Returns:
-        Tuple of (xml_string, workout_name)
+    Returns dict with: key, name, description, category, steps (parsed from JSON), source.
+    Returns None if not found.
     """
-    template = WORKOUT_TEMPLATES.get(workout_type)
-    if not template:
-        raise ValueError(f"Unknown workout type: {workout_type}. Available: {list(WORKOUT_TEMPLATES.keys())}")
+    from server.database import get_db
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM workout_templates WHERE key = ?", (key,)
+        ).fetchone()
+    if not row:
+        return None
+    t = dict(row)
+    t["steps"] = json.loads(t["steps"])
+    return t
 
+
+def list_templates():
+    """List all workout templates from the database.
+
+    Returns list of dicts with: id, key, name, description, category, source, created_at.
+    Steps are parsed from JSON.
+    """
+    from server.database import get_db
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM workout_templates ORDER BY category, name"
+        ).fetchall()
+    results = []
+    for row in rows:
+        t = dict(row)
+        t["steps"] = json.loads(t["steps"])
+        results.append(t)
+    return results
+
+
+def _build_zwo_xml(name, description, steps, ftp, duration_minutes=None):
+    """Build ZWO XML from a list of step dicts.
+
+    Steps use the unified format:
+    - Warmup/Cooldown: duration_seconds, power_low, power_high
+    - SteadyState: duration_seconds (None = fill remaining time), power
+    - Intervals: repeat, on_duration_seconds, off_duration_seconds, on_power, off_power
+    """
     root = ET.Element("workout_file")
     ET.SubElement(root, "author").text = "Cycling Coach"
-    ET.SubElement(root, "name").text = template["name"]
-    ET.SubElement(root, "description").text = template["description"] + f"\nFTP: {ftp}w"
+    ET.SubElement(root, "name").text = name
+    ET.SubElement(root, "description").text = (description or "") + f"\nFTP: {ftp}w"
     ET.SubElement(root, "sportType").text = "bike"
 
     workout = ET.SubElement(root, "workout")
 
-    for interval in template["intervals"]:
-        itype = interval["type"]
+    for step in steps:
+        stype = step["type"]
 
-        if itype == "IntervalsT":
+        if stype == "Intervals" or stype == "IntervalsT":
             el = ET.SubElement(workout, "IntervalsT")
-            el.set("Repeat", str(interval["repeat"]))
-            el.set("OnDuration", str(interval["on_duration"]))
-            el.set("OffDuration", str(interval["off_duration"]))
-            el.set("OnPower", str(interval["on_power"]))
-            el.set("OffPower", str(interval["off_power"]))
-        elif itype in ("Warmup", "Cooldown"):
-            el = ET.SubElement(workout, itype)
-            el.set("Duration", str(interval["duration"]))
-            el.set("PowerLow", str(interval["power_low"]))
-            el.set("PowerHigh", str(interval["power_high"]))
-        else:  # SteadyState
+            el.set("Repeat", str(step.get("repeat", step.get("Repeat", 1))))
+            el.set("OnDuration", str(step.get("on_duration_seconds", step.get("on_duration", 0))))
+            el.set("OffDuration", str(step.get("off_duration_seconds", step.get("off_duration", 0))))
+            el.set("OnPower", str(step.get("on_power", 1.0)))
+            el.set("OffPower", str(step.get("off_power", 0.5)))
+        elif stype in ("Warmup", "Cooldown"):
+            el = ET.SubElement(workout, stype)
+            el.set("Duration", str(step.get("duration_seconds", step.get("duration", 0))))
+            el.set("PowerLow", str(step.get("power_low", 0.4)))
+            el.set("PowerHigh", str(step.get("power_high", 0.65)))
+        elif stype == "SteadyState":
             el = ET.SubElement(workout, "SteadyState")
-            duration = interval["duration"] or (duration_minutes * 60 - 900)  # subtract warmup/cooldown
-            if duration < 60:
-                duration = 60
-            el.set("Duration", str(duration))
-            el.set("Power", str(interval["power"]))
+            dur = step.get("duration_seconds", step.get("duration"))
+            if dur is None and duration_minutes:
+                # Fill remaining time (subtract warmup/cooldown)
+                dur = duration_minutes * 60 - 900
+                if dur < 60:
+                    dur = 60
+            elif dur is None:
+                dur = 1800  # default 30min
+            el.set("Duration", str(dur))
+            el.set("Power", str(step.get("power", 0.65)))
 
     xml_str = minidom.parseString(ET.tostring(root, encoding="unicode")).toprettyxml(indent="  ")
-    # Remove XML declaration
     lines = xml_str.split("\n")
     if lines[0].startswith("<?xml"):
         xml_str = "\n".join(lines[1:])
 
-    return xml_str.strip(), template["name"]
+    return xml_str.strip()
+
+
+def generate_zwo(template_key, duration_minutes=60, ftp=261):
+    """Generate a ZWO XML string from a database template.
+
+    Args:
+        template_key: Key from workout_templates table.
+        duration_minutes: Target duration for endurance/recovery workouts.
+        ftp: Current FTP.
+
+    Returns:
+        Tuple of (xml_string, workout_name)
+    """
+    tmpl = get_template(template_key)
+    if not tmpl:
+        raise ValueError(f"Unknown workout template: {template_key}")
+
+    xml_str = _build_zwo_xml(tmpl["name"], tmpl["description"], tmpl["steps"], ftp, duration_minutes)
+    return xml_str, tmpl["name"]
+
+
+def generate_custom_zwo(name, description, steps, ftp=261):
+    """Generate a ZWO XML string from custom step definitions.
+
+    Args:
+        name: Workout name.
+        description: Coaching notes.
+        steps: List of step dicts (see _build_zwo_xml for format).
+        ftp: Current FTP.
+
+    Returns:
+        Tuple of (xml_string, workout_name)
+    """
+    xml_str = _build_zwo_xml(name, description, steps, ftp)
+    return xml_str, name

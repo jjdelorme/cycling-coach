@@ -140,6 +140,17 @@ CREATE TABLE IF NOT EXISTS coach_settings (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS workout_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    category TEXT DEFAULT 'general',
+    steps TEXT NOT NULL,
+    source TEXT DEFAULT 'built-in',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
@@ -169,6 +180,14 @@ DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
 - Keep responses concise - this athlete wants coaching, not lectures"""
 
 DEFAULT_PLAN_MANAGEMENT = """- You can generate weekly training plans using generate_weekly_plan
+- You can replace a single day's workout using replace_workout — use this when the athlete wants to change one day without affecting the rest of the week
+  - For standard workouts, use template mode (workout_type) — use list_workout_templates to see what's available
+  - For specific prescriptions, use custom mode (name + description + steps) to design the exact intervals, power targets, and durations
+  - Always include coaching notes in the description: RPE cues, cadence targets, terrain suggestions, what to focus on
+- You can browse and manage workout templates using list_workout_templates and save_workout_template
+  - If the athlete likes a workout, offer to save it as a reusable template with save_workout_template
+  - You can create templates from scratch or extract them from existing planned workouts (from_workout_id)
+  - Templates are stored in the database and available for future use
 - You can reschedule missed workouts using replan_missed_day
 - You can adjust periodization phases using adjust_phase
 - After adjusting phases, ASK the athlete if they want you to regenerate workouts for the affected dates
@@ -230,8 +249,105 @@ def init_db(db_path=None):
     conn = sqlite3.connect(path)
     conn.executescript(SCHEMA)
     conn.commit()
+    _seed_workout_templates(conn)
     conn.close()
     return path
+
+
+def _seed_workout_templates(conn):
+    """Seed built-in workout templates if the table is empty."""
+    import json
+    count = conn.execute("SELECT COUNT(*) as cnt FROM workout_templates").fetchone()[0]
+    if count > 0:
+        return
+
+    templates = [
+        {
+            "key": "z2_endurance",
+            "name": "Z2 Endurance",
+            "description": "Steady aerobic endurance ride. Keep power in Z2 (65-75% FTP).",
+            "category": "base",
+            "steps": [
+                {"type": "Warmup", "duration_seconds": 600, "power_low": 0.40, "power_high": 0.65},
+                {"type": "SteadyState", "duration_seconds": None, "power": 0.65},
+                {"type": "Cooldown", "duration_seconds": 300, "power_low": 0.65, "power_high": 0.40},
+            ],
+        },
+        {
+            "key": "threshold_2x20",
+            "name": "2x20 Threshold",
+            "description": "Two 20-minute intervals at FTP. Key workout for building sustained power.",
+            "category": "build",
+            "steps": [
+                {"type": "Warmup", "duration_seconds": 600, "power_low": 0.40, "power_high": 0.75},
+                {"type": "SteadyState", "duration_seconds": 1200, "power": 1.00},
+                {"type": "SteadyState", "duration_seconds": 300, "power": 0.50},
+                {"type": "SteadyState", "duration_seconds": 1200, "power": 1.00},
+                {"type": "Cooldown", "duration_seconds": 600, "power_low": 0.65, "power_high": 0.40},
+            ],
+        },
+        {
+            "key": "sweetspot_3x15",
+            "name": "3x15 Sweet Spot",
+            "description": "Three 15-minute intervals at 88-93% FTP. High training stress with manageable fatigue.",
+            "category": "build",
+            "steps": [
+                {"type": "Warmup", "duration_seconds": 600, "power_low": 0.40, "power_high": 0.75},
+                {"type": "SteadyState", "duration_seconds": 900, "power": 0.90},
+                {"type": "SteadyState", "duration_seconds": 300, "power": 0.50},
+                {"type": "SteadyState", "duration_seconds": 900, "power": 0.90},
+                {"type": "SteadyState", "duration_seconds": 300, "power": 0.50},
+                {"type": "SteadyState", "duration_seconds": 900, "power": 0.90},
+                {"type": "Cooldown", "duration_seconds": 600, "power_low": 0.65, "power_high": 0.40},
+            ],
+        },
+        {
+            "key": "vo2max_4x4",
+            "name": "4x4min VO2max",
+            "description": "Four 4-minute intervals at 115-120% FTP. Builds aerobic ceiling.",
+            "category": "peak",
+            "steps": [
+                {"type": "Warmup", "duration_seconds": 600, "power_low": 0.40, "power_high": 0.75},
+                {"type": "Intervals", "repeat": 4, "on_duration_seconds": 240, "off_duration_seconds": 240, "on_power": 1.18, "off_power": 0.50},
+                {"type": "Cooldown", "duration_seconds": 600, "power_low": 0.65, "power_high": 0.40},
+            ],
+        },
+        {
+            "key": "race_simulation",
+            "name": "Race Simulation",
+            "description": "Variable-terrain simulation with surges. Mimics MTB race demands.",
+            "category": "peak",
+            "steps": [
+                {"type": "Warmup", "duration_seconds": 600, "power_low": 0.40, "power_high": 0.65},
+                {"type": "SteadyState", "duration_seconds": 600, "power": 0.75},
+                {"type": "SteadyState", "duration_seconds": 180, "power": 1.10},
+                {"type": "SteadyState", "duration_seconds": 300, "power": 0.65},
+                {"type": "SteadyState", "duration_seconds": 240, "power": 1.15},
+                {"type": "SteadyState", "duration_seconds": 600, "power": 0.70},
+                {"type": "SteadyState", "duration_seconds": 300, "power": 1.05},
+                {"type": "SteadyState", "duration_seconds": 300, "power": 0.55},
+                {"type": "SteadyState", "duration_seconds": 180, "power": 1.20},
+                {"type": "SteadyState", "duration_seconds": 600, "power": 0.65},
+                {"type": "Cooldown", "duration_seconds": 300, "power_low": 0.65, "power_high": 0.40},
+            ],
+        },
+        {
+            "key": "recovery",
+            "name": "Recovery Spin",
+            "description": "Easy recovery ride. Keep it in Z1, legs spinning, no effort.",
+            "category": "recovery",
+            "steps": [
+                {"type": "SteadyState", "duration_seconds": None, "power": 0.45},
+            ],
+        },
+    ]
+
+    for t in templates:
+        conn.execute(
+            "INSERT INTO workout_templates (key, name, description, category, steps, source) VALUES (?, ?, ?, ?, ?, ?)",
+            (t["key"], t["name"], t["description"], t["category"], json.dumps(t["steps"]), "built-in"),
+        )
+    conn.commit()
 
 
 def get_connection(db_path=None):
