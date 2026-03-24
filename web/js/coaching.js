@@ -84,6 +84,11 @@ async function sendMessage() {
         sessionId = resp.session_id;
         thinking.remove();
         addMessage('assistant', resp.response);
+
+        // Auto-refresh calendar if coach likely modified workouts
+        if (typeof refreshCalendar === 'function') {
+            refreshCalendar();
+        }
     } catch (e) {
         thinking.remove();
         addMessage('assistant', 'Sorry, I had trouble processing that. Error: ' + e.message);

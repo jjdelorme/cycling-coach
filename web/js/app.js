@@ -45,15 +45,29 @@ document.querySelectorAll('.analysis-tab').forEach(tab => {
 const loaded = {};
 
 function loadSection(name) {
+    // Calendar always refreshes; others load once
+    if (name === 'calendar') {
+        if (!loaded[name]) {
+            loaded[name] = true;
+            initCalendar();
+        } else {
+            renderCalendar();
+        }
+        return;
+    }
     if (loaded[name]) return;
     loaded[name] = true;
     switch (name) {
         case 'dashboard': loadDashboard(); break;
-        case 'calendar': initCalendar(); break;
         case 'rides': loadRides(); break;
         case 'analysis': loadAnalysis(); break;
         case 'plan': loadPlan(); break;
-        // Coach is now a panel, not a section
+    }
+}
+
+function refreshCalendar() {
+    if (loaded['calendar']) {
+        renderCalendar();
     }
 }
 

@@ -21,6 +21,10 @@ function initCalendar() {
         if (calMonth > 11) { calMonth = 0; calYear++; }
         renderCalendar();
     });
+
+    document.getElementById('cal-refresh').addEventListener('click', () => {
+        renderCalendar();
+    });
 }
 
 async function renderCalendar() {
