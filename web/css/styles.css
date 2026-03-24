@@ -1,0 +1,314 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --green: #00d4aa;
+    --yellow: #f5c518;
+    --red: #e94560;
+    --text: #eee;
+    --text-muted: #999;
+    --border: #2a2a4a;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+}
+
+header {
+    background: var(--surface);
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+}
+
+header h1 { font-size: 1.3rem; white-space: nowrap; }
+
+nav { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.nav-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.nav-btn:hover { color: var(--text); border-color: var(--text-muted); }
+.nav-btn.active { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+
+main { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
+
+.section { display: none; }
+.section.active { display: block; }
+
+/* Metrics cards */
+.metrics-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    min-width: 140px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.metric-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.metric-value { font-size: 1.5rem; font-weight: 700; }
+
+.metric-card.green .metric-value { color: var(--green); }
+.metric-card.yellow .metric-value { color: var(--yellow); }
+.metric-card.red .metric-value { color: var(--red); }
+
+/* Charts */
+.chart-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+.chart-container h3 { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+.chart-container canvas { max-height: 350px; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; }
+th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+th { background: var(--surface2); color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; }
+tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
+
+/* Filters */
+.filters {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.filters input, .filters select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+.filters button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+/* Calendar */
+.calendar-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+.calendar-controls button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+#cal-month-label { font-size: 1.1rem; font-weight: 600; }
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    margin-bottom: 1rem;
+}
+
+.cal-header {
+    background: var(--surface2);
+    padding: 0.4rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.cal-day {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 0.4rem;
+    min-height: 70px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    position: relative;
+}
+.cal-day:hover { border-color: var(--accent); }
+.cal-day.empty { background: transparent; border: none; cursor: default; }
+.cal-day .day-num { font-weight: 600; margin-bottom: 0.2rem; }
+.cal-day .day-ride { font-size: 0.65rem; color: var(--green); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-day .day-planned { font-size: 0.65rem; color: var(--yellow); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-day .day-tss { font-size: 0.65rem; color: var(--text-muted); }
+
+.day-detail {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    display: none;
+}
+.day-detail.visible { display: block; }
+
+/* Ride detail panel */
+.ride-detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+}
+.ride-detail-panel button {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    float: right;
+}
+.ride-detail-metrics {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+}
+
+/* Analysis tabs */
+.analysis-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.analysis-tab {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.analysis-tab.active { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+.analysis-panel { display: none; }
+.analysis-panel.active { display: block; }
+
+/* Gantt chart */
+.gantt-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+}
+.gantt-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+.gantt-label {
+    min-width: 120px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.gantt-bar-container { flex: 1; position: relative; height: 28px; }
+.gantt-bar {
+    position: absolute;
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding: 0 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: white;
+    white-space: nowrap;
+}
+
+/* Chat */
+.chat-messages {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    min-height: 400px;
+    max-height: 60vh;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+}
+.chat-msg {
+    margin-bottom: 1rem;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    max-width: 80%;
+    white-space: pre-wrap;
+}
+.chat-msg.user { background: var(--surface2); margin-left: auto; text-align: right; }
+.chat-msg.assistant { background: rgba(0, 212, 170, 0.1); border: 1px solid rgba(0, 212, 170, 0.2); }
+.chat-msg.thinking { color: var(--text-muted); font-style: italic; }
+
+.chat-input-row {
+    display: flex;
+    gap: 0.5rem;
+}
+#chat-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.6rem;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    resize: vertical;
+}
+#chat-send {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0.6rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    align-self: flex-end;
+}
+#chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    header { flex-direction: column; gap: 0.5rem; padding: 0.8rem 1rem; }
+    main { padding: 1rem; }
+    .metrics-row { flex-direction: column; }
+    .metric-card { min-width: auto; }
+    .chat-msg { max-width: 95%; }
+}

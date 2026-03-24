@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cycling Coach</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Cycling Coach</h1>
+        <nav>
+            <button class="nav-btn active" data-section="dashboard">Dashboard</button>
+            <button class="nav-btn" data-section="calendar">Calendar</button>
+            <button class="nav-btn" data-section="rides">Rides</button>
+            <button class="nav-btn" data-section="analysis">Analysis</button>
+            <button class="nav-btn" data-section="plan">Plan</button>
+            <button class="nav-btn" data-section="coach">Coach</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Dashboard -->
+        <section id="dashboard" class="section active">
+            <div class="metrics-row">
+                <div class="metric-card" id="ctl-card">
+                    <span class="metric-label">CTL (Fitness)</span>
+                    <span class="metric-value" id="ctl-value">--</span>
+                </div>
+                <div class="metric-card" id="atl-card">
+                    <span class="metric-label">ATL (Fatigue)</span>
+                    <span class="metric-value" id="atl-value">--</span>
+                </div>
+                <div class="metric-card" id="tsb-card">
+                    <span class="metric-label">TSB (Form)</span>
+                    <span class="metric-value" id="tsb-value">--</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">FTP</span>
+                    <span class="metric-value" id="ftp-value">--</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">W/kg</span>
+                    <span class="metric-value" id="wkg-value">--</span>
+                </div>
+            </div>
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <span class="metric-label">This Week</span>
+                    <span class="metric-value" id="week-summary">--</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">Current Phase</span>
+                    <span class="metric-value" id="current-phase">--</span>
+                </div>
+            </div>
+            <div class="chart-container">
+                <h3>Performance Management Chart</h3>
+                <canvas id="pmc-chart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Monthly Volume</h3>
+                <canvas id="monthly-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- Calendar -->
+        <section id="calendar" class="section">
+            <div class="calendar-controls">
+                <button id="cal-prev">&lt;</button>
+                <span id="cal-month-label"></span>
+                <button id="cal-next">&gt;</button>
+            </div>
+            <div id="calendar-grid" class="calendar-grid"></div>
+            <div id="day-detail" class="day-detail"></div>
+        </section>
+
+        <!-- Rides -->
+        <section id="rides" class="section">
+            <div class="filters">
+                <input type="date" id="rides-start" placeholder="Start">
+                <input type="date" id="rides-end" placeholder="End">
+                <select id="rides-sport">
+                    <option value="">All Sports</option>
+                    <option value="mountain">Mountain</option>
+                    <option value="road">Road</option>
+                    <option value="indoor_cycling">Indoor</option>
+                    <option value="gravel">Gravel</option>
+                </select>
+                <button id="rides-filter-btn">Filter</button>
+            </div>
+            <table id="rides-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Sport</th>
+                        <th>Duration</th>
+                        <th>Distance</th>
+                        <th>TSS</th>
+                        <th>Avg Power</th>
+                        <th>NP</th>
+                        <th>Avg HR</th>
+                        <th>Ascent</th>
+                    </tr>
+                </thead>
+                <tbody id="rides-tbody"></tbody>
+            </table>
+            <div id="ride-detail-panel" class="ride-detail-panel" style="display:none;">
+                <button id="close-ride-detail">Close</button>
+                <h3 id="ride-detail-title"></h3>
+                <div class="ride-detail-metrics" id="ride-detail-metrics"></div>
+                <div class="chart-container">
+                    <canvas id="ride-power-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="ride-hr-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Analysis -->
+        <section id="analysis" class="section">
+            <div class="analysis-tabs">
+                <button class="analysis-tab active" data-tab="power-curve">Power Curve</button>
+                <button class="analysis-tab" data-tab="efficiency">Efficiency</button>
+                <button class="analysis-tab" data-tab="zones">Zones</button>
+                <button class="analysis-tab" data-tab="ftp-hist">FTP History</button>
+            </div>
+            <div id="analysis-power-curve" class="analysis-panel active">
+                <div class="chart-container"><canvas id="power-curve-chart"></canvas></div>
+            </div>
+            <div id="analysis-efficiency" class="analysis-panel">
+                <div class="chart-container"><canvas id="ef-chart"></canvas></div>
+            </div>
+            <div id="analysis-zones" class="analysis-panel">
+                <div class="chart-container"><canvas id="zones-chart"></canvas></div>
+            </div>
+            <div id="analysis-ftp-hist" class="analysis-panel">
+                <div class="chart-container"><canvas id="ftp-chart"></canvas></div>
+            </div>
+        </section>
+
+        <!-- Plan -->
+        <section id="plan" class="section">
+            <h3>Periodization</h3>
+            <div id="periodization-gantt" class="gantt-container"></div>
+            <h3>Plan Compliance</h3>
+            <div id="compliance-stats" class="metrics-row"></div>
+        </section>
+
+        <!-- Coach -->
+        <section id="coach" class="section">
+            <div id="chat-messages" class="chat-messages"></div>
+            <div class="chat-input-row">
+                <textarea id="chat-input" placeholder="Ask your coach..." rows="2"></textarea>
+                <button id="chat-send">Send</button>
+            </div>
+        </section>
+    </main>
+
+    <script src="/js/app.js"></script>
+    <script src="/js/charts.js"></script>
+    <script src="/js/calendar.js"></script>
+    <script src="/js/coaching.js"></script>
+</body>
+</html>
