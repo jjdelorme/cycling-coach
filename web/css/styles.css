@@ -209,6 +209,55 @@ main {
 .chat-msg.assistant { background: rgba(0, 212, 170, 0.08); border: 1px solid rgba(0, 212, 170, 0.15); }
 .chat-msg.thinking { color: var(--text-muted); font-style: italic; }
 
+/* Markdown inside assistant messages */
+.chat-msg.assistant p { margin: 0.3rem 0; }
+.chat-msg.assistant p:first-child { margin-top: 0; }
+.chat-msg.assistant p:last-child { margin-bottom: 0; }
+.chat-msg.assistant strong { color: var(--green); }
+.chat-msg.assistant em { color: var(--yellow); }
+.chat-msg.assistant ul, .chat-msg.assistant ol { margin: 0.3rem 0; padding-left: 1.2rem; }
+.chat-msg.assistant li { margin: 0.15rem 0; }
+.chat-msg.assistant code {
+    background: var(--bg);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+}
+.chat-msg.assistant pre {
+    background: var(--bg);
+    padding: 0.5rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.3rem 0;
+}
+.chat-msg.assistant pre code { padding: 0; background: none; }
+.chat-msg.assistant table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.4rem 0;
+    font-size: 0.8rem;
+}
+.chat-msg.assistant th, .chat-msg.assistant td {
+    border: 1px solid var(--border);
+    padding: 0.3rem 0.5rem;
+    text-align: left;
+}
+.chat-msg.assistant th { background: var(--surface2); font-weight: 600; }
+.chat-msg.assistant h1, .chat-msg.assistant h2, .chat-msg.assistant h3,
+.chat-msg.assistant h4, .chat-msg.assistant h5, .chat-msg.assistant h6 {
+    margin: 0.4rem 0 0.2rem;
+    font-size: 0.9rem;
+    color: var(--green);
+}
+.chat-msg.assistant hr { border: none; border-top: 1px solid var(--border); margin: 0.4rem 0; }
+.chat-msg.assistant blockquote {
+    border-left: 3px solid var(--green);
+    margin: 0.3rem 0;
+    padding: 0.2rem 0.6rem;
+    color: var(--text-muted);
+}
+.chat-msg.assistant a { color: var(--green); text-decoration: underline; }
+
 #chat-input {
     flex: 1;
     background: var(--bg);

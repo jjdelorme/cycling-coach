@@ -56,7 +56,11 @@ function addMessage(role, text) {
     const container = document.getElementById('chat-messages');
     const div = document.createElement('div');
     div.className = `chat-msg ${role}`;
-    div.textContent = text;
+    if (role === 'assistant' && typeof marked !== 'undefined') {
+        div.innerHTML = marked.parse(text);
+    } else {
+        div.textContent = text;
+    }
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
     return div;
@@ -73,8 +77,8 @@ async function sendMessage() {
 
     const sendBtn = document.getElementById('chat-send');
     sendBtn.disabled = true;
-    const thinking = addMessage('assistant', 'Thinking...');
-    thinking.classList.add('thinking');
+    const thinking = addMessage('thinking', 'Thinking...');
+    thinking.classList.add('assistant', 'thinking');
 
     try {
         const resp = await apiPost('/api/coaching/chat', {
