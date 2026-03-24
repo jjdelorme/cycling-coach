@@ -5,6 +5,53 @@
 let sessionId = null;
 let coachInitialized = false;
 let sessionListVisible = false;
+let templateCache = null;
+
+async function loadTemplateCache() {
+    if (templateCache) return templateCache;
+    try {
+        templateCache = await api('/api/plan/templates');
+    } catch (e) {
+        templateCache = [];
+    }
+    return templateCache;
+}
+
+function linkifyTemplateNames(html) {
+    if (!templateCache || templateCache.length === 0) return html;
+    // Sort by name length descending to match longer names first
+    const sorted = [...templateCache].sort((a, b) => b.name.length - a.name.length);
+    // Parse HTML, replace text nodes only (skip existing links)
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    function walkTextNodes(node) {
+        if (node.nodeType === 3) {
+            for (const t of sorted) {
+                if (node.textContent.includes(t.name)) {
+                    const parts = node.textContent.split(t.name);
+                    const frag = document.createDocumentFragment();
+                    parts.forEach((part, i) => {
+                        if (part) frag.appendChild(document.createTextNode(part));
+                        if (i < parts.length - 1) {
+                            const a = document.createElement('a');
+                            a.href = '#';
+                            a.className = 'template-link';
+                            a.textContent = t.name;
+                            a.setAttribute('onclick', `event.preventDefault();showTemplateDetail(${t.id})`);
+                            frag.appendChild(a);
+                        }
+                    });
+                    node.parentNode.replaceChild(frag, node);
+                    return;
+                }
+            }
+        } else if (node.nodeType === 1 && node.tagName !== 'A') {
+            [...node.childNodes].forEach(walkTextNodes);
+        }
+    }
+    walkTextNodes(tmp);
+    return tmp.innerHTML;
+}
 
 function initCoachPanel() {
     const toggleBtn = document.getElementById('coach-toggle');
@@ -44,6 +91,7 @@ function toggleCoachPanel(forceState) {
 
     if (isOpen && !coachInitialized) {
         coachInitialized = true;
+        loadTemplateCache();
         addMessage('assistant', 'Hey! I\'m your cycling coach. Ask me anything about your training, upcoming workouts, or race prep for Big Sky Biggie. I can see the same data you\'re looking at.');
     }
 
@@ -57,7 +105,9 @@ function addMessage(role, text) {
     const div = document.createElement('div');
     div.className = `chat-msg ${role}`;
     if (role === 'assistant' && typeof marked !== 'undefined') {
-        div.innerHTML = marked.parse(text);
+        let html = marked.parse(text);
+        html = linkifyTemplateNames(html);
+        div.innerHTML = html;
     } else {
         div.textContent = text;
     }

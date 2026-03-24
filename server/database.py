@@ -179,7 +179,8 @@ DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
 - If asked about the plan, check the periodization status tool
 - Keep responses concise - this athlete wants coaching, not lectures"""
 
-DEFAULT_PLAN_MANAGEMENT = """- You can generate weekly training plans using generate_weekly_plan
+DEFAULT_PLAN_MANAGEMENT = """- CRITICAL: When you recommend changing, swapping, or adjusting a workout, you MUST call replace_workout to persist the change to the database. Never just verbally recommend a different workout without updating the plan. The calendar and all other views read from the database — if you don't call the tool, your advice will contradict what the athlete sees everywhere else.
+- You can generate weekly training plans using generate_weekly_plan
 - You can replace a single day's workout using replace_workout — use this when the athlete wants to change one day without affecting the rest of the week
   - For standard workouts, use template mode (workout_type) — use list_workout_templates to see what's available
   - For specific prescriptions, use custom mode (name + description + steps) to design the exact intervals, power targets, and durations

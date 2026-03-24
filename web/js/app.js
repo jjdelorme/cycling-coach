@@ -26,9 +26,11 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
         document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
         btn.classList.add('active');
-        const section = document.getElementById(btn.dataset.section);
+        const name = btn.dataset.section;
+        const section = document.getElementById(name);
         section.classList.add('active');
-        loadSection(btn.dataset.section);
+        closeWorkoutDetail();
+        loadSection(name);
     });
 });
 
@@ -233,19 +235,20 @@ async function loadAnalysis() {
 
 // Plan
 async function loadPlan() {
-    try {
-        const [phases, compliance, templates] = await Promise.all([
-            api('/api/plan/macro'),
-            api('/api/plan/compliance'),
-            api('/api/plan/templates'),
-        ]);
-        drawGantt(phases);
-        renderCompliance(compliance);
-        renderTemplates(templates);
-        initTemplateFilters(templates);
-    } catch (e) {
-        console.error('Plan error:', e);
-    }
+    const results = await Promise.allSettled([
+        api('/api/plan/macro'),
+        api('/api/plan/compliance'),
+        api('/api/plan/templates'),
+    ]);
+
+    const phases = results[0].status === 'fulfilled' ? results[0].value : [];
+    const compliance = results[1].status === 'fulfilled' ? results[1].value : null;
+    const templates = results[2].status === 'fulfilled' ? results[2].value : [];
+
+    try { drawGantt(phases); } catch (e) { console.error('Gantt error:', e); }
+    try { if (compliance) renderCompliance(compliance); } catch (e) { console.error('Compliance error:', e); }
+    try { renderTemplates(templates); } catch (e) { console.error('Templates render error:', e); }
+    try { initTemplateFilters(templates); } catch (e) { console.error('Template filters error:', e); }
 }
 
 function renderTemplates(templates, filter = '') {
@@ -276,7 +279,7 @@ function renderTemplates(templates, filter = '') {
             }
         }).join('');
 
-        return `<div class="template-card">
+        return `<div class="template-card" onclick="showTemplateDetail(${t.id})" style="cursor:pointer;" title="Click to view details">
             <h4>${t.name}</h4>
             <div class="template-meta">
                 <span class="template-badge">${t.category}</span>

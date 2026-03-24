@@ -735,6 +735,18 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
 .template-card .template-steps .step-row:last-child {
     border-bottom: none;
 }
+.template-card:hover {
+    border-color: var(--yellow);
+    transition: border-color 0.15s;
+}
+a.template-link {
+    color: var(--yellow);
+    text-decoration: underline;
+    cursor: pointer;
+}
+a.template-link:hover {
+    color: var(--text);
+}
 
 /* Responsive */
 @media (max-width: 768px) {

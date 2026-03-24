@@ -82,17 +82,6 @@
                 </div>
                 <div id="calendar-grid" class="calendar-grid"></div>
                 <div id="day-detail" class="day-detail"></div>
-                <div id="workout-detail" class="workout-detail-panel" style="display:none;">
-                    <div class="workout-detail-header">
-                        <h3 id="workout-detail-title"></h3>
-                    </div>
-                    <div class="workout-detail-summary" id="workout-detail-summary"></div>
-                    <div class="workout-chart-container">
-                        <canvas id="workout-profile-chart"></canvas>
-                    </div>
-                    <div id="workout-steps-table"></div>
-                    <div class="workout-detail-actions" id="workout-detail-actions"></div>
-                </div>
             </section>
 
             <!-- Rides -->
@@ -209,6 +198,19 @@
                     <span id="settings-status" style="margin-left:1rem;color:var(--green);display:none;">Saved!</span>
                 </div>
             </section>
+            <!-- Workout/Template Detail Viewer (shared across sections) -->
+            <div id="workout-detail" class="workout-detail-panel" style="display:none;">
+                <div class="workout-detail-header">
+                    <h3 id="workout-detail-title"></h3>
+                    <button onclick="closeWorkoutDetail()" class="btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.8rem;">Close</button>
+                </div>
+                <div class="workout-detail-summary" id="workout-detail-summary"></div>
+                <div class="workout-chart-container">
+                    <canvas id="workout-profile-chart"></canvas>
+                </div>
+                <div id="workout-steps-table"></div>
+                <div class="workout-detail-actions" id="workout-detail-actions"></div>
+            </div>
         </main>
 
         <!-- Coach Panel (slide-out right) -->

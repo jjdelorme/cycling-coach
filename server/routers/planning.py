@@ -119,7 +119,7 @@ def get_templates(category: Optional[str] = Query(None)):
 
 @router.get("/templates/{template_id}")
 def get_template_detail(template_id: int):
-    """Get a single workout template with parsed steps."""
+    """Get a single workout template with parsed steps in viewer-compatible format."""
     from server.database import get_db
     import json
     with get_db() as conn:
@@ -128,31 +128,17 @@ def get_template_detail(template_id: int):
         raise HTTPException(status_code=404, detail="Template not found")
 
     t = dict(row)
-    t["steps"] = json.loads(t["steps"])
+    raw_steps = json.loads(t["steps"])
 
     # Get FTP for absolute watts
     with get_db() as conn:
         ftp_row = conn.execute("SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1").fetchone()
     ftp = ftp_row["ftp"] if ftp_row else 261
 
-    # Compute total duration and enrich steps with watts
-    total_s = 0
-    enriched_steps = []
-    for s in t["steps"]:
-        step = dict(s)
-        if s["type"] in ("Intervals", "IntervalsT"):
-            dur = s.get("repeat", 1) * (s.get("on_duration_seconds", 0) + s.get("off_duration_seconds", 0))
-            step["on_power_watts"] = round(s.get("on_power", 1.0) * ftp)
-            step["off_power_watts"] = round(s.get("off_power", 0.5) * ftp)
-        elif s["type"] in ("Warmup", "Cooldown"):
-            dur = s.get("duration_seconds", 0)
-            step["power_low_watts"] = round(s.get("power_low", 0.4) * ftp)
-            step["power_high_watts"] = round(s.get("power_high", 0.65) * ftp)
-        else:
-            dur = s.get("duration_seconds", 0) or 0
-            step["power_watts"] = round(s.get("power", 0.65) * ftp)
-        total_s += dur
-        enriched_steps.append(step)
+    # Generate ZWO XML from template, then parse into viewer-compatible steps
+    xml_str, _ = generate_zwo(t["key"], duration_minutes=60, ftp=ftp)
+    steps = _parse_zwo_steps(xml_str, ftp)
+    total_s = sum(s["duration_s"] for s in steps)
 
     return {
         "id": t["id"],
@@ -161,10 +147,10 @@ def get_template_detail(template_id: int):
         "description": t["description"],
         "category": t["category"],
         "source": t["source"],
-        "created_at": t["created_at"],
         "ftp": ftp,
         "total_duration_s": total_s,
-        "steps": enriched_steps,
+        "steps": steps,
+        "has_xml": True,
     }
 
 

@@ -50,13 +50,24 @@ async function renderCalendar() {
             api(`/api/rides?start_date=${startStr}&end_date=${endStr}&limit=100`),
             api(`/api/plan/week/${startStr}`).then(d => d.planned).catch(() => []),
         ]);
-        // Also fetch all planned for the month
+        // Fetch planned workouts for every week that overlaps this month.
+        // Step from the 1st by 7 days, then also fetch the last day's week
+        // to cover any trailing days (e.g. Mar 30-31 in a Mon-Sun grid).
         const allWeeks = [];
+        const fetched = new Set();
+        const toFetch = [];
         let d = new Date(calYear, calMonth, 1);
         while (d.getMonth() === calMonth) {
-            const dateStr = d.toISOString().slice(0, 10);
-            allWeeks.push(api(`/api/plan/week/${dateStr}`).then(w => w.planned).catch(() => []));
+            toFetch.push(new Date(d));
             d.setDate(d.getDate() + 7);
+        }
+        toFetch.push(new Date(calYear, calMonth + 1, 0)); // last day of month
+        for (const dt of toFetch) {
+            const dateStr = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+            if (!fetched.has(dateStr)) {
+                fetched.add(dateStr);
+                allWeeks.push(api(`/api/plan/week/${dateStr}`).then(w => w.planned).catch(() => []));
+            }
         }
         const weekResults = await Promise.all(allWeeks);
         planned = weekResults.flat();
@@ -71,10 +82,16 @@ async function renderCalendar() {
         ridesByDate[r.date].push(r);
     });
 
+    // Deduplicate planned workouts by id (overlapping week fetches can
+    // return the same workout twice).
+    const seenIds = new Set();
     const plannedByDate = {};
     planned.forEach(p => {
-        if (p.date && !plannedByDate[p.date]) plannedByDate[p.date] = [];
-        if (p.date) plannedByDate[p.date].push(p);
+        if (!p.date) return;
+        if (p.id && seenIds.has(p.id)) return;
+        if (p.id) seenIds.add(p.id);
+        if (!plannedByDate[p.date]) plannedByDate[p.date] = [];
+        plannedByDate[p.date].push(p);
     });
 
     const grid = document.getElementById('calendar-grid');

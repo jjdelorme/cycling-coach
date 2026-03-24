@@ -303,5 +303,24 @@ async function syncToGarmin(workoutId) {
     }
 }
 
+async function showTemplateDetail(templateId) {
+    const panel = document.getElementById('workout-detail');
+    panel.style.display = 'block';
+    document.getElementById('workout-detail-title').textContent = 'Loading...';
+    document.getElementById('workout-detail-summary').innerHTML = '';
+    document.getElementById('workout-steps-table').innerHTML = '';
+    document.getElementById('workout-detail-actions').innerHTML = '';
+
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    try {
+        const t = await api(`/api/plan/templates/${templateId}`);
+        renderWorkoutDetail(t);
+    } catch (e) {
+        document.getElementById('workout-detail-title').textContent = 'Error loading template';
+        console.error('Template detail error:', e);
+    }
+}
+
 // Initialize
 initWorkoutViewer();

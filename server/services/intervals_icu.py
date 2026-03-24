@@ -1,6 +1,9 @@
 """intervals.icu API integration for syncing workouts to Garmin."""
 
+import logging
 import httpx
+
+logger = logging.getLogger(__name__)
 from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID
 
 BASE_URL = "https://intervals.icu"
@@ -36,7 +39,7 @@ def push_workout(
 
     payload = {
         "category": "WORKOUT",
-        "start_date_local": date,
+        "start_date_local": date + "T00:00:00" if len(date) == 10 else date,
         "name": name,
         "description": description,
         "type": "Ride",
@@ -56,6 +59,7 @@ def push_workout(
     if resp.status_code in (200, 201):
         return {"status": "success", "event": resp.json()}
     else:
+        logger.error("intervals.icu sync failed: status=%s body=%s", resp.status_code, resp.text[:500])
         return {
             "status": "error",
             "code": resp.status_code,
@@ -81,7 +85,7 @@ def push_workouts_bulk(workouts: list[dict]) -> dict:
     for w in workouts:
         event = {
             "category": "WORKOUT",
-            "start_date_local": w["date"],
+            "start_date_local": w["date"] + "T00:00:00" if len(w["date"]) == 10 else w["date"],
             "name": w["name"],
             "description": w.get("description", ""),
             "type": "Ride",
