@@ -1,10 +1,13 @@
 """Training plan endpoints."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import Response
 from typing import Optional
+from pydantic import BaseModel
 
 from server.database import get_db
 from server.models.schemas import PlannedWorkout, PeriodizationPhase
+from server.services.workout_generator import generate_zwo, WORKOUT_TEMPLATES
 
 router = APIRouter(prefix="/api/plan", tags=["plan"])
 
@@ -81,3 +84,43 @@ def plan_compliance(
         "extra": len(extra),
         "compliance_pct": round(100 * len(completed) / total_planned, 1) if total_planned > 0 else 0,
     }
+
+
+@router.get("/workout-types")
+def list_workout_types():
+    """List available workout templates."""
+    return [
+        {"key": k, "name": v["name"], "description": v["description"]}
+        for k, v in WORKOUT_TEMPLATES.items()
+    ]
+
+
+class GenerateWorkoutRequest(BaseModel):
+    workout_type: str
+    duration_minutes: int = 60
+    ftp: int = 261
+
+
+@router.post("/workouts/generate")
+def generate_workout(req: GenerateWorkoutRequest):
+    """Generate a ZWO workout file."""
+    try:
+        xml_str, name = generate_zwo(req.workout_type, req.duration_minutes, req.ftp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"name": name, "xml": xml_str}
+
+
+@router.post("/workouts/generate/download")
+def download_workout(req: GenerateWorkoutRequest):
+    """Generate and download a ZWO workout file."""
+    try:
+        xml_str, name = generate_zwo(req.workout_type, req.duration_minutes, req.ftp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    filename = name.lower().replace(" ", "_") + ".zwo"
+    return Response(
+        content=xml_str,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
