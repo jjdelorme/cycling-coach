@@ -1,10 +1,15 @@
 """Ride data endpoints."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel
 from typing import Optional
 
 from server.database import get_db
 from server.models.schemas import RideSummary, RideDetail, RideRecord, WeeklySummary, MonthlySummary
+
+
+class RideCommentsUpdate(BaseModel):
+    post_ride_comments: Optional[str] = None
 
 router = APIRouter(prefix="/api/rides", tags=["rides"])
 
@@ -131,7 +136,6 @@ def get_ride(ride_id: int):
     with get_db() as conn:
         ride = conn.execute("SELECT * FROM rides WHERE id = ?", (ride_id,)).fetchone()
         if not ride:
-            from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Ride not found")
 
         records = conn.execute(
@@ -143,3 +147,16 @@ def get_ride(ride_id: int):
         **dict(ride),
         records=[RideRecord(**dict(r)) for r in records],
     )
+
+
+@router.put("/{ride_id}/comments")
+def update_ride_comments(ride_id: int, body: RideCommentsUpdate):
+    with get_db() as conn:
+        ride = conn.execute("SELECT id FROM rides WHERE id = ?", (ride_id,)).fetchone()
+        if not ride:
+            raise HTTPException(status_code=404, detail="Ride not found")
+        conn.execute(
+            "UPDATE rides SET post_ride_comments = ? WHERE id = ?",
+            (body.post_ride_comments, ride_id),
+        )
+    return {"status": "ok"}

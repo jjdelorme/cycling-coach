@@ -194,6 +194,8 @@ document.getElementById('rides-filter-btn')?.addEventListener('click', async () 
 
 // Track which section we came from when opening ride detail
 let _rideDetailReturnTo = 'rides';
+let _currentRideId = null;
+let _currentWorkoutId = null;
 
 async function showRideDetail(rideId) {
     // Switch to rides section and show the detail panel
@@ -246,6 +248,79 @@ async function showRideDetail(rideId) {
             }
         } catch (e) { /* no workout for this date */ }
 
+        // Populate notes
+        _currentRideId = rideId;
+        _currentWorkoutId = workout?.id || null;
+        const isCompleted = !!(ride.duration_s || ride.records?.length);
+
+        // Pre-ride section (from planned workout)
+        const preSection = document.getElementById('ride-pre-section');
+        const coachPreSection = document.getElementById('ride-coach-pre-section');
+        const athletePreSection = document.getElementById('ride-athlete-pre-section');
+        const preTextarea = document.getElementById('ride-athlete-pre-notes');
+        const preReadonly = document.getElementById('ride-athlete-pre-readonly');
+        const preActions = document.getElementById('ride-pre-actions');
+
+        if (workout) {
+            preSection.style.display = 'block';
+            // Coach's pre-ride notes
+            if (workout.coach_notes) {
+                document.getElementById('ride-coach-pre-notes').textContent = workout.coach_notes;
+                coachPreSection.style.display = 'block';
+            } else {
+                coachPreSection.style.display = 'none';
+            }
+            // Athlete's pre-ride notes
+            if (isCompleted) {
+                if (workout.athlete_notes) {
+                    athletePreSection.style.display = 'block';
+                    preTextarea.style.display = 'none';
+                    preReadonly.style.display = 'block';
+                    preReadonly.textContent = workout.athlete_notes;
+                    preActions.style.display = 'none';
+                } else {
+                    athletePreSection.style.display = 'none';
+                    preActions.style.display = 'none';
+                }
+            } else {
+                athletePreSection.style.display = 'block';
+                preTextarea.style.display = 'block';
+                preTextarea.value = workout.athlete_notes || '';
+                preReadonly.style.display = 'none';
+                preActions.style.display = 'flex';
+            }
+            // Hide entire pre section if nothing to show
+            if (coachPreSection.style.display === 'none' && athletePreSection.style.display === 'none') {
+                preSection.style.display = 'none';
+            }
+        } else {
+            preSection.style.display = 'none';
+        }
+
+        // Post-ride section (on the ride)
+        const postSection = document.getElementById('ride-post-section');
+        const postActions = document.getElementById('ride-post-actions');
+        if (isCompleted) {
+            postSection.style.display = 'block';
+            document.getElementById('ride-post-comments').value = ride.post_ride_comments || '';
+            postActions.style.display = 'flex';
+        } else {
+            postSection.style.display = 'none';
+            postActions.style.display = 'none';
+        }
+
+        // Coach's post-ride analysis
+        const coachPostSection = document.getElementById('ride-coach-post-section');
+        if (ride.coach_comments) {
+            document.getElementById('ride-coach-post-notes').textContent = ride.coach_comments;
+            coachPostSection.style.display = 'block';
+        } else {
+            coachPostSection.style.display = 'none';
+        }
+        document.getElementById('ride-comments-status').style.display = 'none';
+        const preStatus = document.getElementById('ride-pre-status');
+        if (preStatus) preStatus.style.display = 'none';
+
         drawRideTimeline(ride, workout);
     } catch (e) {
         console.error('Ride detail error:', e);
@@ -267,6 +342,52 @@ function closeRideDetail() {
 }
 
 document.getElementById('close-ride-detail')?.addEventListener('click', closeRideDetail);
+
+// Save post-ride notes (on the ride)
+document.getElementById('ride-comments-save')?.addEventListener('click', async () => {
+    if (!_currentRideId) return;
+    const status = document.getElementById('ride-comments-status');
+    try {
+        await fetch(`/api/rides/${_currentRideId}/comments`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                post_ride_comments: document.getElementById('ride-post-comments').value || null,
+            }),
+        });
+        status.textContent = 'Saved!';
+        status.style.color = 'var(--green)';
+        status.style.display = 'inline';
+        setTimeout(() => status.style.display = 'none', 3000);
+    } catch (e) {
+        status.textContent = 'Save failed';
+        status.style.color = 'var(--red)';
+        status.style.display = 'inline';
+    }
+});
+
+// Save pre-ride notes (on the planned workout)
+document.getElementById('ride-pre-save')?.addEventListener('click', async () => {
+    if (!_currentWorkoutId) return;
+    const status = document.getElementById('ride-pre-status');
+    try {
+        await fetch(`/api/plan/workouts/${_currentWorkoutId}/notes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                athlete_notes: document.getElementById('ride-athlete-pre-notes').value || null,
+            }),
+        });
+        status.textContent = 'Saved!';
+        status.style.color = 'var(--green)';
+        status.style.display = 'inline';
+        setTimeout(() => status.style.display = 'none', 3000);
+    } catch (e) {
+        status.textContent = 'Save failed';
+        status.style.color = 'var(--red)';
+        status.style.display = 'inline';
+    }
+});
 
 // Analysis
 async function loadAnalysis() {

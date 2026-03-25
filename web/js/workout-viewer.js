@@ -3,6 +3,7 @@
  */
 
 let workoutChart = null;
+let _currentViewWorkoutId = null;
 
 function initWorkoutViewer() {
     // No-op; viewer opens/closes based on calendar day selection
@@ -86,6 +87,29 @@ function renderWorkoutDetail(w) {
     // Check if intervals.icu is configured and show sync button
     if (w.has_xml) {
         checkIntegrations(w.id);
+    }
+
+    // Notes section
+    const notesPanel = document.getElementById('workout-notes');
+    const coachNotesSection = document.getElementById('workout-coach-notes-section');
+    const athleteNotesSection = document.getElementById('workout-athlete-notes-section');
+
+    if (w.id) {
+        _currentViewWorkoutId = w.id;
+        notesPanel.style.display = 'block';
+
+        if (w.coach_notes) {
+            document.getElementById('workout-coach-notes').textContent = w.coach_notes;
+            coachNotesSection.style.display = 'block';
+        } else {
+            coachNotesSection.style.display = 'none';
+        }
+
+        document.getElementById('workout-athlete-notes').value = w.athlete_notes || '';
+        athleteNotesSection.style.display = 'block';
+        document.getElementById('workout-notes-status').style.display = 'none';
+    } else {
+        notesPanel.style.display = 'none';
     }
 }
 
@@ -354,6 +378,29 @@ async function showTemplateDetail(templateId) {
         console.error('Template detail error:', e);
     }
 }
+
+// Save workout athlete notes
+document.getElementById('workout-notes-save')?.addEventListener('click', async () => {
+    if (!_currentViewWorkoutId) return;
+    const status = document.getElementById('workout-notes-status');
+    try {
+        await fetch(`/api/plan/workouts/${_currentViewWorkoutId}/notes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                athlete_notes: document.getElementById('workout-athlete-notes').value || null,
+            }),
+        });
+        status.textContent = 'Saved!';
+        status.style.color = 'var(--green)';
+        status.style.display = 'inline';
+        setTimeout(() => status.style.display = 'none', 3000);
+    } catch (e) {
+        status.textContent = 'Save failed';
+        status.style.color = 'var(--red)';
+        status.style.display = 'inline';
+    }
+});
 
 // Initialize
 initWorkoutViewer();

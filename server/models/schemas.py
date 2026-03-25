@@ -34,6 +34,8 @@ class RideSummary(BaseModel):
     weight: Optional[float] = None
     start_lat: Optional[float] = None
     start_lon: Optional[float] = None
+    post_ride_comments: Optional[str] = None
+    coach_comments: Optional[str] = None
 
 
 class RideRecord(BaseModel):
@@ -100,6 +102,8 @@ class PlannedWorkout(BaseModel):
     sport: Optional[str] = None
     total_duration_s: Optional[float] = None
     workout_xml: Optional[str] = None
+    coach_notes: Optional[str] = None
+    athlete_notes: Optional[str] = None
 
 
 class PeriodizationPhase(BaseModel):

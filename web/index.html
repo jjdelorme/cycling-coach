@@ -127,6 +127,38 @@
                         <div id="ride-crosshair-tooltip" class="ride-crosshair-tooltip" style="display:none;"></div>
                         <div id="ride-selection-stats" class="ride-selection-stats" style="display:none;"></div>
                     </div>
+                    <div class="ride-comments" style="margin-top:1.5rem;">
+                        <h4 style="margin-bottom:0.75rem;">Notes</h4>
+                        <!-- Pre-ride section (from planned workout) -->
+                        <div id="ride-pre-section" style="display:none;margin-bottom:1rem;">
+                            <div id="ride-coach-pre-section" style="display:none;margin-bottom:0.75rem;">
+                                <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Coach's Pre-Ride Notes</label>
+                                <div id="ride-coach-pre-notes" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-size:0.85rem;color:var(--text);white-space:pre-wrap;"></div>
+                            </div>
+                            <div id="ride-athlete-pre-section" style="display:none;">
+                                <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Your Pre-Ride Notes</label>
+                                <textarea id="ride-athlete-pre-notes" rows="3" placeholder="Goals, how you're feeling, focus areas..." style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-family:inherit;font-size:0.85rem;resize:vertical;"></textarea>
+                                <div id="ride-athlete-pre-readonly" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-size:0.85rem;color:var(--text);white-space:pre-wrap;"></div>
+                            </div>
+                            <div id="ride-pre-actions" style="display:none;margin-top:0.5rem;display:flex;align-items:center;gap:0.75rem;">
+                                <button id="ride-pre-save" class="btn-primary" style="padding:0.3rem 0.75rem;font-size:0.8rem;">Save Pre-Ride Notes</button>
+                                <span id="ride-pre-status" style="font-size:0.8rem;color:var(--green);display:none;">Saved!</span>
+                            </div>
+                        </div>
+                        <!-- Post-ride section (on the ride itself) -->
+                        <div id="ride-post-section" style="display:none;margin-bottom:0.75rem;">
+                            <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Your Post-Ride Notes</label>
+                            <textarea id="ride-post-comments" rows="3" placeholder="How it went, RPE, what you noticed..." style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-family:inherit;font-size:0.85rem;resize:vertical;"></textarea>
+                        </div>
+                        <div id="ride-coach-post-section" style="display:none;margin-bottom:0.75rem;">
+                            <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Coach's Post-Ride Analysis</label>
+                            <div id="ride-coach-post-notes" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-size:0.85rem;color:var(--text);white-space:pre-wrap;min-height:2rem;"></div>
+                        </div>
+                        <div id="ride-post-actions" style="display:none;margin-top:0.5rem;display:flex;align-items:center;gap:0.75rem;">
+                            <button id="ride-comments-save" class="btn-primary" style="padding:0.3rem 0.75rem;font-size:0.8rem;">Save Post-Ride Notes</button>
+                            <span id="ride-comments-status" style="font-size:0.8rem;color:var(--green);display:none;">Saved!</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -239,6 +271,21 @@
                     <canvas id="workout-profile-chart"></canvas>
                 </div>
                 <div id="workout-steps-table"></div>
+                <div id="workout-notes" style="margin-top:1.5rem;display:none;">
+                    <h4 style="margin-bottom:0.75rem;">Notes</h4>
+                    <div id="workout-coach-notes-section" style="display:none;margin-bottom:0.75rem;">
+                        <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Coach's Notes</label>
+                        <div id="workout-coach-notes" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-size:0.85rem;color:var(--text);white-space:pre-wrap;"></div>
+                    </div>
+                    <div id="workout-athlete-notes-section" style="margin-bottom:0.75rem;">
+                        <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Your Pre-Ride Notes</label>
+                        <textarea id="workout-athlete-notes" rows="3" placeholder="Goals, how you're feeling, focus areas..." style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-family:inherit;font-size:0.85rem;resize:vertical;"></textarea>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.75rem;">
+                        <button id="workout-notes-save" class="btn-primary" style="padding:0.3rem 0.75rem;font-size:0.8rem;">Save Notes</button>
+                        <span id="workout-notes-status" style="font-size:0.8rem;color:var(--green);display:none;">Saved!</span>
+                    </div>
+                </div>
                 <div class="workout-detail-actions" id="workout-detail-actions"></div>
             </div>
         </main>

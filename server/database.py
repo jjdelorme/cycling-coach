@@ -52,7 +52,9 @@ CREATE TABLE IF NOT EXISTS rides (
     best_60min_power INTEGER,
     weight REAL,
     start_lat REAL,
-    start_lon REAL
+    start_lon REAL,
+    post_ride_comments TEXT,
+    coach_comments TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ride_records (
@@ -77,7 +79,9 @@ CREATE TABLE IF NOT EXISTS planned_workouts (
     name TEXT,
     sport TEXT,
     total_duration_s REAL,
-    workout_xml TEXT
+    workout_xml TEXT,
+    coach_notes TEXT,
+    athlete_notes TEXT
 );
 
 CREATE TABLE IF NOT EXISTS daily_metrics (
@@ -223,7 +227,9 @@ CREATE TABLE IF NOT EXISTS rides (
     best_60min_power INTEGER,
     weight REAL,
     start_lat REAL,
-    start_lon REAL
+    start_lon REAL,
+    post_ride_comments TEXT,
+    coach_comments TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ride_records (
@@ -247,7 +253,9 @@ CREATE TABLE IF NOT EXISTS planned_workouts (
     name TEXT,
     sport TEXT,
     total_duration_s REAL,
-    workout_xml TEXT
+    workout_xml TEXT,
+    coach_notes TEXT,
+    athlete_notes TEXT
 );
 
 CREATE TABLE IF NOT EXISTS daily_metrics (
@@ -547,6 +555,7 @@ def init_db(db_path=None):
             if stmt:
                 cur.execute(stmt)
         conn.commit()
+        _migrate_postgres(conn)
         _seed_workout_templates_pg(conn)
         cur.close()
         conn.close()
@@ -557,9 +566,38 @@ def init_db(db_path=None):
         conn = sqlite3.connect(path)
         conn.executescript(_SCHEMA_SQLITE)
         conn.commit()
+        _migrate_sqlite(conn)
         _seed_workout_templates(conn)
         conn.close()
         return path
+
+
+def _migrate_postgres(conn):
+    """Add columns to existing Postgres tables if they don't exist yet."""
+    cur = conn.cursor()
+    for table, columns in [
+        ("rides", ["post_ride_comments", "coach_comments"]),
+        ("planned_workouts", ["coach_notes", "athlete_notes"]),
+    ]:
+        for col in columns:
+            cur.execute(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} TEXT"
+            )
+    conn.commit()
+    cur.close()
+
+
+def _migrate_sqlite(conn):
+    """Add columns to existing SQLite tables if they don't exist yet."""
+    ride_cols = {row[1] for row in conn.execute("PRAGMA table_info(rides)").fetchall()}
+    for col in ("post_ride_comments", "coach_comments"):
+        if col not in ride_cols:
+            conn.execute(f"ALTER TABLE rides ADD COLUMN {col} TEXT")
+    workout_cols = {row[1] for row in conn.execute("PRAGMA table_info(planned_workouts)").fetchall()}
+    for col in ("coach_notes", "athlete_notes"):
+        if col not in workout_cols:
+            conn.execute(f"ALTER TABLE planned_workouts ADD COLUMN {col} TEXT")
+    conn.commit()
 
 
 def _seed_workout_templates(conn):

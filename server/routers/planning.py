@@ -352,6 +352,8 @@ def get_workout_by_date(date: str):
         "total_duration_s": total_duration,
         "ftp": ftp,
         "steps": steps,
+        "coach_notes": workout.get("coach_notes"),
+        "athlete_notes": workout.get("athlete_notes"),
     }
 
 
@@ -390,7 +392,27 @@ def get_workout_detail(workout_id: int):
         "ftp": ftp,
         "steps": steps,
         "has_xml": bool(workout.get("workout_xml")),
+        "coach_notes": workout.get("coach_notes"),
+        "athlete_notes": workout.get("athlete_notes"),
     }
+
+
+class WorkoutNotesUpdate(BaseModel):
+    athlete_notes: Optional[str] = None
+
+
+@router.put("/workouts/{workout_id}/notes")
+def update_workout_notes(workout_id: int, body: WorkoutNotesUpdate):
+    """Update athlete's pre-ride notes on a planned workout."""
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM planned_workouts WHERE id = ?", (workout_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        conn.execute(
+            "UPDATE planned_workouts SET athlete_notes = ? WHERE id = ?",
+            (body.athlete_notes, workout_id),
+        )
+    return {"status": "ok"}
 
 
 @router.get("/workouts/{workout_id}/download")
