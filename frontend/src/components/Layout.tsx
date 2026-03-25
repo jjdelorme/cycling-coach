@@ -63,8 +63,8 @@ export default function Layout({ activeTab, onTabChange, children }: LayoutProps
       </header>
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+      <div className="flex flex-1 overflow-hidden relative">
+        <main className={`flex-1 overflow-y-auto p-4 md:p-6 ${coachOpen ? 'hidden md:block' : ''}`}>
           {children}
         </main>
         {coachOpen && (
@@ -77,9 +77,9 @@ export default function Layout({ activeTab, onTabChange, children }: LayoutProps
         {tabs.map(t => (
           <button
             key={t.key}
-            onClick={() => onTabChange(t.key)}
+            onClick={() => { onTabChange(t.key); setCoachOpen(false) }}
             className={`flex-1 flex flex-col items-center py-2 text-xs transition-colors ${
-              activeTab === t.key ? 'text-accent' : 'text-text-muted'
+              activeTab === t.key && !coachOpen ? 'text-accent' : 'text-text-muted'
             }`}
           >
             <span className="text-lg">{t.icon}</span>
