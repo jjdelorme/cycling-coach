@@ -160,7 +160,7 @@ function showDayDetail(date, ridesByDate, plannedByDate) {
     if (dayRides.length > 0) {
         html += '<h4>Rides</h4>';
         dayRides.forEach(r => {
-            html += `<p>${r.sub_sport || r.sport}: ${fmtDuration(r.duration_s)}, ${fmtDistance(r.distance_m)}, ${r.tss ? Math.round(r.tss) + ' TSS' : ''}, Power: ${r.avg_power || '--'}w / NP: ${r.normalized_power || '--'}w, HR: ${r.avg_hr || '--'}</p>`;
+            html += `<p><a href="#" class="ride-link" data-ride-id="${r.id}" style="color:var(--green);text-decoration:underline;cursor:pointer;">${r.sub_sport || r.sport}: ${fmtDuration(r.duration_s)}, ${fmtDistance(r.distance_m)}</a>, ${r.tss ? Math.round(r.tss) + ' TSS' : ''}, Power: ${r.avg_power || '--'}w / NP: ${r.normalized_power || '--'}w, HR: ${r.avg_hr || '--'}</p>`;
         });
     }
 
@@ -193,11 +193,27 @@ function showDayDetail(date, ridesByDate, plannedByDate) {
         });
     });
 
-    // Auto-open workout detail for first planned workout, or close if none
-    const firstPlannedWithId = dayPlanned.find(p => p.id);
-    if (firstPlannedWithId && typeof showWorkoutDetail === 'function') {
-        showWorkoutDetail(firstPlannedWithId.id);
-    } else if (typeof closeWorkoutDetail === 'function') {
-        closeWorkoutDetail();
+    // Wire up ride links to open ride detail
+    detail.querySelectorAll('.ride-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (typeof showRideDetail === 'function') {
+                showRideDetail(parseInt(link.dataset.rideId));
+            }
+        });
+    });
+
+    // Auto-open: if there's a ride, show ride detail (with workout overlay);
+    // otherwise if there's a planned workout, show the workout viewer.
+    if (dayRides.length > 0 && typeof showRideDetail === 'function') {
+        if (typeof closeWorkoutDetail === 'function') closeWorkoutDetail();
+        showRideDetail(dayRides[0].id);
+    } else {
+        const firstPlannedWithId = dayPlanned.find(p => p.id);
+        if (firstPlannedWithId && typeof showWorkoutDetail === 'function') {
+            showWorkoutDetail(firstPlannedWithId.id);
+        } else if (typeof closeWorkoutDetail === 'function') {
+            closeWorkoutDetail();
+        }
     }
 }

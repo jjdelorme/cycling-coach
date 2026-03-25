@@ -437,21 +437,80 @@ tr:hover { background: rgba(233, 69, 96, 0.05); cursor: pointer; }
     padding: 1.5rem;
     margin-top: 1rem;
 }
-.ride-detail-panel button {
+.ride-detail-panel .btn-back {
     background: var(--surface2);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 0.3rem 0.8rem;
+    padding: 0.4rem 1rem;
     border-radius: 4px;
     cursor: pointer;
-    float: right;
+    font-size: 0.85rem;
+    margin-bottom: 0.8rem;
+    float: none;
 }
+.ride-detail-panel .btn-back:hover { border-color: var(--text-muted); }
 .ride-detail-metrics {
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
     margin: 1rem 0;
 }
+
+/* Ride timeline */
+.ride-workout-name {
+    font-size: 0.85rem;
+    color: var(--yellow);
+    margin-bottom: 0.5rem;
+}
+.ride-timeline-container {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+}
+.ride-timeline-container canvas {
+    max-height: 400px;
+}
+.ride-crosshair-tooltip {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    background: rgba(22, 33, 62, 0.92);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 10;
+    min-width: 130px;
+    color: var(--text);
+}
+.ride-crosshair-tooltip .tt-label { color: var(--text-muted); }
+.ride-crosshair-tooltip .tt-power { color: var(--green); font-weight: 600; }
+.ride-crosshair-tooltip .tt-hr { color: var(--red); font-weight: 600; }
+.ride-crosshair-tooltip .tt-cadence { color: var(--yellow); font-weight: 600; }
+.ride-crosshair-tooltip .tt-speed { color: #7ec8e3; font-weight: 600; }
+.ride-selection-stats {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(22, 33, 62, 0.95);
+    border: 1px solid var(--green);
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    display: flex;
+    gap: 1.2rem;
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+}
+.ride-selection-stats .sel-item { display: flex; gap: 0.3rem; align-items: center; }
+.ride-selection-stats .sel-label { color: var(--text-muted); }
+.ride-selection-stats .sel-value { font-weight: 700; }
 
 /* Analysis tabs */
 .analysis-tabs {

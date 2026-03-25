@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/css/styles.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0/dist/chartjs-plugin-annotation.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
 </head>
 <body>
@@ -86,43 +87,45 @@
 
             <!-- Rides -->
             <section id="rides" class="section">
-                <div class="filters">
-                    <input type="date" id="rides-start" placeholder="Start">
-                    <input type="date" id="rides-end" placeholder="End">
-                    <select id="rides-sport">
-                        <option value="">All Sports</option>
-                        <option value="mountain">Mountain</option>
-                        <option value="road">Road</option>
-                        <option value="indoor_cycling">Indoor</option>
-                        <option value="gravel">Gravel</option>
-                    </select>
-                    <button id="rides-filter-btn">Filter</button>
-                </div>
-                <table id="rides-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Sport</th>
-                            <th>Duration</th>
-                            <th>Distance</th>
-                            <th>TSS</th>
-                            <th>Avg Power</th>
-                            <th>NP</th>
-                            <th>Avg HR</th>
-                            <th>Ascent</th>
-                        </tr>
-                    </thead>
-                    <tbody id="rides-tbody"></tbody>
-                </table>
-                <div id="ride-detail-panel" class="ride-detail-panel" style="display:none;">
-                    <button id="close-ride-detail">Close</button>
-                    <h3 id="ride-detail-title"></h3>
-                    <div class="ride-detail-metrics" id="ride-detail-metrics"></div>
-                    <div class="chart-container">
-                        <canvas id="ride-power-chart"></canvas>
+                <div id="rides-list-view">
+                    <div class="filters">
+                        <input type="date" id="rides-start" placeholder="Start">
+                        <input type="date" id="rides-end" placeholder="End">
+                        <select id="rides-sport">
+                            <option value="">All Sports</option>
+                            <option value="mountain">Mountain</option>
+                            <option value="road">Road</option>
+                            <option value="indoor_cycling">Indoor</option>
+                            <option value="gravel">Gravel</option>
+                        </select>
+                        <button id="rides-filter-btn">Filter</button>
                     </div>
-                    <div class="chart-container">
-                        <canvas id="ride-hr-chart"></canvas>
+                    <table id="rides-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Sport</th>
+                                <th>Duration</th>
+                                <th>Distance</th>
+                                <th>TSS</th>
+                                <th>Avg Power</th>
+                                <th>NP</th>
+                                <th>Avg HR</th>
+                                <th>Ascent</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rides-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="ride-detail-panel" class="ride-detail-panel" style="display:none;">
+                    <button id="close-ride-detail" class="btn-back">&larr; Back</button>
+                    <h3 id="ride-detail-title"></h3>
+                    <div id="ride-workout-name" class="ride-workout-name" style="display:none;"></div>
+                    <div class="ride-detail-metrics" id="ride-detail-metrics"></div>
+                    <div class="ride-timeline-container">
+                        <canvas id="ride-timeline-chart"></canvas>
+                        <div id="ride-crosshair-tooltip" class="ride-crosshair-tooltip" style="display:none;"></div>
+                        <div id="ride-selection-stats" class="ride-selection-stats" style="display:none;"></div>
                     </div>
                 </div>
             </section>

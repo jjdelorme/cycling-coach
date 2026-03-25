@@ -321,6 +321,40 @@ def _zone_label(pct: float) -> str:
         return "Z6 Anaerobic"
 
 
+@router.get("/workouts/by-date/{date}")
+def get_workout_by_date(date: str):
+    """Get parsed workout steps for a given date (for ride overlay)."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM planned_workouts WHERE date = ? LIMIT 1", (date,)
+        ).fetchone()
+
+    if not row:
+        return None
+
+    workout = dict(row)
+
+    with get_db() as conn:
+        ftp_row = conn.execute(
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+    ftp = ftp_row["ftp"] if ftp_row else 261
+
+    steps = []
+    if workout.get("workout_xml"):
+        steps = _parse_zwo_steps(workout["workout_xml"], ftp)
+
+    total_duration = sum(s["duration_s"] for s in steps) if steps else workout.get("total_duration_s", 0)
+
+    return {
+        "id": workout["id"],
+        "name": workout["name"],
+        "total_duration_s": total_duration,
+        "ftp": ftp,
+        "steps": steps,
+    }
+
+
 @router.get("/workouts/{workout_id}")
 def get_workout_detail(workout_id: int):
     """Get parsed workout detail with steps for visualization."""

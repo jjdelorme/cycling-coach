@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Qu
 from typing import Optional
 
 from server.services.sync import (
+    _store_streams,
     get_sync_history,
     get_sync_overview,
     get_sync_status,
@@ -16,7 +17,8 @@ from server.services.sync import (
     subscribe,
     unsubscribe,
 )
-from server.services.intervals_icu import is_configured
+from server.database import get_db
+from server.services.intervals_icu import fetch_activity_streams, is_configured
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,47 @@ async def sync_overview():
 async def sync_history_endpoint(limit: Optional[int] = Query(20, ge=1, le=100)):
     """Get recent sync run history."""
     return get_sync_history(limit)
+
+
+@router.post("/backfill-streams")
+async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200)):
+    """Backfill per-second stream data for rides synced from intervals.icu that are missing records."""
+    if not is_configured():
+        raise HTTPException(status_code=400, detail="intervals.icu not configured")
+
+    with get_db() as conn:
+        # Find rides from intervals.icu (filename starts with icu_) that have no records
+        rows = conn.execute(
+            "SELECT r.id, r.filename, r.date FROM rides r "
+            "WHERE r.filename LIKE ? "
+            "AND NOT EXISTS (SELECT 1 FROM ride_records rr WHERE rr.ride_id = r.id) "
+            "ORDER BY r.date DESC LIMIT ?",
+            ("icu_%", limit),
+        ).fetchall()
+
+    if not rows:
+        return {"message": "All rides already have stream data", "backfilled": 0}
+
+    backfilled = 0
+    errors = []
+    for row in rows:
+        row = dict(row)
+        icu_id = row["filename"].replace("icu_", "")
+        try:
+            streams = await asyncio.to_thread(fetch_activity_streams, icu_id)
+            if streams:
+                _store_streams(row["id"], streams)
+                backfilled += 1
+                logger.info("Backfilled streams for ride %d (%s)", row["id"], row["date"])
+        except Exception as e:
+            errors.append(f"{row['date']}: {e}")
+            logger.warning("Failed to backfill ride %d: %s", row["id"], e)
+
+    return {
+        "backfilled": backfilled,
+        "total_missing": len(rows),
+        "errors": errors[:10] if errors else None,
+    }
 
 
 @router.websocket("/ws/{sync_id}")

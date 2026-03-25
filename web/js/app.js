@@ -191,10 +191,32 @@ document.getElementById('rides-filter-btn')?.addEventListener('click', async () 
     renderRidesTable(rides);
 });
 
+// Track which section we came from when opening ride detail
+let _rideDetailReturnTo = 'rides';
+
 async function showRideDetail(rideId) {
+    // Switch to rides section and show the detail panel
+    const ridesSection = document.getElementById('rides');
+    const listView = document.getElementById('rides-list-view');
     const panel = document.getElementById('ride-detail-panel');
+
+    // Remember which tab we came from
+    const activeBtn = document.querySelector('.nav-btn.active');
+    _rideDetailReturnTo = activeBtn ? activeBtn.dataset.section : 'rides';
+
+    // Activate rides section
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelector('[data-section="rides"]')?.classList.add('active');
+    ridesSection.classList.add('active');
+
+    // Hide list, show detail
+    listView.style.display = 'none';
     panel.style.display = 'block';
     document.getElementById('ride-detail-title').textContent = 'Loading...';
+    document.getElementById('ride-workout-name').style.display = 'none';
+    document.getElementById('ride-crosshair-tooltip').style.display = 'none';
+    document.getElementById('ride-selection-stats').style.display = 'none';
 
     try {
         const ride = await api(`/api/rides/${rideId}`);
@@ -212,15 +234,38 @@ async function showRideDetail(rideId) {
             `Ascent: ${ride.total_ascent || '--'}m`,
         ].map(s => `<div class="metric-card"><span class="metric-value" style="font-size:1rem">${s}</span></div>`).join('');
 
-        drawRideCharts(ride);
+        // Fetch planned workout for the ride's date
+        let workout = null;
+        try {
+            workout = await api(`/api/plan/workouts/by-date/${ride.date}`);
+            if (workout && workout.name) {
+                const woLabel = document.getElementById('ride-workout-name');
+                woLabel.textContent = `Planned: ${workout.name}`;
+                woLabel.style.display = 'block';
+            }
+        } catch (e) { /* no workout for this date */ }
+
+        drawRideTimeline(ride, workout);
     } catch (e) {
+        console.error('Ride detail error:', e);
         document.getElementById('ride-detail-title').textContent = 'Error loading ride';
     }
 }
 
-document.getElementById('close-ride-detail')?.addEventListener('click', () => {
+function closeRideDetail() {
     document.getElementById('ride-detail-panel').style.display = 'none';
-});
+    document.getElementById('rides-list-view').style.display = '';
+
+    // Return to the tab we came from
+    if (_rideDetailReturnTo && _rideDetailReturnTo !== 'rides') {
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        document.querySelector(`[data-section="${_rideDetailReturnTo}"]`)?.classList.add('active');
+        document.getElementById(_rideDetailReturnTo)?.classList.add('active');
+    }
+}
+
+document.getElementById('close-ride-detail')?.addEventListener('click', closeRideDetail);
 
 // Analysis
 async function loadAnalysis() {

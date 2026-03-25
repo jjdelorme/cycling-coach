@@ -15,6 +15,7 @@ from typing import Callable
 from server.database import get_db
 from server.services.intervals_icu import (
     fetch_activities,
+    fetch_activity_streams,
     fetch_calendar_events,
     is_configured,
     map_activity_to_ride,
@@ -135,6 +136,65 @@ async def _broadcast(sync_id: str, message: dict):
 # Core sync logic
 # ---------------------------------------------------------------------------
 
+def _store_streams(ride_id: int, streams: dict):
+    """Store intervals.icu stream data as ride_records."""
+    # streams is a dict like: [{"type":"time","data":[0,1,2,...]}, {"type":"watts","data":[...]}]
+    # or a dict with keys: {"time": [...], "watts": [...], ...}
+    stream_map = {}
+    if isinstance(streams, list):
+        for s in streams:
+            stream_map[s.get("type", "")] = s.get("data", [])
+    elif isinstance(streams, dict):
+        stream_map = streams
+
+    time_data = stream_map.get("time", [])
+    if not time_data:
+        return
+
+    watts = stream_map.get("watts", [])
+    hr = stream_map.get("heartrate", [])
+    cadence = stream_map.get("cadence", [])
+    velocity = stream_map.get("velocity_smooth", [])
+    altitude = stream_map.get("altitude", [])
+    distance = stream_map.get("distance", [])
+    latlng_raw = stream_map.get("latlng", [])
+
+    # Parse latlng — intervals.icu may return [lat, lng] pairs or flat values
+    latlng_pairs = []
+    if latlng_raw:
+        if latlng_raw and isinstance(latlng_raw[0], (list, tuple)):
+            latlng_pairs = latlng_raw  # already [lat, lng] pairs
+        # else: flat values or None — skip lat/lon
+
+    n = len(time_data)
+    rows = []
+    for i in range(n):
+        lat, lon = None, None
+        if latlng_pairs and i < len(latlng_pairs) and latlng_pairs[i]:
+            lat, lon = latlng_pairs[i][0], latlng_pairs[i][1]
+        rows.append((
+            ride_id,
+            None,  # timestamp
+            watts[i] if i < len(watts) else None,
+            hr[i] if i < len(hr) else None,
+            cadence[i] if i < len(cadence) else None,
+            velocity[i] if i < len(velocity) else None,
+            altitude[i] if i < len(altitude) else None,
+            distance[i] if i < len(distance) else None,
+            lat,
+            lon,
+            None,  # temperature
+        ))
+
+    with get_db() as conn:
+        conn.executemany(
+            "INSERT INTO ride_records (ride_id, timestamp, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+    logger.info("Stored %d stream records for ride %d", len(rows), ride_id)
+
+
 async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]:
     """Download rides from intervals.icu that we don't already have."""
     downloaded = 0
@@ -214,12 +274,30 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
                     f"INSERT INTO rides ({col_names}) VALUES ({placeholders})",
                     values,
                 )
+                # Get the inserted ride's ID for stream data
+                ride_row = conn.execute(
+                    "SELECT id FROM rides WHERE filename = ?", (ride["filename"],)
+                ).fetchone()
+                ride_db_id = ride_row["id"] if ride_row else None
+
             downloaded += 1
             existing_filenames.add(ride["filename"])
             existing_fingerprints.add(fingerprint)
             detail = f"Downloaded ride: {ride['date']} ({ride.get('sport', 'ride')})"
             logger.info(detail)
             log_lines.append(detail)
+
+            # Fetch and store per-second stream data
+            if ride_db_id:
+                icu_id = activity.get("id", "")
+                try:
+                    streams = await asyncio.to_thread(fetch_activity_streams, icu_id)
+                    if streams:
+                        _store_streams(ride_db_id, streams)
+                        log_lines.append(f"  + stored stream data for {ride['date']}")
+                except Exception as se:
+                    logger.warning("Could not fetch streams for %s: %s", icu_id, se)
+
         except Exception as e:
             err = f"Error inserting ride {ride['filename']}: {e}"
             logger.error(err)
