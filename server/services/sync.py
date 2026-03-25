@@ -169,13 +169,18 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
     log_lines.append(msg)
     await _broadcast(sync_id, {"phase": "rides", "detail": msg, "total": len(activities)})
 
-    # Get existing filenames for dedup
+    # Get existing rides for dedup: by filename AND by (date, duration) fingerprint
     with get_db() as conn:
-        existing = set()
-        rows = conn.execute("SELECT filename FROM rides").fetchall()
+        existing_filenames = set()
+        existing_fingerprints = set()
+        rows = conn.execute("SELECT filename, date, duration_s FROM rides").fetchall()
         for r in rows:
-            fn = r["filename"] if isinstance(r, dict) else r[0]
-            existing.add(fn)
+            row = dict(r)
+            existing_filenames.add(row["filename"])
+            # Fingerprint: (date, duration rounded to nearest 30s) catches same ride
+            # imported from different sources
+            dur = round((row["duration_s"] or 0) / 30) * 30
+            existing_fingerprints.add((row["date"], dur))
 
     for i, activity in enumerate(activities):
         ride = map_activity_to_ride(activity)
@@ -183,7 +188,15 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
             skipped += 1
             continue
 
-        if ride["filename"] in existing:
+        # Check filename match (exact dedup for re-syncs)
+        if ride["filename"] in existing_filenames:
+            skipped += 1
+            continue
+
+        # Check fingerprint match (cross-source dedup: JSON import vs intervals.icu)
+        dur = round((ride["duration_s"] or 0) / 30) * 30
+        fingerprint = (ride["date"], dur)
+        if fingerprint in existing_fingerprints:
             skipped += 1
             continue
 
@@ -200,7 +213,8 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
                     values,
                 )
             downloaded += 1
-            existing.add(ride["filename"])
+            existing_filenames.add(ride["filename"])
+            existing_fingerprints.add(fingerprint)
             detail = f"Downloaded ride: {ride['date']} ({ride.get('sport', 'ride')})"
             logger.info(detail)
             log_lines.append(detail)
