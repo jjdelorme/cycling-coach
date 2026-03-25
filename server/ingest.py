@@ -203,7 +203,7 @@ def compute_daily_pmc(conn):
         weight = weight_row["weight"] if weight_row else None
 
         conn.execute(
-            "INSERT OR REPLACE INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (date) DO UPDATE SET total_tss = EXCLUDED.total_tss, ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb, weight = EXCLUDED.weight",
             (ds, round(tss, 1), round(ctl, 1), round(atl, 1), round(tsb, 1), weight),
         )
         day += timedelta(days=1)
@@ -266,10 +266,11 @@ def ingest_rides(conn, rides_dir=None):
                :total_ascent, :total_descent, :total_calories, :tss, :intensity_factor,
                :ftp, :total_work_kj, :training_effect, :variability_index,
                :best_1min_power, :best_5min_power, :best_20min_power, :best_60min_power,
-               :weight, :start_lat, :start_lon)""",
+               :weight, :start_lat, :start_lon) RETURNING id""",
             ride,
         )
-        ride_id = cursor.lastrowid
+        row = cursor.fetchone()
+        ride_id = row["id"] if isinstance(row, dict) else row[0]
 
         # Insert records in batches
         if records:

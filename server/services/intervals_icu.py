@@ -3,14 +3,24 @@
 import logging
 import httpx
 
-logger = logging.getLogger(__name__)
 from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://intervals.icu"
 
 
+def _get_credentials() -> tuple[str, str]:
+    """Get intervals.icu credentials from DB settings, falling back to env vars."""
+    from server.database import get_setting
+    api_key = get_setting("intervals_icu_api_key") or INTERVALS_ICU_API_KEY
+    athlete_id = get_setting("intervals_icu_athlete_id") or INTERVALS_ICU_ATHLETE_ID
+    return api_key, athlete_id
+
+
 def is_configured() -> bool:
-    return bool(INTERVALS_ICU_API_KEY and INTERVALS_ICU_ATHLETE_ID)
+    api_key, athlete_id = _get_credentials()
+    return bool(api_key and athlete_id)
 
 
 def push_workout(
@@ -20,22 +30,12 @@ def push_workout(
     description: str = "",
     moving_time_secs: int = 0,
 ) -> dict:
-    """Push a planned workout to intervals.icu calendar.
+    """Push a planned workout to intervals.icu calendar."""
+    api_key, athlete_id = _get_credentials()
+    if not (api_key and athlete_id):
+        return {"error": "intervals.icu not configured. Set API key and Athlete ID in Settings."}
 
-    Args:
-        date: Scheduled date (YYYY-MM-DD).
-        name: Workout name.
-        zwo_xml: ZWO XML content.
-        description: Optional description.
-        moving_time_secs: Optional planned duration in seconds.
-
-    Returns:
-        Response from intervals.icu API.
-    """
-    if not is_configured():
-        return {"error": "intervals.icu not configured. Set INTERVALS_ICU_API_KEY and INTERVALS_ICU_ATHLETE_ID."}
-
-    url = f"{BASE_URL}/api/v1/athlete/{INTERVALS_ICU_ATHLETE_ID}/events"
+    url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events"
 
     payload = {
         "category": "WORKOUT",
@@ -52,7 +52,7 @@ def push_workout(
     resp = httpx.post(
         url,
         json=payload,
-        auth=("API_KEY", INTERVALS_ICU_API_KEY),
+        auth=("API_KEY", api_key),
         timeout=15.0,
     )
 
@@ -68,18 +68,12 @@ def push_workout(
 
 
 def push_workouts_bulk(workouts: list[dict]) -> dict:
-    """Push multiple planned workouts to intervals.icu calendar.
+    """Push multiple planned workouts to intervals.icu calendar."""
+    api_key, athlete_id = _get_credentials()
+    if not (api_key and athlete_id):
+        return {"error": "intervals.icu not configured. Set API key and Athlete ID in Settings."}
 
-    Args:
-        workouts: List of dicts with keys: date, name, zwo_xml, description, moving_time_secs.
-
-    Returns:
-        Summary of results.
-    """
-    if not is_configured():
-        return {"error": "intervals.icu not configured. Set INTERVALS_ICU_API_KEY and INTERVALS_ICU_ATHLETE_ID."}
-
-    url = f"{BASE_URL}/api/v1/athlete/{INTERVALS_ICU_ATHLETE_ID}/events/bulk"
+    url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events/bulk"
 
     events = []
     for w in workouts:
@@ -99,7 +93,7 @@ def push_workouts_bulk(workouts: list[dict]) -> dict:
     resp = httpx.post(
         url,
         json=events,
-        auth=("API_KEY", INTERVALS_ICU_API_KEY),
+        auth=("API_KEY", api_key),
         timeout=30.0,
     )
 

@@ -28,7 +28,7 @@ class SqliteSessionService(BaseSessionService):
 
         with get_db() as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO chat_sessions (session_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO chat_sessions (session_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (session_id) DO NOTHING",
                 (sid, user_id, "New conversation", now, now),
             )
 

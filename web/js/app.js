@@ -119,9 +119,16 @@ async function loadDashboard() {
             document.getElementById('wkg-value').textContent = latest.w_per_kg ? latest.w_per_kg.toFixed(2) : '--';
         }
 
-        // This week's summary
+        // This week's summary (match current ISO week)
         if (weekly.length > 0) {
-            const thisWeek = weekly[weekly.length - 1];
+            const now = new Date();
+            const jan1 = new Date(now.getFullYear(), 0, 1);
+            const dayOfYear = Math.floor((now - jan1) / 86400000) + 1;
+            const dayOfWeek = now.getDay() || 7; // 1=Mon..7=Sun
+            const isoWeek = Math.floor((dayOfYear - dayOfWeek + 10) / 7);
+            const isoYear = now.getFullYear();
+            const currentWeekKey = `${isoYear}-W${String(isoWeek).padStart(2, '0')}`;
+            const thisWeek = weekly.find(w => w.week === currentWeekKey) || {rides: 0, duration_h: 0, tss: 0};
             document.getElementById('week-summary').textContent =
                 `${thisWeek.rides} rides, ${thisWeek.duration_h}h, ${Math.round(thisWeek.tss)} TSS`;
         }
@@ -352,7 +359,7 @@ async function loadSettings() {
 }
 
 document.getElementById('settings-save')?.addEventListener('click', async () => {
-    const keys = ['athlete_profile', 'coaching_principles', 'coach_role', 'plan_management'];
+    const keys = ['athlete_profile', 'coaching_principles', 'coach_role', 'plan_management', 'intervals_icu_api_key', 'intervals_icu_athlete_id'];
     const status = document.getElementById('settings-status');
     try {
         for (const key of keys) {

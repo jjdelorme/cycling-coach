@@ -111,7 +111,11 @@ def get_power_bests() -> dict:
 
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT duration_s, MAX(power) as power, date FROM power_bests GROUP BY duration_s ORDER BY duration_s"
+            """SELECT pb.duration_s, pb.power, pb.date
+               FROM power_bests pb
+               JOIN (SELECT duration_s, MAX(power) as max_power FROM power_bests GROUP BY duration_s) m
+                 ON pb.duration_s = m.duration_s AND pb.power = m.max_power
+               ORDER BY pb.duration_s"""
         ).fetchall()
 
     return {
@@ -141,10 +145,10 @@ def get_training_summary(period: str = "month") -> dict:
     with get_db() as conn:
         row = conn.execute(
             """SELECT COUNT(*) as rides,
-                      ROUND(SUM(duration_s) / 3600.0, 1) as hours,
-                      ROUND(SUM(COALESCE(tss, 0)), 0) as tss,
-                      ROUND(SUM(COALESCE(distance_m, 0)) / 1000.0, 0) as distance_km,
-                      ROUND(SUM(COALESCE(total_ascent, 0)), 0) as ascent_m
+                      ROUND(CAST(SUM(duration_s) / 3600.0 AS NUMERIC), 1) as hours,
+                      ROUND(CAST(SUM(COALESCE(tss, 0)) AS NUMERIC), 0) as tss,
+                      ROUND(CAST(SUM(COALESCE(distance_m, 0)) / 1000.0 AS NUMERIC), 0) as distance_km,
+                      ROUND(CAST(SUM(COALESCE(total_ascent, 0)) AS NUMERIC), 0) as ascent_m
                FROM rides WHERE date >= ?""",
             (cutoff,),
         ).fetchone()
@@ -167,10 +171,10 @@ def get_ftp_history() -> list[dict]:
     """
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT strftime('%Y-%m', date) as month, ftp, weight
-               FROM rides WHERE ftp > 0
-               GROUP BY month HAVING ftp = MAX(ftp)
-               ORDER BY month"""
+            """SELECT m.month, m.max_ftp as ftp,
+                      (SELECT r.weight FROM rides r WHERE SUBSTR(r.date, 1, 7) = m.month AND r.ftp = m.max_ftp LIMIT 1) as weight
+               FROM (SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as max_ftp FROM rides WHERE ftp > 0 GROUP BY SUBSTR(date, 1, 7)) m
+               ORDER BY m.month"""
         ).fetchall()
 
     return [

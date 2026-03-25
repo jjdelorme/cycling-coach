@@ -192,6 +192,17 @@
                         <textarea id="setting-plan_management" class="settings-textarea" rows="8"></textarea>
                     </div>
                 </div>
+                <h3 style="margin-top:2rem;">Integrations</h3>
+                <p style="color:var(--text-muted);margin-bottom:1rem;">Connect external services. Intervals.icu syncs planned workouts to your Garmin device.</p>
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h4>intervals.icu</h4>
+                        <p class="settings-hint">API Key (from intervals.icu Settings &rarr; Developer)</p>
+                        <input type="password" id="setting-intervals_icu_api_key" class="settings-textarea" style="height:auto;padding:0.5rem;font-family:monospace;" placeholder="Your API key">
+                        <p class="settings-hint" style="margin-top:0.75rem;">Athlete ID (e.g. i12345)</p>
+                        <input type="text" id="setting-intervals_icu_athlete_id" class="settings-textarea" style="height:auto;padding:0.5rem;font-family:monospace;" placeholder="i12345">
+                    </div>
+                </div>
                 <div style="margin-top:1rem;">
                     <button id="settings-save" class="btn-primary">Save Settings</button>
                     <button id="settings-reset" class="btn-secondary" style="margin-left:0.5rem;">Reset to Defaults</button>

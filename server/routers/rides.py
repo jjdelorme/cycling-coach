@@ -40,19 +40,10 @@ def weekly_summary(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
 ):
+    from datetime import date as dt_date
     query = """
-        SELECT
-            strftime('%Y-W%W', date) as week,
-            COUNT(*) as rides,
-            ROUND(SUM(duration_s) / 3600.0, 1) as duration_h,
-            ROUND(SUM(COALESCE(tss, 0)), 1) as tss,
-            ROUND(SUM(COALESCE(distance_m, 0)) / 1000.0, 1) as distance_km,
-            CAST(SUM(COALESCE(total_ascent, 0)) AS INTEGER) as ascent_m,
-            ROUND(AVG(CASE WHEN avg_power > 0 THEN avg_power END), 0) as avg_power,
-            ROUND(AVG(CASE WHEN avg_hr > 0 THEN avg_hr END), 0) as avg_hr,
-            MAX(best_20min_power) as best_20min
-        FROM rides
-        WHERE 1=1
+        SELECT date, duration_s, tss, distance_m, total_ascent, avg_power, avg_hr, best_20min_power
+        FROM rides WHERE 1=1
     """
     params = []
     if start_date:
@@ -61,11 +52,45 @@ def weekly_summary(
     if end_date:
         query += " AND date <= ?"
         params.append(end_date)
-    query += " GROUP BY week ORDER BY week"
+    query += " ORDER BY date"
 
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
-    return [WeeklySummary(**dict(r)) for r in rows]
+
+    from collections import defaultdict
+    weeks = defaultdict(lambda: {"rides": 0, "duration_s": 0, "tss": 0, "distance_m": 0, "ascent_m": 0, "powers": [], "hrs": [], "best_20min": 0})
+    for r in rows:
+        d = dict(r)
+        parsed = dt_date.fromisoformat(d["date"])
+        iso = parsed.isocalendar()
+        week_key = f"{iso[0]}-W{iso[1]:02d}"
+        w = weeks[week_key]
+        w["rides"] += 1
+        w["duration_s"] += d["duration_s"] or 0
+        w["tss"] += d["tss"] or 0
+        w["distance_m"] += d["distance_m"] or 0
+        w["ascent_m"] += d["total_ascent"] or 0
+        if d["avg_power"] and d["avg_power"] > 0:
+            w["powers"].append(d["avg_power"])
+        if d["avg_hr"] and d["avg_hr"] > 0:
+            w["hrs"].append(d["avg_hr"])
+        w["best_20min"] = max(w["best_20min"], d["best_20min_power"] or 0)
+
+    result = []
+    for week_key in sorted(weeks):
+        w = weeks[week_key]
+        result.append(WeeklySummary(
+            week=week_key,
+            rides=w["rides"],
+            duration_h=round(w["duration_s"] / 3600.0, 1),
+            tss=round(w["tss"], 1),
+            distance_km=round(w["distance_m"] / 1000.0, 1),
+            ascent_m=int(w["ascent_m"]),
+            avg_power=round(sum(w["powers"]) / len(w["powers"])) if w["powers"] else None,
+            avg_hr=round(sum(w["hrs"]) / len(w["hrs"])) if w["hrs"] else None,
+            best_20min=w["best_20min"] or None,
+        ))
+    return result
 
 
 @router.get("/summary/monthly", response_model=list[MonthlySummary])
@@ -75,14 +100,14 @@ def monthly_summary(
 ):
     query = """
         SELECT
-            strftime('%Y-%m', date) as month,
+            SUBSTR(date, 1, 7) as month,
             COUNT(*) as rides,
-            ROUND(SUM(duration_s) / 3600.0, 1) as duration_h,
-            ROUND(SUM(COALESCE(tss, 0)), 1) as tss,
-            ROUND(SUM(COALESCE(distance_m, 0)) / 1000.0, 1) as distance_km,
+            ROUND(CAST(SUM(duration_s) / 3600.0 AS NUMERIC), 1) as duration_h,
+            ROUND(CAST(SUM(COALESCE(tss, 0)) AS NUMERIC), 1) as tss,
+            ROUND(CAST(SUM(COALESCE(distance_m, 0)) / 1000.0 AS NUMERIC), 1) as distance_km,
             CAST(SUM(COALESCE(total_ascent, 0)) AS INTEGER) as ascent_m,
-            ROUND(AVG(CASE WHEN avg_power > 0 THEN avg_power END), 0) as avg_power,
-            ROUND(AVG(CASE WHEN avg_hr > 0 THEN avg_hr END), 0) as avg_hr,
+            ROUND(CAST(AVG(CASE WHEN avg_power > 0 THEN avg_power END) AS NUMERIC), 0) as avg_power,
+            ROUND(CAST(AVG(CASE WHEN avg_hr > 0 THEN avg_hr END) AS NUMERIC), 0) as avg_hr,
             MAX(best_20min_power) as best_20min
         FROM rides
         WHERE 1=1
@@ -110,7 +135,7 @@ def get_ride(ride_id: int):
             raise HTTPException(status_code=404, detail="Ride not found")
 
         records = conn.execute(
-            "SELECT timestamp, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature FROM ride_records WHERE ride_id = ? ORDER BY rowid",
+            "SELECT timestamp, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature FROM ride_records WHERE ride_id = ? ORDER BY id",
             (ride_id,),
         ).fetchall()
 
