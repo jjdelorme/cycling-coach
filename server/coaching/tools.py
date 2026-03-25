@@ -50,7 +50,8 @@ def get_recent_rides(days_back: int = 7) -> list[dict]:
     with get_db() as conn:
         rows = conn.execute(
             """SELECT date, sub_sport, duration_s, distance_m, tss, avg_power,
-                      normalized_power, avg_hr, total_ascent, best_20min_power
+                      normalized_power, avg_hr, total_ascent, best_20min_power,
+                      post_ride_comments, coach_comments
                FROM rides WHERE date >= ? ORDER BY date DESC""",
             (cutoff,),
         ).fetchall()
@@ -67,6 +68,8 @@ def get_recent_rides(days_back: int = 7) -> list[dict]:
             "avg_hr": r["avg_hr"],
             "ascent_m": r["total_ascent"],
             "best_20min": r["best_20min_power"],
+            "athlete_post_ride_notes": r["post_ride_comments"],
+            "coach_post_ride_notes": r["coach_comments"],
         }
         for r in rows
     ]
@@ -86,7 +89,7 @@ def get_upcoming_workouts(days_ahead: int = 7) -> list[dict]:
 
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT date, name, sport, total_duration_s FROM planned_workouts WHERE date >= ? AND date <= ? ORDER BY date",
+            "SELECT date, name, sport, total_duration_s, coach_notes, athlete_notes FROM planned_workouts WHERE date >= ? AND date <= ? ORDER BY date",
             (today, end),
         ).fetchall()
 
@@ -96,6 +99,8 @@ def get_upcoming_workouts(days_ahead: int = 7) -> list[dict]:
             "name": r["name"],
             "sport": r["sport"],
             "duration_min": round((r["total_duration_s"] or 0) / 60),
+            "coach_notes": r["coach_notes"],
+            "athlete_notes": r["athlete_notes"],
         }
         for r in rows
     ]

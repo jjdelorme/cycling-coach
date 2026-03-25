@@ -28,6 +28,8 @@ from server.coaching.planning_tools import (
     get_week_summary,
     sync_workouts_to_garmin,
     update_coach_settings,
+    set_workout_coach_notes,
+    set_ride_coach_comments,
 )
 
 APP_NAME = "cycling-coach"
@@ -82,6 +84,8 @@ def _get_agent():
             get_week_summary,
             sync_workouts_to_garmin,
             update_coach_settings,
+            set_workout_coach_notes,
+            set_ride_coach_comments,
             preload_memory_tool,
         ],
     )

@@ -807,6 +807,65 @@ def save_workout_template(key: str, name: str, description: str, category: str,
     }
 
 
+def set_workout_coach_notes(date: str, notes: str) -> dict:
+    """Set coach's pre-ride notes on a planned workout.
+
+    Use this to give the athlete instructions, focus areas, RPE targets,
+    or other guidance before they do a workout.
+
+    Args:
+        date: The workout date (YYYY-MM-DD).
+        notes: Coach's notes/instructions for the athlete.
+
+    Returns:
+        Status of the update.
+    """
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, name FROM planned_workouts WHERE date = ? LIMIT 1", (date,)
+        ).fetchone()
+        if not row:
+            return {"status": "error", "message": f"No planned workout found on {date}"}
+        conn.execute(
+            "UPDATE planned_workouts SET coach_notes = ? WHERE id = ?",
+            (notes, row["id"]),
+        )
+    return {
+        "status": "success",
+        "message": f"Coach notes set for {date} ({row['name']})",
+    }
+
+
+def set_ride_coach_comments(date: str, comments: str) -> dict:
+    """Set coach's post-ride analysis/comments on a completed ride.
+
+    Use this to provide feedback on a completed ride — what went well,
+    what to improve, how it fits the training plan, recovery advice.
+
+    Args:
+        date: The ride date (YYYY-MM-DD).
+        comments: Coach's post-ride analysis and feedback.
+
+    Returns:
+        Status of the update.
+    """
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, sub_sport FROM rides WHERE date = ? ORDER BY duration_s DESC LIMIT 1",
+            (date,),
+        ).fetchone()
+        if not row:
+            return {"status": "error", "message": f"No ride found on {date}"}
+        conn.execute(
+            "UPDATE rides SET coach_comments = ? WHERE id = ?",
+            (comments, row["id"]),
+        )
+    return {
+        "status": "success",
+        "message": f"Coach comments set for {date} ride",
+    }
+
+
 def update_coach_settings(section: str, new_value: str) -> dict:
     """Update coaching configuration settings like athlete profile, coaching principles, or coach behavior.
 
