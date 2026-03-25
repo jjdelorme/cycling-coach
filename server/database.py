@@ -167,6 +167,27 @@ CREATE TABLE IF NOT EXISTS workout_templates (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS sync_runs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',
+    started_at TEXT,
+    completed_at TEXT,
+    rides_downloaded INTEGER DEFAULT 0,
+    rides_skipped INTEGER DEFAULT 0,
+    workouts_uploaded INTEGER DEFAULT 0,
+    workouts_skipped INTEGER DEFAULT 0,
+    errors TEXT,
+    log TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sync_watermarks (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_runs_status ON sync_runs(status);
+CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
@@ -314,6 +335,27 @@ CREATE TABLE IF NOT EXISTS workout_templates (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS sync_runs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',
+    started_at TEXT,
+    completed_at TEXT,
+    rides_downloaded INTEGER DEFAULT 0,
+    rides_skipped INTEGER DEFAULT 0,
+    workouts_uploaded INTEGER DEFAULT 0,
+    workouts_skipped INTEGER DEFAULT 0,
+    errors TEXT,
+    log TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sync_watermarks (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_runs_status ON sync_runs(status);
+CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
