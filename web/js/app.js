@@ -195,6 +195,7 @@ document.getElementById('rides-filter-btn')?.addEventListener('click', async () 
 // Track which section we came from when opening ride detail
 let _rideDetailReturnTo = 'rides';
 let _currentRideId = null;
+let _currentRideDate = null;
 let _currentWorkoutId = null;
 
 async function showRideDetail(rideId) {
@@ -250,6 +251,7 @@ async function showRideDetail(rideId) {
 
         // Populate notes
         _currentRideId = rideId;
+        _currentRideDate = ride.date;
         _currentWorkoutId = workout?.id || null;
         const isCompleted = !!(ride.duration_s || ride.records?.length);
 
@@ -311,12 +313,16 @@ async function showRideDetail(rideId) {
 
         // Coach's post-ride analysis
         const coachPostSection = document.getElementById('ride-coach-post-section');
+        const feedbackBtnSection = document.getElementById('ride-coach-feedback-btn-section');
         if (ride.coach_comments) {
             document.getElementById('ride-coach-post-notes').textContent = ride.coach_comments;
             coachPostSection.style.display = 'block';
+            feedbackBtnSection.style.display = 'none';
         } else {
             coachPostSection.style.display = 'none';
+            feedbackBtnSection.style.display = isCompleted ? 'block' : 'none';
         }
+        document.getElementById('ride-coach-feedback-status').style.display = 'none';
         document.getElementById('ride-comments-status').style.display = 'none';
         const preStatus = document.getElementById('ride-pre-status');
         if (preStatus) preStatus.style.display = 'none';
@@ -386,6 +392,51 @@ document.getElementById('ride-pre-save')?.addEventListener('click', async () => 
         status.textContent = 'Save failed';
         status.style.color = 'var(--red)';
         status.style.display = 'inline';
+    }
+});
+
+// Coach feedback button
+document.getElementById('ride-coach-feedback-btn')?.addEventListener('click', async () => {
+    if (!_currentRideId || !_currentRideDate) return;
+    const btn = document.getElementById('ride-coach-feedback-btn');
+    const status = document.getElementById('ride-coach-feedback-status');
+    btn.disabled = true;
+    btn.textContent = 'Analyzing...';
+    status.textContent = 'Asking the coach to review this ride...';
+    status.style.color = 'var(--text-muted)';
+    status.style.display = 'inline';
+
+    try {
+        const res = await fetch('/api/coaching/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: `Please analyze my ride on ${_currentRideDate} and save your post-ride coach comments using the set_ride_coach_comments tool. Look at the ride data, compare it to the planned workout if there was one, and give me feedback on how it went — what I did well, what to improve, and any recovery or follow-up advice.`,
+                session_id: `ride-feedback-${_currentRideDate}`,
+            }),
+        });
+        const data = await res.json();
+
+        // Reload the ride to get the saved coach comments
+        const ride = await api(`/api/rides/${_currentRideId}`);
+        if (ride.coach_comments) {
+            document.getElementById('ride-coach-post-notes').textContent = ride.coach_comments;
+            document.getElementById('ride-coach-post-section').style.display = 'block';
+            document.getElementById('ride-coach-feedback-btn-section').style.display = 'none';
+        } else {
+            // Coach responded but didn't save via tool — show the response directly
+            document.getElementById('ride-coach-post-notes').textContent = data.response;
+            document.getElementById('ride-coach-post-section').style.display = 'block';
+            document.getElementById('ride-coach-feedback-btn-section').style.display = 'none';
+        }
+        status.style.display = 'none';
+    } catch (e) {
+        status.textContent = 'Failed to get feedback';
+        status.style.color = 'var(--red)';
+        console.error('Coach feedback error:', e);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Get Coach Feedback';
     }
 });
 
