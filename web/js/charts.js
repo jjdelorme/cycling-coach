@@ -635,13 +635,14 @@ function drawRideTimeline(ride, workout) {
             meta.dragging = false;
             if (meta.selStart !== null && meta.selEnd !== null && Math.abs(meta.selEnd - meta.selStart) > 2) {
                 meta.locked = true;
+                rideTimelineChart.draw();
                 _showSelectionStats(meta, sampled, hasPower, hasCadence, selStats, _woStepLookup);
             } else {
                 meta.selStart = null;
                 meta.selEnd = null;
                 selStats.style.display = 'none';
+                rideTimelineChart.draw();
             }
-            rideTimelineChart.draw();
         }
     });
 
