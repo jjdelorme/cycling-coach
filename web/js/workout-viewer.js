@@ -102,51 +102,84 @@ function drawWorkoutProfile(w) {
     }
     canvas.parentElement.style.display = 'block';
 
-    // Build bar-like segments: each step becomes one or more data points
-    const labels = [];
-    const data = [];
-    const bgColors = [];
-    const borderColors = [];
+    const totalDuration = w.steps.reduce((sum, s) => Math.max(sum, s.start_s + s.duration_s), 0);
+    // Sample at ~1 point per 5 seconds, cap at 600 points
+    const sampleInterval = Math.max(5, Math.floor(totalDuration / 600));
+    const numPoints = Math.ceil(totalDuration / sampleInterval);
 
-    for (const step of w.steps) {
-        // For warmup/cooldown, show as gradient with multiple sub-segments
-        if (step.type === 'Warmup' || step.type === 'Cooldown') {
-            const segs = 5;
-            const segDur = step.duration_s / segs;
-            const lowW = step.power_low_watts || Math.round(step.power_watts * 0.7);
-            const highW = step.power_high_watts || Math.round(step.power_watts * 1.3);
-            for (let i = 0; i < segs; i++) {
-                const t = i / (segs - 1);
-                const watts = step.type === 'Warmup'
-                    ? Math.round(lowW + t * (highW - lowW))
-                    : Math.round(highW + t * (lowW - highW));
-                const startSec = step.start_s + i * segDur;
-                labels.push(fmtTime(startSec));
-                data.push({ x: segDur, y: watts });
-                bgColors.push(zoneColor(watts / w.ftp, 0.7));
-                borderColors.push(zoneColor(watts / w.ftp, 1));
+    const labels = [];
+    const powerData = [];
+    const bgColors = [];
+
+    for (let i = 0; i < numPoints; i++) {
+        const t = i * sampleInterval;
+        labels.push(fmtTime(t));
+
+        // Find which step we're in
+        let watts = 0;
+        let pct = 0;
+        for (const step of w.steps) {
+            if (t >= step.start_s && t < step.start_s + step.duration_s) {
+                if ((step.type === 'Warmup' || step.type === 'Cooldown') && step.power_low_watts && step.power_high_watts) {
+                    const progress = (t - step.start_s) / step.duration_s;
+                    if (step.type === 'Warmup') {
+                        watts = Math.round(step.power_low_watts + progress * (step.power_high_watts - step.power_low_watts));
+                    } else {
+                        watts = Math.round(step.power_high_watts + progress * (step.power_low_watts - step.power_high_watts));
+                    }
+                    pct = watts / w.ftp;
+                } else {
+                    watts = step.power_watts || 0;
+                    pct = step.power_pct || 0;
+                }
+                break;
             }
-        } else {
-            labels.push(fmtTime(step.start_s));
-            data.push({ x: step.duration_s, y: step.power_watts });
-            bgColors.push(zoneColor(step.power_pct, 0.7));
-            borderColors.push(zoneColor(step.power_pct, 1));
         }
+        powerData.push(watts);
+        bgColors.push(zoneColor(pct, 0.7));
     }
 
+    // Build annotation boxes for each step (zone-colored, time-proportional)
+    const annotations = {};
+    w.steps.forEach((step, idx) => {
+        const xMin = Math.floor(step.start_s / sampleInterval);
+        const xMax = Math.min(numPoints - 1, Math.floor((step.start_s + step.duration_s) / sampleInterval));
+        const pct = step.power_pct || 0.5;
+
+        annotations['step' + idx] = {
+            type: 'box',
+            xMin: xMin,
+            xMax: xMax,
+            yMin: 0,
+            yMax: step.power_watts || 0,
+            backgroundColor: zoneColor(pct, 0.2),
+            borderColor: zoneColor(pct, 0.6),
+            borderWidth: 1,
+            borderRadius: 2,
+            label: {
+                display: step.duration_s > (totalDuration * 0.04),
+                content: step.label || step.type,
+                position: 'start',
+                color: 'rgba(255,255,255,0.6)',
+                font: { size: 9 },
+                padding: 2,
+            },
+        };
+    });
+
     workoutChart = new Chart(canvas, {
-        type: 'bar',
+        type: 'line',
         data: {
             labels: labels,
             datasets: [{
-                label: 'Power (watts)',
-                data: data.map(d => d.y),
-                backgroundColor: bgColors,
-                borderColor: borderColors,
-                borderWidth: 1,
-                borderRadius: 2,
-                barPercentage: 1.0,
-                categoryPercentage: 1.0,
+                label: 'Target Power',
+                data: powerData,
+                borderColor: 'rgba(245, 197, 24, 0.8)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                fill: true,
+                backgroundColor: 'rgba(245, 197, 24, 0.08)',
+                stepped: 'before',
             }],
         },
         options: {
@@ -158,8 +191,7 @@ function drawWorkoutProfile(w) {
                     callbacks: {
                         title: (items) => {
                             const i = items[0].dataIndex;
-                            const durMin = Math.round(data[i].x / 60);
-                            return `${labels[i]} — ${durMin}min`;
+                            return labels[i];
                         },
                         label: (item) => {
                             const watts = item.raw;
@@ -168,11 +200,12 @@ function drawWorkoutProfile(w) {
                         },
                     },
                 },
+                annotation: { annotations },
             },
             scales: {
                 x: {
                     grid: { color: 'rgba(255,255,255,0.05)' },
-                    ticks: { color: '#999', font: { size: 10 } },
+                    ticks: { color: '#999', font: { size: 10 }, maxTicksLimit: 15 },
                 },
                 y: {
                     beginAtZero: true,
