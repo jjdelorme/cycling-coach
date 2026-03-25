@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { usePowerCurve, useEfficiency, useZones, useFTPHistory } from '../hooks/useApi'
 import { useChartColors } from '../lib/theme'
 import {
@@ -27,6 +27,8 @@ ChartJS.register(
   Filler,
 )
 
+import type { DateRange } from '../lib/api'
+
 type Tab = 'power-curve' | 'efficiency' | 'zones' | 'ftp-history'
 
 const TABS: { key: Tab; label: string }[] = [
@@ -36,7 +38,37 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'ftp-history', label: 'FTP History' },
 ]
 
+type RangeKey = '1w' | '3m' | '6m' | '1y' | 'all'
+const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+  { key: '1w', label: 'This Week' },
+  { key: '3m', label: '3 Months' },
+  { key: '6m', label: '6 Months' },
+  { key: '1y', label: '1 Year' },
+  { key: 'all', label: 'All Time' },
+]
+
+function rangeToDates(key: RangeKey): DateRange {
+  if (key === 'all') return {}
+  const now = new Date()
+  const start = new Date(now)
+  if (key === '1w') start.setDate(now.getDate() - 7)
+  else if (key === '3m') start.setMonth(now.getMonth() - 3)
+  else if (key === '6m') start.setMonth(now.getMonth() - 6)
+  else if (key === '1y') start.setFullYear(now.getFullYear() - 1)
+  const y = start.getFullYear()
+  const m = String(start.getMonth() + 1).padStart(2, '0')
+  const d = String(start.getDate()).padStart(2, '0')
+  return { start_date: `${y}-${m}-${d}` }
+}
+
 const ZONE_COLORS: Record<string, string> = {
+  z0: '#aaaaaa',
+  z1: '#7ec8e3',
+  z2: '#00d4aa',
+  z3: '#f5c518',
+  z4: '#e8913a',
+  z5: '#e94560',
+  z6: '#9b59b6',
   Z1: '#7ec8e3',
   Z2: '#00d4aa',
   Z3: '#f5c518',
@@ -45,30 +77,26 @@ const ZONE_COLORS: Record<string, string> = {
   Z6: '#9b59b6',
 }
 
-function PowerCurveChart() {
-  const { data, isLoading, error } = usePowerCurve()
+function PowerCurveChart({ dateRange }: { dateRange: DateRange }) {
+  const { data, isLoading, error } = usePowerCurve(dateRange)
   const cc = useChartColors()
 
   if (isLoading) return <p className="text-text-muted">Loading power curve...</p>
   if (error) return <p className="text-red-400">Error loading power curve.</p>
-  if (!data || Object.keys(data).length === 0)
+  if (!data || data.length === 0)
     return <p className="text-text-muted">No power curve data available.</p>
 
-  const entries = Object.entries(data).sort((a, b) => {
-    const toSeconds = (label: string): number => {
-      const m = label.match(/^(\d+)(s|min|h)$/)
-      if (!m) return 0
-      const n = parseInt(m[1])
-      if (m[2] === 's') return n
-      if (m[2] === 'min') return n * 60
-      return n * 3600
-    }
-    return toSeconds(a[0]) - toSeconds(b[0])
-  })
+  const sorted = [...data].sort((a, b) => a.duration_s - b.duration_s)
 
-  const labels = entries.map(([k]) => k)
-  const powers = entries.map(([, v]) => v.power)
-  const dates = entries.map(([, v]) => v.date)
+  const fmtDurationLabel = (s: number): string => {
+    if (s < 60) return `${s}s`
+    if (s < 3600) return `${Math.round(s / 60)}min`
+    return `${(s / 3600).toFixed(1)}h`
+  }
+
+  const labels = sorted.map((d) => fmtDurationLabel(d.duration_s))
+  const powers = sorted.map((d) => d.power)
+  const dates = sorted.map((d) => d.date)
 
   const chartData = {
     labels,
@@ -118,8 +146,8 @@ function PowerCurveChart() {
   )
 }
 
-function EfficiencyChart() {
-  const { data, isLoading, error } = useEfficiency()
+function EfficiencyChart({ dateRange }: { dateRange: DateRange }) {
+  const { data, isLoading, error } = useEfficiency(dateRange)
   const cc = useChartColors()
 
   if (isLoading) return <p className="text-text-muted">Loading efficiency...</p>
@@ -181,8 +209,8 @@ function EfficiencyChart() {
   )
 }
 
-function ZonesChart() {
-  const { data, isLoading, error } = useZones()
+function ZonesChart({ dateRange }: { dateRange: DateRange }) {
+  const { data, isLoading, error } = useZones(dateRange)
   const cc = useChartColors()
 
   if (isLoading) return <p className="text-text-muted">Loading zones...</p>
@@ -265,8 +293,8 @@ function ZonesChart() {
   )
 }
 
-function FTPHistoryChart() {
-  const { data, isLoading, error } = useFTPHistory()
+function FTPHistoryChart({ dateRange }: { dateRange: DateRange }) {
+  const { data, isLoading, error } = useFTPHistory(dateRange)
   const cc = useChartColors()
 
   if (isLoading) return <p className="text-text-muted">Loading FTP history...</p>
@@ -363,10 +391,31 @@ function FTPHistoryChart() {
 
 export default function Analysis() {
   const [activeTab, setActiveTab] = useState<Tab>('power-curve')
+  const [range, setRange] = useState<RangeKey>('3m')
+  const dateRange = useMemo(() => rangeToDates(range), [range])
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-text">Analysis</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl font-bold text-text">Analysis</h1>
+
+        {/* Time range selector */}
+        <div className="flex gap-1">
+          {RANGE_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setRange(opt.key)}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                range === opt.key
+                  ? 'bg-accent text-white'
+                  : 'bg-surface2 text-text-muted hover:text-text border border-border'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Tab buttons */}
       <div className="flex gap-1 border-b border-border">
@@ -387,10 +436,10 @@ export default function Analysis() {
 
       {/* Tab content */}
       <div className="bg-surface rounded-lg p-6">
-        {activeTab === 'power-curve' && <PowerCurveChart />}
-        {activeTab === 'efficiency' && <EfficiencyChart />}
-        {activeTab === 'zones' && <ZonesChart />}
-        {activeTab === 'ftp-history' && <FTPHistoryChart />}
+        {activeTab === 'power-curve' && <PowerCurveChart dateRange={dateRange} />}
+        {activeTab === 'efficiency' && <EfficiencyChart dateRange={dateRange} />}
+        {activeTab === 'zones' && <ZonesChart dateRange={dateRange} />}
+        {activeTab === 'ftp-history' && <FTPHistoryChart dateRange={dateRange} />}
       </div>
     </div>
   )

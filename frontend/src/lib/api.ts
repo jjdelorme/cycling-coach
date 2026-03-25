@@ -59,10 +59,30 @@ export const updateRideComments = (id: number, body: { post_ride_comments?: stri
 export const fetchPMC = () => get<PMCEntry[]>('/api/pmc')
 
 // Analysis
-export const fetchPowerCurve = () => get<Record<string, { power: number; date: string }>>('/api/analysis/power-curve')
-export const fetchEfficiency = () => get<EfficiencyPoint[]>('/api/analysis/efficiency')
-export const fetchZones = () => get<ZoneDistribution[]>('/api/analysis/zones')
-export const fetchFTPHistory = () => get<FTPHistoryPoint[]>('/api/analysis/ftp-history')
+export type DateRange = { start_date?: string; end_date?: string }
+
+function dateQuery(params?: DateRange): string {
+  const q = new URLSearchParams()
+  if (params?.start_date) q.set('start_date', params.start_date)
+  if (params?.end_date) q.set('end_date', params.end_date)
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
+export const fetchPowerCurve = (params?: DateRange) =>
+  get<{ duration_s: number; power: number; date: string; ride_id: number }[]>(`/api/analysis/power-curve${dateQuery(params)}`)
+export const fetchEfficiency = (params?: DateRange) =>
+  get<EfficiencyPoint[]>(`/api/analysis/efficiency${dateQuery(params)}`)
+export const fetchZones = async (params?: DateRange): Promise<ZoneDistribution[]> => {
+  const raw = await get<{ seconds: Record<string, number>; percentages: Record<string, number> }>(`/api/analysis/zones${dateQuery(params)}`)
+  return Object.keys(raw.percentages).map((zone) => ({
+    zone,
+    percentage: raw.percentages[zone],
+    hours: (raw.seconds[zone] ?? 0) / 3600,
+  }))
+}
+export const fetchFTPHistory = (params?: DateRange) =>
+  get<FTPHistoryPoint[]>(`/api/analysis/ftp-history${dateQuery(params)}`)
 import type { EfficiencyPoint, ZoneDistribution, FTPHistoryPoint } from '../types/api'
 
 // Plan

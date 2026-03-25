@@ -32,17 +32,17 @@ export function usePMC() {
 }
 
 // Analysis
-export function usePowerCurve() {
-  return useQuery({ queryKey: ['power-curve'], queryFn: api.fetchPowerCurve })
+export function usePowerCurve(params?: api.DateRange) {
+  return useQuery({ queryKey: ['power-curve', params], queryFn: () => api.fetchPowerCurve(params) })
 }
-export function useEfficiency() {
-  return useQuery({ queryKey: ['efficiency'], queryFn: api.fetchEfficiency })
+export function useEfficiency(params?: api.DateRange) {
+  return useQuery({ queryKey: ['efficiency', params], queryFn: () => api.fetchEfficiency(params) })
 }
-export function useZones() {
-  return useQuery({ queryKey: ['zones'], queryFn: api.fetchZones })
+export function useZones(params?: api.DateRange) {
+  return useQuery({ queryKey: ['zones', params], queryFn: () => api.fetchZones(params) })
 }
-export function useFTPHistory() {
-  return useQuery({ queryKey: ['ftp-history'], queryFn: api.fetchFTPHistory })
+export function useFTPHistory(params?: api.DateRange) {
+  return useQuery({ queryKey: ['ftp-history', params], queryFn: () => api.fetchFTPHistory(params) })
 }
 
 // Plan
