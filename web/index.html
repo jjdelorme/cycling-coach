@@ -201,9 +201,25 @@
                     <div class="settings-card">
                         <h4>intervals.icu</h4>
                         <p class="settings-hint">API Key (from intervals.icu Settings &rarr; Developer)</p>
-                        <input type="password" id="setting-intervals_icu_api_key" class="settings-textarea" style="height:auto;padding:0.5rem;font-family:monospace;" placeholder="Your API key">
+                        <div style="position:relative;">
+                            <input type="password" id="setting-intervals_icu_api_key" class="settings-textarea" style="height:auto;padding:0.5rem;padding-right:2.5rem;font-family:monospace;" placeholder="Your API key">
+                            <button type="button" onclick="const inp=document.getElementById('setting-intervals_icu_api_key');const isP=inp.type==='password';inp.type=isP?'text':'password';this.innerHTML=isP?'<svg width=&quot;20&quot; height=&quot;20&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;><path d=&quot;M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z&quot;/><circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;3&quot;/><line x1=&quot;1&quot; y1=&quot;1&quot; x2=&quot;23&quot; y2=&quot;23&quot;/></svg>':'<svg width=&quot;20&quot; height=&quot;20&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;><path d=&quot;M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z&quot;/><circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;3&quot;/></svg>';this.title=isP?'Hide API key':'Show API key'" title="Show API key" style="position:absolute;right:0.5rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);padding:0.25rem;display:flex;align-items:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                        </div>
                         <p class="settings-hint" style="margin-top:0.75rem;">Athlete ID (e.g. i12345)</p>
                         <input type="text" id="setting-intervals_icu_athlete_id" class="settings-textarea" style="height:auto;padding:0.5rem;font-family:monospace;" placeholder="i12345">
+                        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
+                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                <button id="sync-now-btn" class="btn-primary" style="padding:0.4rem 1rem;font-size:0.85rem;background:var(--yellow);color:var(--bg);border-color:var(--yellow);">Sync Now</button>
+                                <span id="sync-status-text" style="color:var(--text-muted);font-size:0.85rem;"></span>
+                            </div>
+                            <div id="sync-progress" style="display:none;margin-top:0.75rem;">
+                                <div style="background:var(--surface);border-radius:4px;overflow:hidden;height:6px;margin-bottom:0.5rem;">
+                                    <div id="sync-progress-bar" style="height:100%;background:var(--blue);width:0%;transition:width 0.3s;"></div>
+                                </div>
+                                <div id="sync-log" style="font-size:0.8rem;color:var(--text-muted);max-height:120px;overflow-y:auto;font-family:monospace;line-height:1.4;"></div>
+                            </div>
+                            <div id="sync-last" style="margin-top:0.5rem;font-size:0.8rem;color:var(--text-muted);"></div>
+                        </div>
                     </div>
                 </div>
                 <div style="margin-top:1rem;">

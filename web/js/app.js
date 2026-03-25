@@ -59,6 +59,7 @@ function loadSection(name) {
     }
     if (name === 'settings') {
         loadSettings();
+        loadSyncOverview();
         return;
     }
     if (loaded[name]) return;
@@ -443,6 +444,146 @@ document.getElementById('settings-reset')?.addEventListener('click', async () =>
         console.error('Settings reset error:', e);
     }
 });
+
+// Sync
+document.getElementById('sync-now-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('sync-now-btn');
+    const statusText = document.getElementById('sync-status-text');
+    const progress = document.getElementById('sync-progress');
+    const progressBar = document.getElementById('sync-progress-bar');
+    const logEl = document.getElementById('sync-log');
+
+    btn.disabled = true;
+    btn.textContent = 'Syncing...';
+    statusText.textContent = '';
+    logEl.textContent = '';
+    progress.style.display = 'block';
+    progressBar.style.width = '0%';
+
+    try {
+        const res = await fetch('/api/sync/start', { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Sync failed to start');
+        }
+        const { sync_id, ws_url } = await res.json();
+
+        // Use WebSocket for live updates
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${location.host}${ws_url}`);
+
+        ws.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'ping') return;
+
+            // Update progress bar (estimate based on phase)
+            if (msg.phase === 'rides') progressBar.style.width = '33%';
+            if (msg.phase === 'workouts') progressBar.style.width = '66%';
+            if (msg.phase === 'pmc') progressBar.style.width = '85%';
+
+            if (msg.detail) {
+                const line = document.createElement('div');
+                line.textContent = msg.detail;
+                logEl.appendChild(line);
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            if (msg.status === 'completed') {
+                progressBar.style.width = '100%';
+                progressBar.style.background = 'var(--green)';
+                statusText.textContent = `Done — ${msg.rides_downloaded || 0} rides, ${msg.workouts_uploaded || 0} workouts synced`;
+                statusText.style.color = 'var(--green)';
+                btn.disabled = false;
+                btn.textContent = 'Sync Now';
+                loadSyncOverview();
+            } else if (msg.status === 'failed') {
+                progressBar.style.width = '100%';
+                progressBar.style.background = 'var(--red)';
+                statusText.textContent = 'Sync failed';
+                statusText.style.color = 'var(--red)';
+                btn.disabled = false;
+                btn.textContent = 'Sync Now';
+            }
+        };
+
+        ws.onerror = () => {
+            // Fall back to polling if WebSocket fails
+            pollSync(sync_id, btn, statusText, progressBar, logEl);
+        };
+
+        ws.onclose = (e) => {
+            if (btn.disabled) {
+                // Closed before completion — fall back to polling
+                pollSync(sync_id, btn, statusText, progressBar, logEl);
+            }
+        };
+    } catch (e) {
+        statusText.textContent = e.message;
+        statusText.style.color = 'var(--red)';
+        progress.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = 'Sync Now';
+    }
+});
+
+async function pollSync(syncId, btn, statusText, progressBar, logEl) {
+    const poll = async () => {
+        try {
+            const res = await fetch(`/api/sync/status/${syncId}`);
+            const msg = await res.json();
+            if (msg.status === 'completed') {
+                progressBar.style.width = '100%';
+                progressBar.style.background = 'var(--green)';
+                statusText.textContent = `Done — ${msg.rides_downloaded || 0} rides, ${msg.workouts_uploaded || 0} workouts synced`;
+                statusText.style.color = 'var(--green)';
+                btn.disabled = false;
+                btn.textContent = 'Sync Now';
+                loadSyncOverview();
+                return;
+            } else if (msg.status === 'failed') {
+                progressBar.style.width = '100%';
+                progressBar.style.background = 'var(--red)';
+                statusText.textContent = 'Sync failed';
+                statusText.style.color = 'var(--red)';
+                btn.disabled = false;
+                btn.textContent = 'Sync Now';
+                return;
+            }
+            setTimeout(poll, 2000);
+        } catch { setTimeout(poll, 2000); }
+    };
+    poll();
+}
+
+async function loadSyncOverview() {
+    try {
+        const overview = await api('/api/sync/overview');
+        const el = document.getElementById('sync-last');
+        if (!el) return;
+        if (overview.last_sync) {
+            const ls = overview.last_sync;
+            const when = ls.completed_at || ls.started_at;
+            const date = new Date(when);
+            const ago = timeAgo(date);
+            const rides = ls.rides_downloaded || 0;
+            const workouts = ls.workouts_uploaded || 0;
+            el.textContent = `Last sync: ${ago} — ${rides} rides downloaded, ${workouts} workouts uploaded`;
+        } else {
+            el.textContent = 'Never synced';
+        }
+    } catch { /* ignore */ }
+}
+
+function timeAgo(date) {
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+}
 
 // Boot
 loadSection('dashboard');
