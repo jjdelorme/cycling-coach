@@ -169,18 +169,19 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
     log_lines.append(msg)
     await _broadcast(sync_id, {"phase": "rides", "detail": msg, "total": len(activities)})
 
-    # Get existing rides for dedup: by filename AND by (date, duration) fingerprint
+    # Get existing rides for dedup: by filename AND by (date, distance) fingerprint.
+    # Distance is more reliable than duration because moving-time vs elapsed-time
+    # differs between sources (Garmin auto-pause, Strava, intervals.icu).
     with get_db() as conn:
         existing_filenames = set()
         existing_fingerprints = set()
-        rows = conn.execute("SELECT filename, date, duration_s FROM rides").fetchall()
+        rows = conn.execute("SELECT filename, date, distance_m FROM rides").fetchall()
         for r in rows:
             row = dict(r)
             existing_filenames.add(row["filename"])
-            # Fingerprint: (date, duration rounded to nearest 30s) catches same ride
-            # imported from different sources
-            dur = round((row["duration_s"] or 0) / 30) * 30
-            existing_fingerprints.add((row["date"], dur))
+            # Fingerprint: (date, distance rounded to nearest 100m)
+            dist = round((row["distance_m"] or 0) / 100) * 100
+            existing_fingerprints.add((row["date"], dist))
 
     for i, activity in enumerate(activities):
         ride = map_activity_to_ride(activity)
@@ -194,8 +195,9 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
             continue
 
         # Check fingerprint match (cross-source dedup: JSON import vs intervals.icu)
-        dur = round((ride["duration_s"] or 0) / 30) * 30
-        fingerprint = (ride["date"], dur)
+        # Same date + same distance (within 100m) = same ride
+        dist = round((ride["distance_m"] or 0) / 100) * 100
+        fingerprint = (ride["date"], dist)
         if fingerprint in existing_fingerprints:
             skipped += 1
             continue
