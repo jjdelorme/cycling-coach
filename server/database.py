@@ -161,6 +161,11 @@ CREATE TABLE IF NOT EXISTS coach_settings (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS athlete_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS workout_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key TEXT UNIQUE NOT NULL,
@@ -330,6 +335,11 @@ CREATE TABLE IF NOT EXISTS coach_memory (
 );
 
 CREATE TABLE IF NOT EXISTS coach_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS athlete_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
@@ -526,6 +536,59 @@ def get_all_settings() -> dict:
     result = dict(SETTINGS_DEFAULTS)
     with get_db() as conn:
         rows = conn.execute("SELECT key, value FROM coach_settings").fetchall()
+    for row in rows:
+        if isinstance(row, dict):
+            result[row["key"]] = row["value"]
+        else:
+            result[row[0]] = row[1]
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Athlete settings (structured numeric/string values)
+# ---------------------------------------------------------------------------
+
+ATHLETE_SETTINGS_DEFAULTS = {
+    "lthr": "158",          # Lactate threshold HR (bpm)
+    "max_hr": "175",        # Max heart rate (bpm)
+    "resting_hr": "48",     # Resting heart rate (bpm)
+    "ftp": "261",           # Functional threshold power (watts)
+    "weight_kg": "74",      # Weight in kg
+    "age": "50",            # Age
+    "gender": "male",       # Gender (for hrTSS scaling)
+}
+
+
+def get_athlete_setting(key: str) -> str:
+    """Get an athlete setting value, returning the default if not set."""
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM athlete_settings WHERE key = ?", (key,)).fetchone()
+    if row:
+        return row["value"] if isinstance(row, dict) else row[0]
+    return ATHLETE_SETTINGS_DEFAULTS.get(key, "")
+
+
+def set_athlete_setting(key: str, value: str):
+    """Set an athlete setting value."""
+    if _backend == "postgres":
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO athlete_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                (key, value),
+            )
+    else:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO athlete_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+
+def get_all_athlete_settings() -> dict:
+    """Get all athlete settings, filling in defaults for any not yet customized."""
+    result = dict(ATHLETE_SETTINGS_DEFAULTS)
+    with get_db() as conn:
+        rows = conn.execute("SELECT key, value FROM athlete_settings").fetchall()
     for row in rows:
         if isinstance(row, dict):
             result[row["key"]] = row["value"]

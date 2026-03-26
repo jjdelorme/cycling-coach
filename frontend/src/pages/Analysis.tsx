@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { usePowerCurve, useEfficiency, useZones, useFTPHistory, useMacroPlan, useWeeklySummary } from '../hooks/useApi'
+import { usePowerCurve, useEfficiency, useZones, useFTPHistory, useMacroPlan, useWeeklyOverview } from '../hooks/useApi'
 import { useChartColors } from '../lib/theme'
 import { fmtWeight } from '../lib/format'
 import {
@@ -15,7 +15,6 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
-import type { PeriodizationPhase } from '../types/api'
 
 ChartJS.register(
   CategoryScale,
@@ -87,39 +86,14 @@ const PHASE_COLORS: Record<string, string> = {
   'Taper': '#9b59b6',
 }
 
-/** Find which phase a date falls in */
-function phaseForDate(phases: PeriodizationPhase[], dateStr: string): PeriodizationPhase | undefined {
-  return phases.find((p) => p.start_date <= dateStr && p.end_date >= dateStr)
-}
-
-/** Convert ISO week (YYYY-Www) to Monday date string */
-function isoWeekToMonday(isoWeek: string): string {
-  const match = isoWeek.match(/^(\d{4})-W(\d{2})$/)
-  if (!match) return ''
-  const year = parseInt(match[1])
-  const week = parseInt(match[2])
-  const jan4 = new Date(year, 0, 4)
-  const mon = new Date(jan4)
-  mon.setDate(jan4.getDate() - (jan4.getDay() || 7) + 1 + (week - 1) * 7)
-  return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`
-}
+type OverviewMetric = 'hours' | 'tss'
 
 function TrainingPlanOverview() {
   const { data: phases, isLoading: phasesLoading } = useMacroPlan()
+  const { data: overview, isLoading: overviewLoading } = useWeeklyOverview()
   const cc = useChartColors()
+  const [metric, setMetric] = useState<OverviewMetric>('hours')
 
-  // Fetch weekly volume: include 6 weeks before plan start for context
-  const weeklyParams = useMemo(() => {
-    if (!phases || phases.length === 0) return undefined
-    const planStart = new Date(phases[0].start_date)
-    const leadIn = new Date(planStart)
-    leadIn.setDate(leadIn.getDate() - 42)
-    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    return { start_date: fmt(leadIn), end_date: phases[phases.length - 1].end_date }
-  }, [phases])
-  const { data: weekly, isLoading: weeklyLoading } = useWeeklySummary(weeklyParams)
-
-  // All hooks must be called unconditionally (Rules of Hooks)
   const today = useMemo(() => {
     const d = new Date()
     d.setHours(0, 0, 0, 0)
@@ -127,77 +101,83 @@ function TrainingPlanOverview() {
   }, [])
   const todayStr = useMemo(() => today.toISOString().slice(0, 10), [today])
 
-  // Build weekly data points aligned to the plan timeline
-  const weeklyPoints = useMemo(() => {
-    if (!weekly || !phases || phases.length === 0) return []
-    return weekly.map((w) => {
-      const monday = isoWeekToMonday(w.week)
-      if (!monday) return null
-      const phase = phaseForDate(phases, monday)
-      return {
-        date: monday,
-        hours: w.duration_h ?? 0,
-        tss: w.tss ?? 0,
-        targetLow: phase?.hours_per_week_low ?? 0,
-        targetHigh: phase?.hours_per_week_high ?? 0,
-        phaseName: phase?.name ?? '',
-      }
-    }).filter(Boolean) as { date: string; hours: number; tss: number; targetLow: number; targetHigh: number; phaseName: string }[]
-  }, [weekly, phases])
+  // Chart data built from weekly-overview endpoint
+  const chartData = useMemo(() => {
+    if (!overview || overview.length === 0) return null
+    const isHours = metric === 'hours'
+    return {
+      labels: overview.map((w) => w.week_start.slice(5)),
+      datasets: [
+        {
+          label: isHours ? 'Target High' : 'Target TSS High',
+          data: overview.map((w) => isHours ? w.target_hours_high : w.target_tss_high),
+          borderColor: 'rgba(255, 255, 255, 0.15)',
+          backgroundColor: 'rgba(255, 255, 255, 0.06)',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          fill: '1',
+          pointRadius: 0,
+          tension: 0,
+        },
+        {
+          label: isHours ? 'Target Low' : 'Target TSS Low',
+          data: overview.map((w) => isHours ? w.target_hours_low : w.target_tss_low),
+          borderColor: 'rgba(255, 255, 255, 0.15)',
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          fill: false,
+          pointRadius: 0,
+          tension: 0,
+        },
+        {
+          label: isHours ? 'Planned Hours' : 'Planned TSS',
+          data: overview.map((w) => isHours ? (w.planned_hours || null) : (w.planned_tss || null)),
+          borderColor: '#3b82f6',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.3,
+          fill: false,
+        },
+        {
+          label: isHours ? 'Actual Hours' : 'Actual TSS',
+          data: overview.map((w) => {
+            const val = isHours ? w.actual_hours : w.actual_tss
+            return val > 0 ? val : null
+          }),
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34, 197, 94, 0.2)',
+          fill: true,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+          pointBackgroundColor: overview.map((w) => {
+            const actual = isHours ? w.actual_hours : w.actual_tss
+            const low = isHours ? w.target_hours_low : w.target_tss_low
+            const high = isHours ? w.target_hours_high : w.target_tss_high
+            if (actual === 0) return 'transparent'
+            if (low != null && actual < low) return '#ef4444'
+            if (high != null && actual > high) return '#f5c518'
+            return '#22c55e'
+          }),
+          tension: 0.3,
+          borderWidth: 2,
+          spanGaps: false,
+        },
+      ],
+    }
+  }, [overview, metric])
 
-  // Volume chart data — target high fills down to target low (dataset index 1)
-  const volumeChartData = useMemo(() => ({
-    labels: weeklyPoints.map((p) => p.date.slice(5)),
-    datasets: [
-      {
-        label: 'Target Range (high)',
-        data: weeklyPoints.map((p) => p.targetHigh),
-        borderColor: 'rgba(255, 255, 255, 0.15)',
-        backgroundColor: 'rgba(255, 255, 255, 0.06)',
-        borderWidth: 1,
-        borderDash: [4, 4],
-        fill: '1',
-        pointRadius: 0,
-        tension: 0.3,
-      },
-      {
-        label: 'Target Range (low)',
-        data: weeklyPoints.map((p) => p.targetLow),
-        borderColor: 'rgba(255, 255, 255, 0.15)',
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderDash: [4, 4],
-        fill: false,
-        pointRadius: 0,
-        tension: 0.3,
-      },
-      {
-        label: 'Actual Hours',
-        data: weeklyPoints.map((p) => p.hours > 0 ? p.hours : null),
-        borderColor: '#22c55e',
-        backgroundColor: 'rgba(34, 197, 94, 0.15)',
-        fill: true,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-        pointBackgroundColor: weeklyPoints.map((p) => {
-          if (p.hours === 0) return 'transparent'
-          if (p.hours < p.targetLow) return '#ef4444'
-          if (p.hours > p.targetHigh) return '#f5c518'
-          return '#22c55e'
-        }),
-        tension: 0.3,
-        borderWidth: 2,
-        spanGaps: false,
-      },
-    ],
-  }), [weeklyPoints])
-
-  // Find today's index for the vertical line annotation
-  const todayIdx = useMemo(() => weeklyPoints.findIndex((p) => {
-    const pDate = new Date(p.date)
-    const diff = (today.getTime() - pDate.getTime()) / 86400000
-    return diff >= 0 && diff < 7
-  }), [weeklyPoints, today])
+  const todayIdx = useMemo(() => {
+    if (!overview) return -1
+    return overview.findIndex((w) => {
+      const wDate = new Date(w.week_start)
+      const diff = (today.getTime() - wDate.getTime()) / 86400000
+      return diff >= 0 && diff < 7
+    })
+  }, [overview, today])
 
   const todayLinePlugin = useMemo(() => ({
     id: 'todayLine',
@@ -208,8 +188,8 @@ function TrainingPlanOverview() {
       const x = meta.data[todayIdx].x
       const { ctx, chartArea } = chart
       ctx.save()
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
-      ctx.lineWidth = 1
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'
+      ctx.lineWidth = 1.5
       ctx.setLineDash([3, 3])
       ctx.beginPath()
       ctx.moveTo(x, chartArea.top)
@@ -220,30 +200,45 @@ function TrainingPlanOverview() {
   }), [todayIdx])
 
   // Summary stats
-  const { completedWeeks, onTargetWeeks, underWeeks, overWeeks, avgHours } = useMemo(() => {
-    const completed = weeklyPoints.filter((p) => p.date < todayStr && p.hours > 0)
-    return {
-      completedWeeks: completed,
-      onTargetWeeks: completed.filter((p) => p.hours >= p.targetLow && p.hours <= p.targetHigh),
-      underWeeks: completed.filter((p) => p.hours < p.targetLow),
-      overWeeks: completed.filter((p) => p.hours > p.targetHigh),
-      avgHours: completed.length > 0
-        ? completed.reduce((s, p) => s + p.hours, 0) / completed.length
-        : 0,
-    }
-  }, [weeklyPoints, todayStr])
+  const stats = useMemo(() => {
+    if (!overview) return { onTarget: 0, under: 0, over: 0, avg: 0 }
+    const past = overview.filter((w) => w.week_start < todayStr && w.actual_hours > 0 && w.target_hours_low != null)
+    const isHours = metric === 'hours'
+    const onTarget = past.filter((w) => {
+      const a = isHours ? w.actual_hours : w.actual_tss
+      const lo = (isHours ? w.target_hours_low : w.target_tss_low) ?? 0
+      const hi = (isHours ? w.target_hours_high : w.target_tss_high) ?? Infinity
+      return a >= lo && a <= hi
+    }).length
+    const under = past.filter((w) => {
+      const a = isHours ? w.actual_hours : w.actual_tss
+      const lo = (isHours ? w.target_hours_low : w.target_tss_low) ?? 0
+      return a < lo
+    }).length
+    const over = past.filter((w) => {
+      const a = isHours ? w.actual_hours : w.actual_tss
+      const hi = (isHours ? w.target_hours_high : w.target_tss_high) ?? Infinity
+      return a > hi
+    }).length
+    const avg = past.length > 0
+      ? past.reduce((s, w) => s + (isHours ? w.actual_hours : w.actual_tss), 0) / past.length
+      : 0
+    return { onTarget, under, over, avg }
+  }, [overview, todayStr, metric])
 
   // Early returns AFTER all hooks
-  if (phasesLoading || weeklyLoading) return <p className="text-text-muted">Loading training plan...</p>
+  if (phasesLoading || overviewLoading) return <p className="text-text-muted">Loading training plan...</p>
   if (!phases || phases.length === 0) return null
 
   const allStart = new Date(phases[0].start_date).getTime()
   const allEnd = new Date(phases[phases.length - 1].end_date).getTime()
   const totalDays = (allEnd - allStart) / 86400000
   const todayPct = ((today.getTime() - allStart) / 86400000 / totalDays) * 100
-  const currentPhase = phaseForDate(phases, todayStr)
+  const currentPhase = phases.find(
+    (p) => p.start_date <= todayStr && p.end_date >= todayStr,
+  )
 
-  const volumeOptions = {
+  const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -256,23 +251,23 @@ function TrainingPlanOverview() {
         borderWidth: 1,
         callbacks: {
           title: (items: { dataIndex: number }[]) => {
-            const pt = weeklyPoints[items[0]?.dataIndex]
-            return pt ? `Week of ${pt.date}` : ''
+            const w = overview?.[items[0]?.dataIndex]
+            if (!w) return ''
+            return `Week of ${w.week_start}${w.phase ? ` (${w.phase})` : ''}`
           },
           label: (ctx: { datasetIndex: number; dataIndex: number; parsed: { y: number | null } }) => {
-            const pt = weeklyPoints[ctx.dataIndex]
-            if (!pt) return ''
-            if (ctx.datasetIndex === 2) {
-              const h = ctx.parsed.y ?? 0
-              const status = h < pt.targetLow ? ' (under target)' : h > pt.targetHigh ? ' (over target)' : ' (on target)'
-              return `Actual: ${h.toFixed(1)}h${status}`
+            const w = overview?.[ctx.dataIndex]
+            if (!w) return ''
+            const isHours = metric === 'hours'
+            const unit = isHours ? 'h' : ''
+            if (ctx.datasetIndex === 0 && w.target_hours_low != null) {
+              const lo = isHours ? w.target_hours_low : w.target_tss_low
+              const hi = isHours ? w.target_hours_high : w.target_tss_high
+              return `Target: ${lo}-${hi}${unit}`
             }
-            if (ctx.datasetIndex === 0) return `Target: ${pt.targetLow}-${pt.targetHigh}h/wk`
+            if (ctx.datasetIndex === 2) return `Planned: ${ctx.parsed.y ?? 0}${unit}`
+            if (ctx.datasetIndex === 3) return `Actual: ${ctx.parsed.y ?? 0}${unit}`
             return ''
-          },
-          afterBody: (items: { dataIndex: number }[]) => {
-            const pt = weeklyPoints[items[0]?.dataIndex]
-            return pt?.phaseName ? [`Phase: ${pt.phaseName}`] : []
           },
         },
         filter: (item: { datasetIndex: number }) => item.datasetIndex !== 1,
@@ -281,12 +276,17 @@ function TrainingPlanOverview() {
     scales: {
       x: {
         grid: { color: 'rgba(255,255,255,0.05)' },
-        ticks: { color: cc.tickColor, maxTicksLimit: 12, font: { size: 10 } },
+        ticks: { color: cc.tickColor, maxTicksLimit: 14, font: { size: 10 } },
       },
       y: {
         grid: { color: 'rgba(255,255,255,0.05)' },
         ticks: { color: cc.tickColor },
-        title: { display: true, text: 'Hours/wk', color: cc.tickColor, font: { size: 11 } },
+        title: {
+          display: true,
+          text: metric === 'hours' ? 'Hours/wk' : 'TSS/wk',
+          color: cc.tickColor,
+          font: { size: 11 },
+        },
         min: 0,
       },
     },
@@ -296,13 +296,31 @@ function TrainingPlanOverview() {
     <div className="bg-surface rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-text">Training Plan</h2>
-        {currentPhase && (
-          <span className="text-sm text-text-muted">
-            Current:{' '}
-            <span className="text-text font-medium">{currentPhase.name}</span>
-            {currentPhase.focus && <span className="ml-2 text-xs">— {currentPhase.focus}</span>}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {currentPhase && (
+            <span className="text-sm text-text-muted">
+              Current:{' '}
+              <span className="text-text font-medium">{currentPhase.name}</span>
+              {currentPhase.focus && <span className="ml-2 text-xs">— {currentPhase.focus}</span>}
+            </span>
+          )}
+          {/* Hours / TSS toggle */}
+          <div className="flex gap-1 ml-2">
+            {(['hours', 'tss'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMetric(m)}
+                className={`px-2 py-0.5 text-xs font-medium rounded transition-colors ${
+                  metric === m
+                    ? 'bg-accent text-white'
+                    : 'bg-surface2 text-text-muted hover:text-text border border-border'
+                }`}
+              >
+                {m === 'hours' ? 'Hours' : 'TSS'}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Gantt bar */}
@@ -344,24 +362,34 @@ function TrainingPlanOverview() {
         </div>
       </div>
 
-      {/* Volume chart */}
-      <div className="h-48 mt-2">
-        {weeklyPoints.length > 0 ? (
-          <Line data={volumeChartData} options={volumeOptions} plugins={[todayLinePlugin]} />
+      {/* Volume / TSS chart */}
+      <div className="h-52 mt-2">
+        {chartData ? (
+          <Line data={chartData} options={chartOptions} plugins={[todayLinePlugin]} />
         ) : (
-          <p className="text-text-muted text-sm">No volume data yet</p>
+          <p className="text-text-muted text-sm">No data yet</p>
         )}
       </div>
 
-      {/* Stats row */}
-      <div className="flex gap-4 mt-3 text-xs text-text-muted justify-center flex-wrap">
-        <span>Avg: <span className="text-text font-medium">{avgHours.toFixed(1)}h/wk</span></span>
-        <span className="text-green-400">{onTargetWeeks.length} on target</span>
-        <span className="text-red-400">{underWeeks.length} under</span>
-        <span className="text-yellow-400">{overWeeks.length} over</span>
-        {currentPhase && (
-          <span>Target: <span className="text-text font-medium">{currentPhase.hours_per_week_low}-{currentPhase.hours_per_week_high}h/wk</span></span>
-        )}
+      {/* Legend + stats row */}
+      <div className="flex items-center justify-between mt-2 text-xs text-text-muted flex-wrap gap-2">
+        <div className="flex gap-3">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5 bg-white/20 border-t border-dashed border-white/30" /> Target
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5" style={{ borderTop: '2px dashed #3b82f6' }} /> Planned
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5 bg-green-500" /> Actual
+          </span>
+        </div>
+        <div className="flex gap-3">
+          <span>Avg: <span className="text-text font-medium">{metric === 'hours' ? `${stats.avg.toFixed(1)}h` : Math.round(stats.avg)}</span></span>
+          <span className="text-green-400">{stats.onTarget} on target</span>
+          <span className="text-red-400">{stats.under} under</span>
+          <span className="text-yellow-400">{stats.over} over</span>
+        </div>
       </div>
     </div>
   )

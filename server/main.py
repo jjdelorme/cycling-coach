@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from server.routers import rides, pmc, analysis, planning, coaching, sync
+from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete
 from server.database import init_db
 
 
@@ -32,6 +32,7 @@ app.include_router(analysis.router)
 app.include_router(planning.router)
 app.include_router(coaching.router)
 app.include_router(sync.router)
+app.include_router(athlete.router)
 
 
 @app.get("/api/health")

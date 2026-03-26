@@ -31,7 +31,7 @@ function put<T>(path: string, body: unknown) {
 
 import type {
   RideSummary, RideDetail, PMCEntry, WeeklySummary,
-  WorkoutDetail, WeekPlan, PeriodizationPhase,
+  WorkoutDetail, WeekPlan, PeriodizationPhase, WeeklyOverview,
   ChatResponse, SessionSummary, SyncOverview, SyncStatus,
   CoachSettings,
 } from '../types/api'
@@ -87,8 +87,14 @@ export const fetchFTPHistory = (params?: DateRange) =>
   get<FTPHistoryPoint[]>(`/api/analysis/ftp-history${dateQuery(params)}`)
 import type { EfficiencyPoint, ZoneDistribution, FTPHistoryPoint } from '../types/api'
 
+// Athlete settings
+export const fetchAthleteSettings = () => get<Record<string, string>>('/api/athlete/settings')
+export const updateAthleteSetting = (body: { key: string; value: string }) =>
+  put<{ status: string }>('/api/athlete/settings', body)
+
 // Plan
 export const fetchMacroPlan = () => get<PeriodizationPhase[]>('/api/plan/macro')
+export const fetchWeeklyOverview = () => get<WeeklyOverview[]>('/api/plan/weekly-overview')
 export const fetchWeekPlan = (date: string) => get<WeekPlan>(`/api/plan/week/${date}`)
 export const fetchWorkoutByDate = (date: string) => get<WorkoutDetail | null>(`/api/plan/workouts/by-date/${date}`)
 export const fetchWorkoutDetail = (id: number) => get<WorkoutDetail>(`/api/plan/workouts/${id}`)

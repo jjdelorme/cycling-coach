@@ -51,6 +51,99 @@ def get_week_plan(date: str):
     }
 
 
+@router.get("/weekly-overview")
+def weekly_overview():
+    """Weekly rollup of planned vs actual hours and TSS across the full plan.
+
+    Returns one entry per week for every week spanned by periodization phases,
+    with phase targets, planned workout totals, and actual ride totals.
+    """
+    from datetime import date as dt_date, timedelta
+    from collections import defaultdict
+
+    with get_db() as conn:
+        phases = conn.execute(
+            "SELECT * FROM periodization_phases ORDER BY start_date"
+        ).fetchall()
+        if not phases:
+            return []
+
+        plan_start = dt_date.fromisoformat(phases[0]["start_date"])
+        plan_end = dt_date.fromisoformat(phases[-1]["end_date"])
+
+        # Monday of the first week
+        first_monday = plan_start - timedelta(days=plan_start.weekday())
+        # Sunday of the last week
+        last_sunday = plan_end + timedelta(days=(6 - plan_end.weekday()))
+
+        # Build phase lookup
+        phase_list = [dict(p) for p in phases]
+
+        def phase_for_monday(mon: dt_date):
+            mid = mon + timedelta(days=3)  # use mid-week to assign phase
+            mid_str = mid.isoformat()
+            for p in phase_list:
+                if p["start_date"] <= mid_str <= p["end_date"]:
+                    return p
+            return None
+
+        # Planned workouts aggregated by week
+        planned_rows = conn.execute(
+            "SELECT date, total_duration_s, planned_tss FROM planned_workouts WHERE date >= ? AND date <= ? ORDER BY date",
+            (first_monday.isoformat(), last_sunday.isoformat()),
+        ).fetchall()
+
+        planned_by_week = defaultdict(lambda: {"hours": 0.0, "tss": 0.0, "workouts": 0})
+        for r in planned_rows:
+            d = dt_date.fromisoformat(r["date"])
+            mon = d - timedelta(days=d.weekday())
+            pw = planned_by_week[mon.isoformat()]
+            pw["workouts"] += 1
+            pw["hours"] += (r["total_duration_s"] or 0) / 3600
+            pw["tss"] += float(r["planned_tss"] or 0)
+
+        # Actual rides aggregated by week
+        actual_rows = conn.execute(
+            "SELECT date, duration_s, tss FROM rides WHERE date >= ? AND date <= ? ORDER BY date",
+            (first_monday.isoformat(), last_sunday.isoformat()),
+        ).fetchall()
+
+        actual_by_week = defaultdict(lambda: {"hours": 0.0, "tss": 0.0, "rides": 0})
+        for r in actual_rows:
+            d = dt_date.fromisoformat(r["date"])
+            mon = d - timedelta(days=d.weekday())
+            aw = actual_by_week[mon.isoformat()]
+            aw["rides"] += 1
+            aw["hours"] += (r["duration_s"] or 0) / 3600
+            aw["tss"] += float(r["tss"] or 0)
+
+        # Build week-by-week output
+        result = []
+        mon = first_monday
+        while mon <= last_sunday:
+            mon_str = mon.isoformat()
+            phase = phase_for_monday(mon)
+            pw = planned_by_week.get(mon_str, {"hours": 0, "tss": 0, "workouts": 0})
+            aw = actual_by_week.get(mon_str, {"hours": 0, "tss": 0, "rides": 0})
+            result.append({
+                "week_start": mon_str,
+                "phase": phase["name"] if phase else None,
+                "target_hours_low": phase["hours_per_week_low"] if phase else None,
+                "target_hours_high": phase["hours_per_week_high"] if phase else None,
+                "target_tss_low": phase["tss_target_low"] if phase else None,
+                "target_tss_high": phase["tss_target_high"] if phase else None,
+                "planned_hours": round(pw["hours"], 1),
+                "planned_tss": round(pw["tss"]),
+                "planned_workouts": pw["workouts"],
+                "actual_hours": round(aw["hours"], 1),
+                "actual_tss": round(aw["tss"]),
+                "actual_rides": aw["rides"],
+            })
+            mon += timedelta(days=7)
+
+    return result
+
+
 @router.get("/compliance")
 def plan_compliance(
     start_date: Optional[str] = Query(None),

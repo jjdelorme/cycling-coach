@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useSettings, useUpdateSetting, useResetSettings, useSyncOverview } from '../hooks/useApi'
+import { useSettings, useUpdateSetting, useResetSettings, useSyncOverview, useAthleteSettings, useUpdateAthleteSetting } from '../hooks/useApi'
 import { startSync, fetchSyncStatus } from '../lib/api'
 import { timeAgo } from '../lib/format'
 import { useQueryClient } from '@tanstack/react-query'
@@ -34,6 +34,12 @@ export default function Settings() {
   const resetSettings = useResetSettings()
   const queryClient = useQueryClient()
 
+  // Athlete settings
+  const { data: athleteSettings, isLoading: athleteLoading } = useAthleteSettings()
+  const updateAthleteSetting = useUpdateAthleteSetting()
+  const [athleteForm, setAthleteForm] = useState<Record<string, string>>({})
+  const [athleteSaveStatus, setAthleteSaveStatus] = useState<'idle' | 'saved' | 'failed'>('idle')
+
   const [form, setForm] = useState<Record<string, string>>({})
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'failed'>('idle')
   const [showApiKey, setShowApiKey] = useState(false)
@@ -46,6 +52,13 @@ export default function Settings() {
   const logRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+
+  // Populate athlete form
+  useEffect(() => {
+    if (athleteSettings) {
+      setAthleteForm({ ...athleteSettings })
+    }
+  }, [athleteSettings])
 
   // Populate form when settings load
   useEffect(() => {
@@ -261,6 +274,75 @@ export default function Settings() {
                 Metric (km / m)
               </button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Athlete Settings */}
+      <section>
+        <h3 className="text-xl font-semibold text-text mb-1">Athlete</h3>
+        <p className="text-text-muted text-sm mb-4">
+          Physiological thresholds used for hrTSS calculation, PMC, and training targets.
+        </p>
+        <div className="bg-surface rounded-lg border border-border p-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { key: 'lthr', label: 'LTHR', unit: 'bpm', hint: 'Lactate threshold heart rate' },
+              { key: 'max_hr', label: 'Max HR', unit: 'bpm', hint: 'Maximum heart rate' },
+              { key: 'resting_hr', label: 'Resting HR', unit: 'bpm', hint: 'Resting heart rate' },
+              { key: 'ftp', label: 'FTP', unit: 'W', hint: 'Functional threshold power' },
+              { key: 'weight_kg', label: 'Weight', unit: 'kg', hint: 'Body weight' },
+              { key: 'age', label: 'Age', unit: 'yrs', hint: 'Current age' },
+            ].map((field) => (
+              <div key={field.key}>
+                <label className="block text-text-muted text-xs mb-1" title={field.hint}>
+                  {field.label} <span className="text-text-muted/50">({field.unit})</span>
+                </label>
+                <input
+                  type="number"
+                  className="w-full bg-surface2 text-text border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  value={athleteForm[field.key] ?? ''}
+                  onChange={(e) => {
+                    setAthleteForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                    setAthleteSaveStatus('idle')
+                  }}
+                />
+              </div>
+            ))}
+            <div>
+              <label className="block text-text-muted text-xs mb-1">Gender</label>
+              <select
+                className="w-full bg-surface2 text-text border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                value={athleteForm.gender ?? 'male'}
+                onChange={(e) => {
+                  setAthleteForm((prev) => ({ ...prev, gender: e.target.value }))
+                  setAthleteSaveStatus('idle')
+                }}
+              >
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={async () => {
+                try {
+                  for (const [key, value] of Object.entries(athleteForm)) {
+                    await updateAthleteSetting.mutateAsync({ key, value })
+                  }
+                  setAthleteSaveStatus('saved')
+                } catch {
+                  setAthleteSaveStatus('failed')
+                }
+              }}
+              disabled={updateAthleteSetting.isPending}
+              className="px-4 py-2 bg-accent text-white rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              {updateAthleteSetting.isPending ? 'Saving...' : 'Save Athlete Settings'}
+            </button>
+            {athleteSaveStatus === 'saved' && <span className="text-green text-sm">Saved!</span>}
+            {athleteSaveStatus === 'failed' && <span className="text-red-400 text-sm">Save failed</span>}
           </div>
         </div>
       </section>

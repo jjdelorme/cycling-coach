@@ -105,6 +105,19 @@ def parse_ride_json(filepath):
         "start_lon": start_lon,
     }
 
+    # If no power-based TSS but we have HR data, compute hrTSS
+    if (not ride["tss"] or ride["tss"] == 0) and ride["avg_hr"] and ride["avg_hr"] > 0:
+        from server.database import get_athlete_setting
+        try:
+            lthr = float(get_athlete_setting("lthr"))
+            max_hr_setting = float(get_athlete_setting("max_hr"))
+            resting_hr = float(get_athlete_setting("resting_hr"))
+            hr_tss = compute_hr_tss(ride["avg_hr"], ride["duration_s"], lthr, max_hr_setting, resting_hr)
+            if hr_tss > 0:
+                ride["tss"] = hr_tss
+        except (ValueError, TypeError):
+            pass  # athlete settings not configured yet
+
     # Build record rows
     record_rows = []
     for r in records:
@@ -166,6 +179,76 @@ def parse_zwo(filepath):
         "total_duration_s": total_duration,
         "workout_xml": xml_content,
     }
+
+
+def compute_hr_tss(avg_hr: float, duration_s: float, lthr: float, max_hr: float, resting_hr: float) -> float:
+    """Compute heart-rate-based TSS (hrTSS) using the exponential TRIMP model.
+
+    This is the standard formula used by TrainingPeaks when power data is unavailable.
+    hrTSS approximates the training stress using heart rate relative to lactate threshold.
+
+    Args:
+        avg_hr: Average heart rate for the activity (bpm).
+        duration_s: Duration of the activity (seconds).
+        lthr: Lactate threshold heart rate (bpm).
+        max_hr: Maximum heart rate (bpm).
+        resting_hr: Resting heart rate (bpm).
+
+    Returns:
+        Estimated TSS value, or 0 if inputs are invalid.
+    """
+    import math
+
+    hr_range = max_hr - resting_hr
+    if hr_range <= 0 or lthr <= resting_hr or duration_s <= 0 or avg_hr <= resting_hr:
+        return 0.0
+
+    duration_h = duration_s / 3600.0
+
+    # Heart rate reserve ratio for the activity
+    hr_ratio = (avg_hr - resting_hr) / hr_range
+
+    # Heart rate reserve ratio at LTHR (the reference point = 100 TSS/hr)
+    lthr_ratio = (lthr - resting_hr) / hr_range
+
+    # Exponential TRIMP factor
+    trimp_activity = hr_ratio * 0.64 * math.exp(1.92 * hr_ratio)
+    trimp_lthr = lthr_ratio * 0.64 * math.exp(1.92 * lthr_ratio)
+
+    if trimp_lthr <= 0:
+        return 0.0
+
+    hr_tss = (duration_h * trimp_activity / trimp_lthr) * 100.0
+    return round(hr_tss, 1)
+
+
+def backfill_hr_tss(conn):
+    """Backfill hrTSS for rides that have HR data but no power-based TSS."""
+    from server.database import get_athlete_setting
+
+    lthr = float(get_athlete_setting("lthr"))
+    max_hr = float(get_athlete_setting("max_hr"))
+    resting_hr = float(get_athlete_setting("resting_hr"))
+
+    rows = conn.execute(
+        "SELECT id, avg_hr, duration_s FROM rides WHERE (tss IS NULL OR tss = 0) AND avg_hr > 0 AND duration_s > 0"
+    ).fetchall()
+
+    updated = 0
+    for r in rows:
+        hr_tss = compute_hr_tss(
+            avg_hr=float(r["avg_hr"]),
+            duration_s=float(r["duration_s"]),
+            lthr=lthr,
+            max_hr=max_hr,
+            resting_hr=resting_hr,
+        )
+        if hr_tss > 0:
+            conn.execute("UPDATE rides SET tss = ? WHERE id = ?", (hr_tss, r["id"]))
+            updated += 1
+
+    print(f"Backfilled hrTSS for {updated} rides (of {len(rows)} without TSS)")
+    return updated
 
 
 def compute_daily_pmc(conn):
@@ -344,6 +427,9 @@ def run_ingestion(db_path=None):
         print("Ingesting planned workouts...")
         workout_count = ingest_workouts(conn)
         print(f"  Ingested {workout_count} planned workouts")
+
+        print("Backfilling hrTSS for rides without power...")
+        backfill_hr_tss(conn)
 
         print("Computing PMC (CTL/ATL/TSB)...")
         compute_daily_pmc(conn)

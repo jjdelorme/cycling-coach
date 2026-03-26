@@ -57,9 +57,24 @@ export function useFTPHistory(params?: api.DateRange) {
   return useQuery({ queryKey: ['ftp-history', params], queryFn: () => api.fetchFTPHistory(params) })
 }
 
+// Athlete settings
+export function useAthleteSettings() {
+  return useQuery({ queryKey: ['athlete-settings'], queryFn: api.fetchAthleteSettings })
+}
+export function useUpdateAthleteSetting() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.updateAthleteSetting,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['athlete-settings'] }),
+  })
+}
+
 // Plan
 export function useMacroPlan() {
   return useQuery({ queryKey: ['macro-plan'], queryFn: api.fetchMacroPlan })
+}
+export function useWeeklyOverview() {
+  return useQuery({ queryKey: ['weekly-overview'], queryFn: api.fetchWeeklyOverview })
 }
 export function useWeekPlan(date: string) {
   return useQuery({

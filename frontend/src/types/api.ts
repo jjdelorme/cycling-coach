@@ -123,6 +123,21 @@ export interface PeriodizationPhase {
   tss_target_high?: number
 }
 
+export interface WeeklyOverview {
+  week_start: string
+  phase: string | null
+  target_hours_low: number | null
+  target_hours_high: number | null
+  target_tss_low: number | null
+  target_tss_high: number | null
+  planned_hours: number
+  planned_tss: number
+  planned_workouts: number
+  actual_hours: number
+  actual_tss: number
+  actual_rides: number
+}
+
 export interface WeekPlan {
   week_start: string
   week_end: string
