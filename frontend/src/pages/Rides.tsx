@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRides, useRide, useUpdateRideComments, useUpdateRideTitle, useWorkoutByDate, useUpdateWorkoutNotes, useSendChat } from '../hooks/useApi'
-import { fmtDuration, fmtDistance, fmtTime, zoneColor, zoneLabel } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, zoneLabel } from '../lib/format'
+import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
 import { useQueryClient } from '@tanstack/react-query'
 import { Line } from 'react-chartjs-2'
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function Rides({ initialRideId, initialDate }: Props) {
+  const units = useUnits()
   const [selectedRideId, setSelectedRideId] = useState<number | null>(initialRideId ?? null)
   const [selectedDate, setSelectedDate] = useState<string | null>(initialDate ?? null)
   const [startDate, setStartDate] = useState('')
@@ -92,10 +94,10 @@ export default function Rides({ initialRideId, initialDate }: Props) {
     try {
       const prompt = `Analyze ride ${ride.id} from ${ride.date}. ` +
         `Sport: ${ride.sport ?? 'cycling'}. Duration: ${fmtDuration(ride.duration_s)}. ` +
-        `Distance: ${fmtDistance(ride.distance_m)}. TSS: ${ride.tss ?? '--'}. ` +
+        `Distance: ${fmtDistance(ride.distance_m, units)}. TSS: ${ride.tss ?? '--'}. ` +
         `Avg Power: ${ride.avg_power ?? '--'}w. NP: ${ride.normalized_power ?? '--'}w. ` +
         `Avg HR: ${ride.avg_hr ?? '--'}bpm. IF: ${ride.intensity_factor?.toFixed(2) ?? '--'}. ` +
-        `Ascent: ${ride.total_ascent ?? '--'}m. ` +
+        `Ascent: ${fmtElevation(ride.total_ascent, units)}. ` +
         (ride.post_ride_comments ? `Athlete notes: "${ride.post_ride_comments}". ` : '') +
         `Please provide post-ride coaching analysis and save it as coach comments on ride ${ride.id}.`
       await sendChat.mutateAsync({ message: prompt })
@@ -245,7 +247,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
                     value={fmtDuration(ride.duration_s)}
                     planned={plannedDur ? fmtDuration(plannedDur) : null}
                   />
-                  <MetricCard label="Distance" value={fmtDistance(ride.distance_m)} />
+                  <MetricCard label="Distance" value={fmtDistance(ride.distance_m, units)} />
                   <MetricCard
                     label="TSS"
                     value={ride.tss?.toFixed(0) ?? '--'}
@@ -259,7 +261,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
                     value={ride.intensity_factor?.toFixed(2) ?? '--'}
                     planned={plannedIF ? plannedIF.toFixed(2) : null}
                   />
-                  <MetricCard label="Ascent" value={ride.total_ascent ? `${ride.total_ascent}m` : '--'} />
+                  <MetricCard label="Ascent" value={fmtElevation(ride.total_ascent, units)} />
                 </div>
               )
             })()}
@@ -434,7 +436,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
                     <td className="py-2 pr-4">{r.date?.slice(0, 10)}</td>
                     <td className="py-2 pr-4 text-text-muted">{r.sport ?? '--'}</td>
                     <td className="py-2 pr-4 text-right">{fmtDuration(r.duration_s)}</td>
-                    <td className="py-2 pr-4 text-right">{fmtDistance(r.distance_m)}</td>
+                    <td className="py-2 pr-4 text-right">{fmtDistance(r.distance_m, units)}</td>
                     <td className="py-2 pr-4 text-right">{r.tss?.toFixed(0) ?? '--'}</td>
                     <td className="py-2 pr-4 text-right">{r.avg_power ? `${r.avg_power}w` : '--'}</td>
                     <td className="py-2 pr-4 text-right">{r.normalized_power ? `${r.normalized_power}w` : '--'}</td>
@@ -459,7 +461,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
                 </div>
                 <div className="flex gap-4 text-xs text-text-muted">
                   <span>{fmtDuration(r.duration_s)}</span>
-                  <span>{fmtDistance(r.distance_m)}</span>
+                  <span>{fmtDistance(r.distance_m, units)}</span>
                   {r.tss != null && <span>TSS {r.tss.toFixed(0)}</span>}
                   {r.avg_power != null && <span>{r.avg_power}w</span>}
                   {r.avg_hr != null && <span>{r.avg_hr}bpm</span>}

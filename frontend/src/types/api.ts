@@ -227,4 +227,5 @@ export interface CoachSettings {
   plan_management: string
   intervals_icu_api_key?: string
   intervals_icu_athlete_id?: string
+  units?: string
 }

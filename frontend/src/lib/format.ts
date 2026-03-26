@@ -1,3 +1,9 @@
+import type { UnitSystem } from './units'
+
+const KM_TO_MI = 0.621371
+const M_TO_FT = 3.28084
+const KG_TO_LBS = 2.20462
+
 export function fmtDuration(seconds?: number | null): string {
   if (!seconds) return '--'
   const h = Math.floor(seconds / 3600)
@@ -5,10 +11,37 @@ export function fmtDuration(seconds?: number | null): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-export function fmtDistance(meters?: number | null): string {
+export function fmtDistance(meters?: number | null, units: UnitSystem = 'imperial'): string {
   if (!meters) return '--'
+  if (units === 'imperial') {
+    const mi = (meters / 1000) * KM_TO_MI
+    return mi >= 100 ? `${Math.round(mi)} mi` : `${mi.toFixed(1)} mi`
+  }
   const km = meters / 1000
   return km >= 100 ? `${Math.round(km)} km` : `${km.toFixed(1)} km`
+}
+
+export function fmtDistanceKm(km?: number | null, units: UnitSystem = 'imperial'): string {
+  if (!km) return '--'
+  if (units === 'imperial') {
+    const mi = km * KM_TO_MI
+    return mi >= 100 ? `${Math.round(mi)} mi` : `${mi.toFixed(1)} mi`
+  }
+  return km >= 100 ? `${Math.round(km)} km` : `${km.toFixed(1)} km`
+}
+
+export function fmtElevation(meters?: number | null, units: UnitSystem = 'imperial'): string {
+  if (!meters && meters !== 0) return '--'
+  if (units === 'imperial') {
+    return `${Math.round(meters * M_TO_FT).toLocaleString()} ft`
+  }
+  return `${Math.round(meters).toLocaleString()} m`
+}
+
+export function fmtWeight(kg?: number | null): string {
+  if (!kg) return '--'
+  const lbs = kg * KG_TO_LBS
+  return `${kg.toFixed(1)} kg / ${lbs.toFixed(0)} lbs`
 }
 
 export function fmtTime(seconds: number): string {

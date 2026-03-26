@@ -57,6 +57,7 @@ export default function Settings() {
         plan_management: settings.plan_management ?? '',
         intervals_icu_api_key: settings.intervals_icu_api_key ?? '',
         intervals_icu_athlete_id: settings.intervals_icu_athlete_id ?? '',
+        units: settings.units ?? 'imperial',
       })
     }
   }, [settings])
@@ -89,6 +90,7 @@ export default function Settings() {
       'plan_management',
       'intervals_icu_api_key',
       'intervals_icu_athlete_id',
+      'units',
     ]
     try {
       for (const key of keys) {
@@ -228,6 +230,41 @@ export default function Settings() {
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto p-4">
+      {/* Display Units */}
+      <section>
+        <h3 className="text-xl font-semibold text-text mb-1">Display</h3>
+        <p className="text-text-muted text-sm mb-4">
+          Choose how distances and elevation are displayed throughout the app.
+        </p>
+        <div className="bg-surface rounded-lg border border-border p-4">
+          <div className="flex items-center gap-4">
+            <span className="text-text text-sm font-medium">Units</span>
+            <div className="flex rounded-md overflow-hidden border border-border">
+              <button
+                onClick={() => handleChange('units', 'imperial')}
+                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  (form.units ?? 'imperial') === 'imperial'
+                    ? 'bg-accent text-white'
+                    : 'bg-surface2 text-text-muted hover:text-text'
+                }`}
+              >
+                Imperial (mi / ft)
+              </button>
+              <button
+                onClick={() => handleChange('units', 'metric')}
+                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  form.units === 'metric'
+                    ? 'bg-accent text-white'
+                    : 'bg-surface2 text-text-muted hover:text-text'
+                }`}
+              >
+                Metric (km / m)
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Coach Settings */}
       <section>
         <h3 className="text-xl font-semibold text-text mb-1">Coach Settings</h3>

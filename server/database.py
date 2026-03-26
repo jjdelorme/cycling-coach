@@ -492,6 +492,7 @@ SETTINGS_DEFAULTS = {
     "plan_management": DEFAULT_PLAN_MANAGEMENT,
     "intervals_icu_api_key": "",
     "intervals_icu_athlete_id": "",
+    "units": "imperial",
 }
 
 

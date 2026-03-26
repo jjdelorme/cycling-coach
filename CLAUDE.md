@@ -5,7 +5,7 @@ Single-athlete cycling coaching platform. Web app that ingests ride data, comput
 
 ## Tech Stack
 - **Backend**: Python 3.11+ / FastAPI / SQLite
-- **Frontend**: HTML + vanilla JS + Chart.js (CDN)
+- **Frontend**: React + TypeScript + Vite + Tailwind CSS + Chart.js
 - **AI Coaching**: Google ADK with Gemini via Vertex AI (Application Default Credentials)
 - **Testing**: pytest
 - **Package management**: pip + requirements.txt
@@ -42,7 +42,7 @@ Single-athlete cycling coaching platform. Web app that ingests ride data, comput
 
 ## Project Structure
 - `server/` — FastAPI backend
-- `web/` — Frontend SPA
+- `frontend/` — React/Vite frontend SPA
 - `tests/` — pytest tests
 - `data/` — Local data files (gitignored)
 - `scripts/` — One-off data processing scripts
@@ -50,9 +50,12 @@ Single-athlete cycling coaching platform. Web app that ingests ride data, comput
 - `plans/` — Build plans
 
 ## Commands
-- `pip install -r requirements.txt` — install deps
+- `pip install -r requirements.txt` — install backend deps
+- `cd frontend && npm install` — install frontend deps
 - `python -m server.ingest` — ingest data from JSON files into SQLite
-- `uvicorn server.main:app --reload` — run dev server
+- `uvicorn server.main:app --reload` — run backend dev server
+- `cd frontend && npm run dev` — run frontend dev server (Vite)
+- `cd frontend && npm run build` — production frontend build
 - `pytest` — run all tests
 - `pytest tests/test_database.py -v` — run specific test file
 
