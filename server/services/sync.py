@@ -195,6 +195,32 @@ def _store_streams(ride_id: int, streams: dict):
     logger.info("Stored %d stream records for ride %d", len(rows), ride_id)
 
 
+def _backfill_start_location(ride_id: int, streams):
+    """Update start_lat/start_lon on ride from stream GPS data."""
+    stream_map = {}
+    if isinstance(streams, list):
+        for s in streams:
+            stream_map[s.get("type", "")] = s.get("data", [])
+    elif isinstance(streams, dict):
+        stream_map = streams
+
+    latlng_raw = stream_map.get("latlng", [])
+    if not latlng_raw:
+        return
+
+    # Find first valid GPS point
+    for point in latlng_raw:
+        if point and isinstance(point, (list, tuple)) and len(point) >= 2:
+            lat, lon = point[0], point[1]
+            if lat and lon:
+                with get_db() as conn:
+                    conn.execute(
+                        "UPDATE rides SET start_lat = ?, start_lon = ? WHERE id = ? AND start_lat IS NULL",
+                        (lat, lon, ride_id),
+                    )
+                break
+
+
 async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]:
     """Download rides from intervals.icu that we don't already have."""
     downloaded = 0
@@ -296,6 +322,8 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
                     streams = await asyncio.to_thread(fetch_activity_streams, icu_id)
                     if streams:
                         _store_streams(ride_db_id, streams)
+                        # Backfill start_lat/start_lon from stream GPS data
+                        _backfill_start_location(ride_db_id, streams)
                         log_lines.append(f"  + stored stream data for {ride['date']}")
                 except Exception as se:
                     logger.warning("Could not fetch streams for %s: %s", icu_id, se)

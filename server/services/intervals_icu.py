@@ -185,6 +185,7 @@ def map_activity_to_ride(activity: dict) -> dict | None:
 
     ride = {
         "date": date,
+        "start_time": start_date,
         "filename": f"icu_{icu_id}",
         "sport": (activity.get("type") or "cycling").lower(),
         "sub_sport": (activity.get("sub_type") or "").lower(),

@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS planned_workouts (
     name TEXT,
     sport TEXT,
     total_duration_s REAL,
+    planned_tss REAL,
     workout_xml TEXT,
     coach_notes TEXT,
     athlete_notes TEXT
@@ -253,6 +254,7 @@ CREATE TABLE IF NOT EXISTS planned_workouts (
     name TEXT,
     sport TEXT,
     total_duration_s REAL,
+    planned_tss REAL,
     workout_xml TEXT,
     coach_notes TEXT,
     athlete_notes TEXT
@@ -575,14 +577,18 @@ def init_db(db_path=None):
 def _migrate_postgres(conn):
     """Add columns to existing Postgres tables if they don't exist yet."""
     cur = conn.cursor()
-    for table, columns in [
-        ("rides", ["post_ride_comments", "coach_comments", "title"]),
-        ("planned_workouts", ["coach_notes", "athlete_notes"]),
+    for table, col, col_type in [
+        ("rides", "post_ride_comments", "TEXT"),
+        ("rides", "coach_comments", "TEXT"),
+        ("rides", "title", "TEXT"),
+        ("rides", "start_time", "TEXT"),  # Full ISO timestamp of ride start
+        ("planned_workouts", "planned_tss", "REAL"),
+        ("planned_workouts", "coach_notes", "TEXT"),
+        ("planned_workouts", "athlete_notes", "TEXT"),
     ]:
-        for col in columns:
-            cur.execute(
-                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} TEXT"
-            )
+        cur.execute(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"
+        )
     # Rename ride_records.timestamp -> timestamp_utc if needed
     cur.execute("""
         DO $$ BEGIN
@@ -597,14 +603,37 @@ def _migrate_postgres(conn):
 def _migrate_sqlite(conn):
     """Add columns to existing SQLite tables if they don't exist yet."""
     ride_cols = {row[1] for row in conn.execute("PRAGMA table_info(rides)").fetchall()}
-    for col in ("post_ride_comments", "coach_comments", "title"):
+    for col in ("post_ride_comments", "coach_comments", "title", "start_time"):
         if col not in ride_cols:
             conn.execute(f"ALTER TABLE rides ADD COLUMN {col} TEXT")
+    # One-time backfill of start_time and GPS from ride_records
+    needs_backfill = conn.execute(
+        "SELECT COUNT(*) FROM rides WHERE start_time IS NULL AND EXISTS "
+        "(SELECT 1 FROM ride_records WHERE ride_records.ride_id = rides.id AND timestamp_utc IS NOT NULL)"
+    ).fetchone()
+    if (needs_backfill[0] if isinstance(needs_backfill, (tuple, list)) else needs_backfill["COUNT(*)"]) > 0:
+        conn.execute("""
+            UPDATE rides SET start_time = (
+                SELECT timestamp_utc FROM ride_records
+                WHERE ride_records.ride_id = rides.id AND timestamp_utc IS NOT NULL
+                ORDER BY id LIMIT 1
+            ) WHERE start_time IS NULL
+        """)
+        conn.execute("""
+            UPDATE rides SET
+                start_lat = (SELECT lat FROM ride_records WHERE ride_records.ride_id = rides.id AND lat IS NOT NULL ORDER BY id LIMIT 1),
+                start_lon = (SELECT lon FROM ride_records WHERE ride_records.ride_id = rides.id AND lon IS NOT NULL ORDER BY id LIMIT 1)
+            WHERE start_lat IS NULL AND EXISTS (
+                SELECT 1 FROM ride_records WHERE ride_records.ride_id = rides.id AND lat IS NOT NULL
+            )
+        """)
     # Rename ride_records.timestamp -> timestamp_utc if needed
     record_cols = {row[1] for row in conn.execute("PRAGMA table_info(ride_records)").fetchall()}
     if "timestamp" in record_cols and "timestamp_utc" not in record_cols:
         conn.execute("ALTER TABLE ride_records RENAME COLUMN timestamp TO timestamp_utc")
     workout_cols = {row[1] for row in conn.execute("PRAGMA table_info(planned_workouts)").fetchall()}
+    if "planned_tss" not in workout_cols:
+        conn.execute("ALTER TABLE planned_workouts ADD COLUMN planned_tss REAL")
     for col in ("coach_notes", "athlete_notes"):
         if col not in workout_cols:
             conn.execute(f"ALTER TABLE planned_workouts ADD COLUMN {col} TEXT")

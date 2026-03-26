@@ -75,6 +75,7 @@ def parse_ride_json(filepath):
 
     ride = {
         "date": start_time[:10] if len(start_time) >= 10 else start_time,
+        "start_time": start_time,
         "filename": os.path.basename(filepath),
         "sport": sport_info.get("sport", "unknown"),
         "sub_sport": sport_info.get("sub_sport", "unknown"),
@@ -255,13 +256,13 @@ def ingest_rides(conn, rides_dir=None):
             continue
 
         cursor = conn.execute(
-            """INSERT INTO rides (date, filename, sport, sub_sport, duration_s, distance_m,
+            """INSERT INTO rides (date, start_time, filename, sport, sub_sport, duration_s, distance_m,
                avg_power, normalized_power, max_power, avg_hr, max_hr, avg_cadence,
                total_ascent, total_descent, total_calories, tss, intensity_factor,
                ftp, total_work_kj, training_effect, variability_index,
                best_1min_power, best_5min_power, best_20min_power, best_60min_power,
                weight, start_lat, start_lon)
-            VALUES (:date, :filename, :sport, :sub_sport, :duration_s, :distance_m,
+            VALUES (:date, :start_time, :filename, :sport, :sub_sport, :duration_s, :distance_m,
                :avg_power, :normalized_power, :max_power, :avg_hr, :max_hr, :avg_cadence,
                :total_ascent, :total_descent, :total_calories, :tss, :intensity_factor,
                :ftp, :total_work_kj, :training_effect, :variability_index,
@@ -319,8 +320,10 @@ def ingest_workouts(conn, workouts_dir=None):
         if workout is None:
             continue
 
+        from server.services.workout_generator import calculate_planned_tss
+        workout["planned_tss"] = calculate_planned_tss(workout.get("workout_xml"))
         conn.execute(
-            "INSERT INTO planned_workouts (date, name, sport, total_duration_s, workout_xml) VALUES (:date, :name, :sport, :total_duration_s, :workout_xml)",
+            "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (:date, :name, :sport, :total_duration_s, :planned_tss, :workout_xml)",
             workout,
         )
         ingested += 1

@@ -202,6 +202,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
         {calendarDays.map((date) => {
           const dateStr = toDateStr(date)
           const isCurrentMonth = date.getMonth() === currentDate.month
+          const isToday = dateStr === toDateStr(new Date())
           const isSelected = dateStr === selectedDay
           const dayRides = ridesByDate.get(dateStr) ?? []
           const dayWorkouts = workoutsByDate.get(dateStr) ?? []
@@ -223,11 +224,12 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
               className={`
                 min-h-[80px] md:min-h-[100px] p-1 cursor-pointer transition-colors
                 ${isCurrentMonth ? 'bg-surface' : 'bg-bg'}
-                ${isSelected ? 'ring-2 ring-accent ring-inset' : ''}
+                ${isToday ? 'ring-2 ring-accent ring-inset' : ''}
+                ${isSelected && !isToday ? 'ring-2 ring-text-muted ring-inset' : ''}
                 hover:bg-surface2
               `}
             >
-              <div className={`text-xs font-medium ${isCurrentMonth ? 'text-text' : 'text-text-muted'}`}>
+              <div className={`text-xs font-medium ${isToday ? 'text-accent font-bold' : isCurrentMonth ? 'text-text' : 'text-text-muted'}`}>
                 {date.getDate()}
               </div>
 

@@ -37,6 +37,7 @@ class RideSummary(BaseModel):
     post_ride_comments: Optional[str] = None
     coach_comments: Optional[str] = None
     title: Optional[str] = None
+    start_time: Optional[str] = None
 
 
 class RideRecord(BaseModel):

@@ -3,6 +3,9 @@
 import json
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_template(key):
@@ -127,3 +130,60 @@ def generate_custom_zwo(name, description, steps, ftp=261):
     """
     xml_str = _build_zwo_xml(name, description, steps, ftp)
     return xml_str, name
+
+
+def calculate_planned_tss(workout_xml: str) -> float | None:
+    """Calculate planned TSS from ZWO workout XML.
+
+    TSS = sum(step_duration_s * power_pct^2) / 3600 * 100
+
+    For each step type:
+    - SteadyState: duration * power^2
+    - Warmup/Cooldown: duration * avg(power_low, power_high)^2
+    - IntervalsT: repeat * (on_dur * on_power^2 + off_dur * off_power^2)
+    """
+    if not workout_xml:
+        return None
+
+    try:
+        root = ET.fromstring(workout_xml)
+    except ET.ParseError:
+        logger.warning("Could not parse workout XML for TSS calculation")
+        return None
+
+    workout_el = root.find("workout")
+    if workout_el is None:
+        return None
+
+    weighted_seconds = 0.0  # sum of duration_s * power_pct^2
+
+    for step in workout_el:
+        tag = step.tag
+
+        if tag == "SteadyState":
+            dur = float(step.get("Duration", 0))
+            power = float(step.get("Power", 0.65))
+            weighted_seconds += dur * power * power
+
+        elif tag in ("Warmup", "Cooldown"):
+            dur = float(step.get("Duration", 0))
+            p_low = float(step.get("PowerLow", 0.4))
+            p_high = float(step.get("PowerHigh", 0.65))
+            avg_power = (p_low + p_high) / 2
+            weighted_seconds += dur * avg_power * avg_power
+
+        elif tag == "IntervalsT":
+            repeats = int(step.get("Repeat", 1))
+            on_dur = float(step.get("OnDuration", 0))
+            off_dur = float(step.get("OffDuration", 0))
+            on_power = float(step.get("OnPower", 1.0))
+            off_power = float(step.get("OffPower", 0.5))
+            weighted_seconds += repeats * (
+                on_dur * on_power * on_power + off_dur * off_power * off_power
+            )
+
+    if weighted_seconds <= 0:
+        return None
+
+    tss = weighted_seconds / 3600 * 100
+    return round(tss, 1)

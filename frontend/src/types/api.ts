@@ -31,6 +31,7 @@ export interface RideSummary {
   post_ride_comments?: string
   coach_comments?: string
   title?: string
+  start_time?: string
 }
 
 export interface RideRecord {
@@ -77,6 +78,7 @@ export interface PlannedWorkout {
   name?: string
   sport?: string
   total_duration_s?: number
+  planned_tss?: number
   workout_xml?: string
   coach_notes?: string
   athlete_notes?: string

@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 from server.database import get_db, get_setting, set_setting, get_all_settings
-from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates
+from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates, calculate_planned_tss
 from server.services.intervals_icu import push_workout, is_configured as icu_is_configured
 
 
@@ -138,10 +138,11 @@ def generate_weekly_plan(start_date: str, focus: str = "base", hours: float = 12
 
             # Generate ZWO
             xml_str, name = generate_zwo(workout_type, duration, ftp)
+            tss = calculate_planned_tss(xml_str)
 
             conn.execute(
-                "INSERT INTO planned_workouts (date, name, sport, total_duration_s, workout_xml) VALUES (?, ?, ?, ?, ?)",
-                (date_str, name, "bike", duration * 60, xml_str),
+                "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (?, ?, ?, ?, ?, ?)",
+                (date_str, name, "bike", duration * 60, tss, xml_str),
             )
 
             workouts_created.append({
@@ -379,9 +380,10 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
 
                 conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date_str,))
                 xml_str, name = generate_zwo(workout_type, duration, ftp)
+                tss = calculate_planned_tss(xml_str)
                 conn.execute(
-                    "INSERT INTO planned_workouts (date, name, sport, total_duration_s, workout_xml) VALUES (?, ?, ?, ?, ?)",
-                    (date_str, name, "bike", duration * 60, xml_str),
+                    "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (?, ?, ?, ?, ?, ?)",
+                    (date_str, name, "bike", duration * 60, tss, xml_str),
                 )
                 workout_count += 1
 
@@ -503,9 +505,10 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
             }
 
         conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date,))
+        tss = calculate_planned_tss(xml_str)
         conn.execute(
-            "INSERT INTO planned_workouts (date, name, sport, total_duration_s, workout_xml) VALUES (?, ?, ?, ?, ?)",
-            (date, workout_name, "bike", duration_minutes * 60, xml_str),
+            "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (?, ?, ?, ?, ?, ?)",
+            (date, workout_name, "bike", duration_minutes * 60, tss, xml_str),
         )
 
     return {

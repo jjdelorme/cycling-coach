@@ -111,14 +111,42 @@ export default function Rides({ initialRideId, initialDate }: Props) {
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const updateTitle = useUpdateRideTitle()
+
+  // Reverse geocode location from start_lat/start_lon
+  const [locationName, setLocationName] = useState<string | null>(null)
+  useEffect(() => {
+    if (!ride?.start_lat || !ride?.start_lon) {
+      setLocationName(null)
+      return
+    }
+    let cancelled = false
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${ride.start_lat}&lon=${ride.start_lon}&format=json&zoom=10`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        const addr = data.address || {}
+        const parts = [addr.city || addr.town || addr.village || addr.hamlet, addr.state].filter(Boolean)
+        setLocationName(parts.join(', ') || data.display_name?.split(',').slice(0, 2).join(',') || null)
+      })
+      .catch(() => { if (!cancelled) setLocationName(null) })
+    return () => { cancelled = true }
+  }, [ride?.start_lat, ride?.start_lon])
+
   if (showDetail) {
     const isRideView = selectedRideId != null && ride != null
     const isWorkoutOnly = !isRideView && plannedWorkout != null
 
-    // Timestamps are UTC — append Z so JS Date parses as UTC, then display in local tz
-    const startTime = isRideView && ride?.records?.[0]?.timestamp_utc
-      ? new Date(ride.records[0].timestamp_utc + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-      : null
+    // Start time: prefer ride.start_time, fall back to first record timestamp
+    const startTime = (() => {
+      if (!isRideView) return null
+      const raw = ride?.start_time || ride?.records?.[0]?.timestamp_utc
+      if (!raw) return null
+      // Append Z if no timezone indicator present so JS parses as UTC
+      const ts = raw.includes('Z') || raw.includes('+') || raw.includes('T') && raw.match(/[+-]\d{2}:?\d{2}$/)
+        ? raw
+        : raw + 'Z'
+      return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    })()
 
     const displayTitle = ride?.title || ride?.sport || 'Cycling'
 
@@ -173,19 +201,25 @@ export default function Rides({ initialRideId, initialDate }: Props) {
                   </button>
                 </div>
               ) : (
-                <h1 className="text-xl font-semibold text-text">
-                  {ride.date?.slice(0, 10)}{startTime && <span className="text-text-muted font-normal text-sm ml-2">@ {startTime}</span>} &mdash; {displayTitle}
-                  <button
-                    onClick={() => { setTitleDraft(ride.title || ride.sport || ''); setEditingTitle(true) }}
-                    className="ml-2 text-text-muted hover:text-text transition-colors align-middle"
-                    title="Edit title"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
-                </h1>
+                <div>
+                  <h1 className="text-xl font-semibold text-text">
+                    {displayTitle}
+                    <button
+                      onClick={() => { setTitleDraft(ride.title || ride.sport || ''); setEditingTitle(true) }}
+                      className="ml-2 text-text-muted hover:text-text transition-colors align-middle"
+                      title="Edit title"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                  </h1>
+                  <div className="text-sm text-text-muted mt-1 flex flex-wrap gap-x-4">
+                    <span>{ride.date?.slice(0, 10)}{startTime && ` at ${startTime}`}</span>
+                    {locationName && <span>{locationName}</span>}
+                  </div>
+                </div>
               )}
               {plannedWorkout && (
                 <span className="text-sm text-yellow font-normal">
