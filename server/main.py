@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from server.routers import rides, pmc, analysis, planning, coaching, sync
 from server.database import init_db
@@ -42,6 +43,22 @@ def health():
 
 
 # Serve frontend static files
-web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
-if os.path.isdir(web_dir):
-    app.mount("/", StaticFiles(directory=web_dir, html=True), name="static")
+# Prefer React build (frontend/dist), fall back to legacy (web/)
+_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+_web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
+
+if os.path.isdir(_frontend_dist):
+    # Serve static assets (JS, CSS, images)
+    app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="assets")
+
+    # SPA fallback: serve index.html for all non-API routes
+    @app.get("/{path:path}")
+    async def spa_fallback(path: str):
+        # Try to serve the exact file first
+        file_path = os.path.join(_frontend_dist, path)
+        if path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # Fall back to index.html for SPA routing
+        return FileResponse(os.path.join(_frontend_dist, "index.html"))
+elif os.path.isdir(_web_dir):
+    app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")

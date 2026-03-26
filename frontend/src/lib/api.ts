@@ -54,6 +54,8 @@ export const fetchWeeklySummary = (params?: { start_date?: string; end_date?: st
 }
 export const updateRideComments = (id: number, body: { post_ride_comments?: string | null }) =>
   put<{ status: string }>(`/api/rides/${id}/comments`, body)
+export const updateRideTitle = (id: number, body: { title?: string | null }) =>
+  put<{ status: string }>(`/api/rides/${id}/title`, body)
 
 // PMC
 export const fetchPMC = () => get<PMCEntry[]>('/api/pmc')

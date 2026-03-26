@@ -40,7 +40,7 @@ def test_insert_ride_records(tmp_db):
         )
         ride_id = conn.execute("SELECT id FROM rides").fetchone()["id"]
         conn.execute(
-            "INSERT INTO ride_records (ride_id, timestamp, power, heart_rate) VALUES (?, '2025-06-01T10:00:00', 200, 150)",
+            "INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate) VALUES (?, '2025-06-01T10:00:00', 200, 150)",
             (ride_id,),
         )
         records = conn.execute("SELECT * FROM ride_records WHERE ride_id=?", (ride_id,)).fetchall()

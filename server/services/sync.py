@@ -174,7 +174,7 @@ def _store_streams(ride_id: int, streams: dict):
             lat, lon = latlng_pairs[i][0], latlng_pairs[i][1]
         rows.append((
             ride_id,
-            None,  # timestamp
+            None,  # timestamp_utc
             watts[i] if i < len(watts) else None,
             hr[i] if i < len(hr) else None,
             cadence[i] if i < len(cadence) else None,
@@ -188,7 +188,7 @@ def _store_streams(ride_id: int, streams: dict):
 
     with get_db() as conn:
         conn.executemany(
-            "INSERT INTO ride_records (ride_id, timestamp, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature) "
+            "INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
@@ -203,8 +203,10 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
     # Determine date range from watermark
     watermark = get_watermark("rides_newest")
     if watermark:
-        # Fetch from day after last watermark
-        oldest = (datetime.fromisoformat(watermark) + timedelta(days=1)).strftime("%Y-%m-%d")
+        # Re-fetch from watermark date (not day after) — a ride may have been
+        # uploaded to intervals.icu after the sync that set the watermark.
+        # Dedup logic handles any rides we already have.
+        oldest = datetime.fromisoformat(watermark).strftime("%Y-%m-%d")
     else:
         oldest = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 

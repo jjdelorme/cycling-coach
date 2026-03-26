@@ -30,10 +30,11 @@ export interface RideSummary {
   start_lon?: number
   post_ride_comments?: string
   coach_comments?: string
+  title?: string
 }
 
 export interface RideRecord {
-  timestamp?: string
+  timestamp_utc?: string
   power?: number
   heart_rate?: number
   cadence?: number

@@ -26,6 +26,18 @@ export function useUpdateRideComments() {
   })
 }
 
+export function useUpdateRideTitle() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: { title?: string | null } }) =>
+      api.updateRideTitle(id, body),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['ride', id] })
+      qc.invalidateQueries({ queryKey: ['rides'] })
+    },
+  })
+}
+
 // PMC
 export function usePMC() {
   return useQuery({ queryKey: ['pmc'], queryFn: api.fetchPMC })

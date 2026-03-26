@@ -277,7 +277,7 @@ def ingest_rides(conn, rides_dir=None):
             for i in range(0, len(records), 1000):
                 batch = records[i : i + 1000]
                 conn.executemany(
-                    """INSERT INTO ride_records (ride_id, timestamp, power, heart_rate, cadence,
+                    """INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate, cadence,
                        speed, altitude, distance, lat, lon, temperature)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     [

@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS rides (
 CREATE TABLE IF NOT EXISTS ride_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ride_id INTEGER NOT NULL,
-    timestamp TEXT,
+    timestamp_utc TEXT,
     power INTEGER,
     heart_rate INTEGER,
     cadence INTEGER,
@@ -235,7 +235,7 @@ CREATE TABLE IF NOT EXISTS rides (
 CREATE TABLE IF NOT EXISTS ride_records (
     id SERIAL PRIMARY KEY,
     ride_id INTEGER NOT NULL REFERENCES rides(id),
-    timestamp TEXT,
+    timestamp_utc TEXT,
     power INTEGER,
     heart_rate INTEGER,
     cadence INTEGER,
@@ -576,13 +576,20 @@ def _migrate_postgres(conn):
     """Add columns to existing Postgres tables if they don't exist yet."""
     cur = conn.cursor()
     for table, columns in [
-        ("rides", ["post_ride_comments", "coach_comments"]),
+        ("rides", ["post_ride_comments", "coach_comments", "title"]),
         ("planned_workouts", ["coach_notes", "athlete_notes"]),
     ]:
         for col in columns:
             cur.execute(
                 f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} TEXT"
             )
+    # Rename ride_records.timestamp -> timestamp_utc if needed
+    cur.execute("""
+        DO $$ BEGIN
+            ALTER TABLE ride_records RENAME COLUMN timestamp TO timestamp_utc;
+        EXCEPTION WHEN undefined_column THEN NULL;
+        END $$;
+    """)
     conn.commit()
     cur.close()
 
@@ -590,9 +597,13 @@ def _migrate_postgres(conn):
 def _migrate_sqlite(conn):
     """Add columns to existing SQLite tables if they don't exist yet."""
     ride_cols = {row[1] for row in conn.execute("PRAGMA table_info(rides)").fetchall()}
-    for col in ("post_ride_comments", "coach_comments"):
+    for col in ("post_ride_comments", "coach_comments", "title"):
         if col not in ride_cols:
             conn.execute(f"ALTER TABLE rides ADD COLUMN {col} TEXT")
+    # Rename ride_records.timestamp -> timestamp_utc if needed
+    record_cols = {row[1] for row in conn.execute("PRAGMA table_info(ride_records)").fetchall()}
+    if "timestamp" in record_cols and "timestamp_utc" not in record_cols:
+        conn.execute("ALTER TABLE ride_records RENAME COLUMN timestamp TO timestamp_utc")
     workout_cols = {row[1] for row in conn.execute("PRAGMA table_info(planned_workouts)").fetchall()}
     for col in ("coach_notes", "athlete_notes"):
         if col not in workout_cols:

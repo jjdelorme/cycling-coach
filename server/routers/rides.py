@@ -11,6 +11,10 @@ from server.models.schemas import RideSummary, RideDetail, RideRecord, WeeklySum
 class RideCommentsUpdate(BaseModel):
     post_ride_comments: Optional[str] = None
 
+
+class RideTitleUpdate(BaseModel):
+    title: Optional[str] = None
+
 router = APIRouter(prefix="/api/rides", tags=["rides"])
 
 
@@ -139,7 +143,7 @@ def get_ride(ride_id: int):
             raise HTTPException(status_code=404, detail="Ride not found")
 
         records = conn.execute(
-            "SELECT timestamp, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature FROM ride_records WHERE ride_id = ? ORDER BY id",
+            "SELECT timestamp_utc, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature FROM ride_records WHERE ride_id = ? ORDER BY id",
             (ride_id,),
         ).fetchall()
 
@@ -158,5 +162,18 @@ def update_ride_comments(ride_id: int, body: RideCommentsUpdate):
         conn.execute(
             "UPDATE rides SET post_ride_comments = ? WHERE id = ?",
             (body.post_ride_comments, ride_id),
+        )
+    return {"status": "ok"}
+
+
+@router.put("/{ride_id}/title")
+def update_ride_title(ride_id: int, body: RideTitleUpdate):
+    with get_db() as conn:
+        ride = conn.execute("SELECT id FROM rides WHERE id = ?", (ride_id,)).fetchone()
+        if not ride:
+            raise HTTPException(status_code=404, detail="Ride not found")
+        conn.execute(
+            "UPDATE rides SET title = ? WHERE id = ?",
+            (body.title, ride_id),
         )
     return {"status": "ok"}

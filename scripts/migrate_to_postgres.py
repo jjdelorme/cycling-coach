@@ -97,7 +97,7 @@ def main():
     ])
 
     migrate_table(pg, lite, "ride_records", [
-        "id", "ride_id", "timestamp", "power", "heart_rate", "cadence",
+        "id", "ride_id", "timestamp_utc", "power", "heart_rate", "cadence",
         "speed", "altitude", "distance", "lat", "lon", "temperature",
     ], batch_size=10000)
 

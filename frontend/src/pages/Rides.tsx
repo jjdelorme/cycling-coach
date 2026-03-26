@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useRides, useRide, useUpdateRideComments, useWorkoutByDate, useUpdateWorkoutNotes, useSendChat } from '../hooks/useApi'
+import { useRides, useRide, useUpdateRideComments, useUpdateRideTitle, useWorkoutByDate, useUpdateWorkoutNotes, useSendChat } from '../hooks/useApi'
 import { fmtDuration, fmtDistance, fmtTime, zoneColor, zoneLabel } from '../lib/format'
 import { useChartColors } from '../lib/theme'
 import { useQueryClient } from '@tanstack/react-query'
@@ -108,9 +108,19 @@ export default function Rides({ initialRideId, initialDate }: Props) {
   // ── Detail View (ride or workout-only) ──
   const showDetail = selectedRideId != null || selectedDate != null
   const [highlightedStep, setHighlightedStep] = useState<number | null>(null)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const updateTitle = useUpdateRideTitle()
   if (showDetail) {
     const isRideView = selectedRideId != null && ride != null
     const isWorkoutOnly = !isRideView && plannedWorkout != null
+
+    // Timestamps are UTC — append Z so JS Date parses as UTC, then display in local tz
+    const startTime = isRideView && ride?.records?.[0]?.timestamp_utc
+      ? new Date(ride.records[0].timestamp_utc + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : null
+
+    const displayTitle = ride?.title || ride?.sport || 'Cycling'
 
     return (
       <div className="space-y-6">
@@ -127,14 +137,62 @@ export default function Rides({ initialRideId, initialDate }: Props) {
         {isRideView && ride && (
           <>
             {/* Title */}
-            <h1 className="text-xl font-semibold text-text">
-              {ride.date?.slice(0, 10)} &mdash; {ride.sport ?? 'Cycling'}
+            <div className="flex items-baseline gap-2 flex-wrap">
+              {editingTitle ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={e => setTitleDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        updateTitle.mutate({ id: ride.id, body: { title: titleDraft || null } }, {
+                          onSuccess: () => setEditingTitle(false),
+                        })
+                      } else if (e.key === 'Escape') {
+                        setEditingTitle(false)
+                      }
+                    }}
+                    className="text-xl font-semibold text-text bg-surface2 border border-border rounded px-2 py-0.5 focus:outline-none focus:border-accent"
+                  />
+                  <button
+                    onClick={() => {
+                      updateTitle.mutate({ id: ride.id, body: { title: titleDraft || null } }, {
+                        onSuccess: () => setEditingTitle(false),
+                      })
+                    }}
+                    className="text-xs text-accent hover:underline"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditingTitle(false)}
+                    className="text-xs text-text-muted hover:text-text"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <h1 className="text-xl font-semibold text-text">
+                  {ride.date?.slice(0, 10)}{startTime && <span className="text-text-muted font-normal text-sm ml-2">@ {startTime}</span>} &mdash; {displayTitle}
+                  <button
+                    onClick={() => { setTitleDraft(ride.title || ride.sport || ''); setEditingTitle(true) }}
+                    className="ml-2 text-text-muted hover:text-text transition-colors align-middle"
+                    title="Edit title"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </button>
+                </h1>
+              )}
               {plannedWorkout && (
-                <span className="text-sm text-yellow ml-2 font-normal">
+                <span className="text-sm text-yellow font-normal">
                   Planned: {plannedWorkout.name ?? 'Workout'}
                 </span>
               )}
-            </h1>
+            </div>
 
             {/* Metric cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -447,7 +505,7 @@ const stepHighlightPlugin = {
 ChartJS.register(stepHighlightPlugin)
 
 function RideTimelineChart({ records, workout, highlightedStep }: {
-  records: { timestamp?: string; power?: number; heart_rate?: number; cadence?: number }[]
+  records: { timestamp_utc?: string; power?: number; heart_rate?: number; cadence?: number }[]
   workout?: WorkoutDetail
   highlightedStep?: number | null
 }) {

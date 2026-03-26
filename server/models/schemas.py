@@ -36,10 +36,11 @@ class RideSummary(BaseModel):
     start_lon: Optional[float] = None
     post_ride_comments: Optional[str] = None
     coach_comments: Optional[str] = None
+    title: Optional[str] = None
 
 
 class RideRecord(BaseModel):
-    timestamp: Optional[str] = None
+    timestamp_utc: Optional[str] = None
     power: Optional[int] = None
     heart_rate: Optional[int] = None
     cadence: Optional[int] = None
