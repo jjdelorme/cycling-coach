@@ -14,7 +14,8 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { usePMC, useRides, useWeeklySummary } from '../hooks/useApi'
 import { fetchWeekPlan } from '../lib/api'
-import { fmtDuration, fmtDistance } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtWeight } from '../lib/format'
+import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function Dashboard({ onRideSelect }: Props) {
+  const units = useUnits()
   const { data: pmcData, isLoading: pmcLoading } = usePMC()
   const { data: rides, isLoading: ridesLoading } = useRides({ limit: 7 })
   const { data: weekly, isLoading: weeklyLoading } = useWeeklySummary()
@@ -98,7 +100,7 @@ export default function Dashboard({ onRideSelect }: Props) {
     { label: 'CTL (Fitness)', value: lastPMC?.ctl?.toFixed(0) ?? '--', color: 'text-green' },
     { label: 'ATL (Fatigue)', value: lastPMC?.atl?.toFixed(0) ?? '--', color: 'text-red' },
     { label: 'TSB (Form)', value: lastPMC?.tsb?.toFixed(0) ?? '--', color: tsbColor },
-    { label: 'Weight', value: lastPMC?.weight ? `${lastPMC.weight.toFixed(1)} kg` : '--', color: 'text-yellow' },
+    { label: 'Weight', value: fmtWeight(lastPMC?.weight), color: 'text-yellow' },
   ]
 
   const chartData = {
@@ -190,6 +192,9 @@ export default function Dashboard({ onRideSelect }: Props) {
           </div>
         ))}
       </div>
+
+      {/* PMC + Volume Charts — side by side on desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
       {/* PMC Chart */}
       <div className="bg-surface rounded-lg border border-border p-4">
@@ -409,6 +414,8 @@ export default function Dashboard({ onRideSelect }: Props) {
         )
       })()}
 
+      </div>{/* end PMC + Volume grid */}
+
       {/* Recent Rides */}
       <div className="bg-surface rounded-lg border border-border p-4">
         <h2 className="text-lg font-semibold text-text mb-4">Recent Rides</h2>
@@ -435,7 +442,7 @@ export default function Dashboard({ onRideSelect }: Props) {
                     <td className="py-2 pr-4">{ride.date}</td>
                     <td className="py-2 pr-4 text-text-muted">{ride.sub_sport || ride.sport || '--'}</td>
                     <td className="py-2 pr-4 text-right">{fmtDuration(ride.duration_s)}</td>
-                    <td className="py-2 pr-4 text-right">{fmtDistance(ride.distance_m)}</td>
+                    <td className="py-2 pr-4 text-right">{fmtDistance(ride.distance_m, units)}</td>
                     <td className="py-2 pr-4 text-right text-accent">{ride.tss?.toFixed(0) ?? '--'}</td>
                     <td className="py-2 text-right text-blue">{ride.avg_power ? `${ride.avg_power}w` : '--'}</td>
                   </tr>
