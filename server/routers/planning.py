@@ -13,6 +13,20 @@ from server.services.workout_generator import generate_zwo, list_templates, get_
 router = APIRouter(prefix="/api/plan", tags=["plan"])
 
 
+@router.get("/activity-dates")
+def get_activity_dates():
+    """Return sorted list of all dates that have a ride or planned workout."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM ("
+            "  SELECT SUBSTR(date, 1, 10) AS date FROM rides"
+            "  UNION"
+            "  SELECT SUBSTR(date, 1, 10) AS date FROM planned_workouts"
+            ") ORDER BY date"
+        ).fetchall()
+    return [r["date"] for r in rows]
+
+
 @router.get("/macro", response_model=list[PeriodizationPhase])
 def get_macro_plan():
     """Get periodization phases."""

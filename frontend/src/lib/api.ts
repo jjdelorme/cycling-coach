@@ -96,6 +96,7 @@ export const updateAthleteSetting = (body: { key: string; value: string }) =>
 export const fetchMacroPlan = () => get<PeriodizationPhase[]>('/api/plan/macro')
 export const fetchWeeklyOverview = () => get<WeeklyOverview[]>('/api/plan/weekly-overview')
 export const fetchWeekPlan = (date: string) => get<WeekPlan>(`/api/plan/week/${date}`)
+export const fetchActivityDates = () => get<string[]>('/api/plan/activity-dates')
 export const fetchWorkoutByDate = (date: string) => get<WorkoutDetail | null>(`/api/plan/workouts/by-date/${date}`)
 export const fetchWorkoutDetail = (id: number) => get<WorkoutDetail>(`/api/plan/workouts/${id}`)
 export const updateWorkoutNotes = (id: number, body: { athlete_notes?: string | null }) =>

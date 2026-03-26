@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useRides, useRide, useUpdateRideComments, useUpdateRideTitle, useWorkoutByDate, useUpdateWorkoutNotes, useSendChat } from '../hooks/useApi'
+import { useRides, useRide, useUpdateRideComments, useUpdateRideTitle, useWorkoutByDate, useUpdateWorkoutNotes, useSendChat, useActivityDates } from '../hooks/useApi'
 import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, zoneLabel } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
@@ -134,6 +134,40 @@ export default function Rides({ initialRideId, initialDate }: Props) {
     return () => { cancelled = true }
   }, [ride?.start_lat, ride?.start_lon])
 
+  // Calendar-based prev/next navigation
+  const { data: activityDates } = useActivityDates()
+  const currentDate = rideDate ?? null
+  const { prevDate, nextDate } = useMemo(() => {
+    if (!activityDates || !currentDate) return { prevDate: null, nextDate: null }
+    const idx = activityDates.indexOf(currentDate)
+    if (idx < 0) {
+      // Current date not in list; find nearest neighbors
+      let prev: string | null = null
+      let next: string | null = null
+      for (const d of activityDates) {
+        if (d < currentDate) prev = d
+        if (d > currentDate && !next) next = d
+      }
+      return { prevDate: prev, nextDate: next }
+    }
+    return {
+      prevDate: idx > 0 ? activityDates[idx - 1] : null,
+      nextDate: idx < activityDates.length - 1 ? activityDates[idx + 1] : null,
+    }
+  }, [activityDates, currentDate])
+
+  function navigateToDate(date: string) {
+    // Find if there's a ride on this date; if so, navigate to it, otherwise use date-based view
+    const rideOnDate = rides?.find(r => r.date?.slice(0, 10) === date)
+    if (rideOnDate) {
+      setSelectedRideId(rideOnDate.id)
+      setSelectedDate(null)
+    } else {
+      setSelectedRideId(null)
+      setSelectedDate(date)
+    }
+  }
+
   if (showDetail) {
     const isRideView = selectedRideId != null && ride != null
     const isWorkoutOnly = !isRideView && plannedWorkout != null
@@ -154,13 +188,36 @@ export default function Rides({ initialRideId, initialDate }: Props) {
 
     return (
       <div className="space-y-6">
-        {/* Back button */}
-        <button
-          onClick={handleBack}
-          className="text-sm text-text-muted hover:text-text transition-colors"
-        >
-          &larr; Back to rides
-        </button>
+        {/* Navigation */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={handleBack}
+            className="text-sm text-text-muted hover:text-text transition-colors"
+          >
+            &larr; Back to rides
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => prevDate && navigateToDate(prevDate)}
+              disabled={!prevDate}
+              className="px-3 py-1 text-sm rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-surface2 text-text-muted hover:text-text border border-border"
+              title={prevDate ?? undefined}
+            >
+              &larr; Prev
+            </button>
+            <span className="text-sm font-medium text-text">
+              {currentDate ?? ''}
+            </span>
+            <button
+              onClick={() => nextDate && navigateToDate(nextDate)}
+              disabled={!nextDate}
+              className="px-3 py-1 text-sm rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-surface2 text-text-muted hover:text-text border border-border"
+              title={nextDate ?? undefined}
+            >
+              Next &rarr;
+            </button>
+          </div>
+        </div>
 
         {rideLoading && <p className="text-text-muted">Loading ride...</p>}
 

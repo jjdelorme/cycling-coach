@@ -82,6 +82,9 @@ export function useWeekPlan(date: string) {
     queryFn: () => api.fetchWeekPlan(date),
   })
 }
+export function useActivityDates() {
+  return useQuery({ queryKey: ['activity-dates'], queryFn: api.fetchActivityDates })
+}
 export function useWorkoutDetail(id: number | null) {
   return useQuery({
     queryKey: ['workout', id],
