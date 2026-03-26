@@ -232,7 +232,7 @@ function TrainingPlanOverview() {
 
   const allStart = new Date(phases[0].start_date).getTime()
   const allEnd = new Date(phases[phases.length - 1].end_date).getTime()
-  const totalDays = (allEnd - allStart) / 86400000
+  const totalDays = (allEnd - allStart) / 86400000 + 1
   const todayPct = ((today.getTime() - allStart) / 86400000 / totalDays) * 100
   const currentPhase = phases.find(
     (p) => p.start_date <= todayStr && p.end_date >= todayStr,
@@ -325,15 +325,15 @@ function TrainingPlanOverview() {
 
       {/* Gantt bar */}
       <div className="relative">
-        <div className="relative h-10 rounded overflow-hidden flex">
+        <div className="relative h-10 rounded flex">
           {phases.map((p) => {
-            const dur = (new Date(p.end_date).getTime() - new Date(p.start_date).getTime()) / 86400000
+            const dur = (new Date(p.end_date).getTime() - new Date(p.start_date).getTime()) / 86400000 + 1
             const widthPct = (dur / totalDays) * 100
             const color = PHASE_COLORS[p.name] || '#666'
             return (
               <div
                 key={p.id}
-                className="h-full flex items-center justify-center text-xs font-medium px-1 overflow-hidden whitespace-nowrap"
+                className="group relative h-full flex items-center justify-center text-xs font-medium px-1 overflow-hidden whitespace-nowrap"
                 style={{
                   width: `${widthPct}%`,
                   backgroundColor: color,
@@ -342,6 +342,11 @@ function TrainingPlanOverview() {
                 title={`${p.name}: ${p.start_date} to ${p.end_date}${p.hours_per_week_low ? ` (${p.hours_per_week_low}-${p.hours_per_week_high}h/wk)` : ''}`}
               >
                 {widthPct > 10 ? p.name : ''}
+                {widthPct <= 10 && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-surface2 text-text text-xs rounded shadow-lg border border-border whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                    {p.name}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -353,12 +358,19 @@ function TrainingPlanOverview() {
             title="Today"
           />
         )}
-        {/* Date labels */}
-        <div className="flex justify-between mt-1 text-xs text-text-muted">
-          {phases.map((p) => (
-            <span key={p.id}>{p.start_date.slice(5)}</span>
-          ))}
-          <span>{phases[phases.length - 1].end_date.slice(5)}</span>
+        {/* Date labels aligned to phase boundaries */}
+        <div className="relative mt-1 text-xs text-text-muted h-4">
+          {phases.map((p) => {
+            const offsetPct = ((new Date(p.start_date).getTime() - allStart) / 86400000 / totalDays) * 100
+            return (
+              <span key={p.id} className="absolute -translate-x-1/2" style={{ left: `${offsetPct}%` }}>
+                {p.start_date.slice(5)}
+              </span>
+            )
+          })}
+          <span className="absolute right-0">
+            {phases[phases.length - 1].end_date.slice(5)}
+          </span>
         </div>
       </div>
 
@@ -714,10 +726,27 @@ export default function Analysis() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold text-text">Analysis</h1>
+      <h1 className="text-2xl font-bold text-text">Analysis</h1>
 
-        {/* Time range selector */}
+      <TrainingPlanOverview />
+
+      {/* Tab buttons + time range selector */}
+      <div className="flex items-center justify-between border-b border-border">
+        <div className="flex gap-1">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                activeTab === tab.key
+                  ? 'bg-surface2 text-text border-b-2 border-accent'
+                  : 'text-text-muted hover:text-text'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <div className="flex gap-1">
           {RANGE_OPTIONS.map((opt) => (
             <button
@@ -733,25 +762,6 @@ export default function Analysis() {
             </button>
           ))}
         </div>
-      </div>
-
-      <TrainingPlanOverview />
-
-      {/* Tab buttons */}
-      <div className="flex gap-1 border-b border-border">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
-              activeTab === tab.key
-                ? 'bg-surface2 text-text border-b-2 border-accent'
-                : 'text-text-muted hover:text-text'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
       </div>
 
       {/* Tab content */}
