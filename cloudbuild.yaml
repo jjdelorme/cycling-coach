@@ -1,13 +1,14 @@
 steps:
   # Build container image
   - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
     args:
-      - 'build'
-      - '--build-arg'
-      - 'VITE_GOOGLE_CLIENT_ID=$$GOOGLE_CLIENT_ID'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA}'
-      - '.'
+      - '-c'
+      - |
+        docker build \
+          --build-arg "VITE_GOOGLE_CLIENT_ID=$$GOOGLE_CLIENT_ID" \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA} \
+          .
     secretEnv: ['GOOGLE_CLIENT_ID']
 
   # Push to Artifact Registry
