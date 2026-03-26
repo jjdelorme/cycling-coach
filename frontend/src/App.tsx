@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { useAuth } from './lib/auth'
 import Layout, { type TabKey } from './components/Layout'
+import LoginPage from './components/LoginPage'
 import Dashboard from './pages/Dashboard'
 import Rides from './pages/Rides'
 import Calendar from './pages/Calendar'
@@ -7,6 +9,7 @@ import Analysis from './pages/Analysis'
 import Settings from './pages/Settings'
 
 export default function App() {
+  const { user, isAuthenticated, isLoading } = useAuth()
   const [tab, setTab] = useState<TabKey>('dashboard')
   const [rideId, setRideId] = useState<number | undefined>()
   const [rideDate, setRideDate] = useState<string | undefined>()
@@ -21,6 +24,19 @@ export default function App() {
     setRideDate(date)
     setRideId(undefined)
     setTab('rides')
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-bg">
+        <span className="text-text-muted">Loading...</span>
+      </div>
+    )
+  }
+
+  // Not authenticated or no access
+  if (!isAuthenticated || !user || user.role === 'none') {
+    return <LoginPage />
   }
 
   return (

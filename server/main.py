@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete
+from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete, admin
 from server.database import init_db
 
 
@@ -21,7 +21,11 @@ app = FastAPI(title="Cycling Coach", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:8000",
+        os.getenv("CORS_ALLOWED_ORIGIN", ""),
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -33,6 +37,7 @@ app.include_router(planning.router)
 app.include_router(coaching.router)
 app.include_router(sync.router)
 app.include_router(athlete.router)
+app.include_router(admin.router)
 
 
 @app.get("/api/health")

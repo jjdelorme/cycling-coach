@@ -1,9 +1,10 @@
 """AI coaching chat and session endpoints."""
 
 import uuid
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from server.auth import CurrentUser, require_read, require_write
 from server.models.schemas import (
     ChatRequest, ChatResponse, SessionSummary, SessionDetail, SessionMessage,
 )
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/api/coaching", tags=["coaching"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(require_read)):
     from server.coaching.agent import chat
 
     session_id = req.session_id or str(uuid.uuid4())
@@ -21,13 +22,14 @@ async def chat_endpoint(req: ChatRequest):
     response = await chat(
         message=req.message,
         session_id=session_id,
+        user=user,
     )
 
     return ChatResponse(response=response, session_id=session_id)
 
 
 @router.get("/sessions", response_model=list[SessionSummary])
-async def list_sessions():
+async def list_sessions(user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
         rows = conn.execute(
             "SELECT session_id, title, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC"
@@ -45,7 +47,7 @@ async def list_sessions():
 
 
 @router.get("/sessions/{session_id}", response_model=SessionDetail)
-async def get_session(session_id: str):
+async def get_session(session_id: str, user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
         row = conn.execute(
             "SELECT session_id, title, created_at, updated_at FROM chat_sessions WHERE session_id = ?",
@@ -79,7 +81,7 @@ async def get_session(session_id: str):
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, user: CurrentUser = Depends(require_write)):
     with get_db() as conn:
         conn.execute("DELETE FROM chat_events WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM chat_sessions WHERE session_id = ?", (session_id,))
@@ -87,7 +89,7 @@ async def delete_session(session_id: str):
 
 
 @router.get("/settings")
-async def get_settings():
+async def get_settings(user: CurrentUser = Depends(require_read)):
     """Get all coach settings (athlete profile, principles, etc.)."""
     return get_all_settings()
 
@@ -98,7 +100,7 @@ class SettingUpdate(BaseModel):
 
 
 @router.put("/settings")
-async def update_setting(req: SettingUpdate):
+async def update_setting(req: SettingUpdate, user: CurrentUser = Depends(require_write)):
     """Update a single coach setting."""
     valid_keys = {"athlete_profile", "coaching_principles", "coach_role", "plan_management"}
     if req.key not in valid_keys:
@@ -109,7 +111,7 @@ async def update_setting(req: SettingUpdate):
 
 
 @router.post("/settings/reset")
-async def reset_settings():
+async def reset_settings(user: CurrentUser = Depends(require_write)):
     """Reset all coach settings to defaults."""
     with get_db() as conn:
         conn.execute("DELETE FROM coach_settings")

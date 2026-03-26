@@ -4,8 +4,10 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException, Query
 from typing import Optional
+
+from server.auth import CurrentUser, require_read, require_write
 
 from server.services.sync import (
     _store_streams,
@@ -26,7 +28,7 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 
 @router.post("/start")
-async def start_sync():
+async def start_sync(user: CurrentUser = Depends(require_write)):
     """Start a background sync. Returns immediately with a sync_id for polling.
 
     The sync_id can be used with:
@@ -53,7 +55,7 @@ async def start_sync():
 
 
 @router.get("/status/{sync_id}")
-async def sync_status(sync_id: str):
+async def sync_status(sync_id: str, user: CurrentUser = Depends(require_read)):
     """Poll the status of a sync run."""
     status = get_sync_status(sync_id)
     if status is None:
@@ -62,19 +64,19 @@ async def sync_status(sync_id: str):
 
 
 @router.get("/overview")
-async def sync_overview():
+async def sync_overview(user: CurrentUser = Depends(require_read)):
     """Get overall sync status: last run, watermarks, whether a sync is running."""
     return get_sync_overview()
 
 
 @router.get("/history")
-async def sync_history_endpoint(limit: Optional[int] = Query(20, ge=1, le=100)):
+async def sync_history_endpoint(limit: Optional[int] = Query(20, ge=1, le=100), user: CurrentUser = Depends(require_read)):
     """Get recent sync run history."""
     return get_sync_history(limit)
 
 
 @router.post("/backfill-streams")
-async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200)):
+async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200), user: CurrentUser = Depends(require_write)):
     """Backfill per-second stream data for rides synced from intervals.icu that are missing records."""
     if not is_configured():
         raise HTTPException(status_code=400, detail="intervals.icu not configured")

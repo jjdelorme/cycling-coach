@@ -1,11 +1,12 @@
 """Training plan endpoints."""
 
 import xml.etree.ElementTree as ET
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import Response
 from typing import Optional
 from pydantic import BaseModel
 
+from server.auth import CurrentUser, require_read, require_write
 from server.database import get_db
 from server.models.schemas import PlannedWorkout, PeriodizationPhase
 from server.services.workout_generator import generate_zwo, list_templates, get_template
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/plan", tags=["plan"])
 
 
 @router.get("/activity-dates")
-def get_activity_dates():
+def get_activity_dates(user: CurrentUser = Depends(require_read)):
     """Return sorted list of all dates that have a ride or planned workout."""
     with get_db() as conn:
         rows = conn.execute(
@@ -28,7 +29,7 @@ def get_activity_dates():
 
 
 @router.get("/macro", response_model=list[PeriodizationPhase])
-def get_macro_plan():
+def get_macro_plan(user: CurrentUser = Depends(require_read)):
     """Get periodization phases."""
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM periodization_phases ORDER BY start_date").fetchall()
@@ -36,7 +37,7 @@ def get_macro_plan():
 
 
 @router.get("/week/{date}")
-def get_week_plan(date: str):
+def get_week_plan(date: str, user: CurrentUser = Depends(require_read)):
     """Get planned workouts for the week containing the given date."""
     from datetime import datetime, timedelta
     dt = datetime.fromisoformat(date)
@@ -66,7 +67,7 @@ def get_week_plan(date: str):
 
 
 @router.get("/weekly-overview")
-def weekly_overview():
+def weekly_overview(user: CurrentUser = Depends(require_read)):
     """Weekly rollup of planned vs actual hours and TSS across the full plan.
 
     Returns one entry per week for every week spanned by periodization phases,
@@ -162,6 +163,7 @@ def weekly_overview():
 def plan_compliance(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
 ):
     """Planned vs actual workout compliance."""
     with get_db() as conn:
@@ -195,7 +197,7 @@ def plan_compliance(
 
 
 @router.get("/workout-types")
-def list_workout_types():
+def list_workout_types(user: CurrentUser = Depends(require_read)):
     """List available workout templates."""
     return [
         {"key": t["key"], "name": t["name"], "description": t["description"]}
@@ -204,7 +206,7 @@ def list_workout_types():
 
 
 @router.get("/templates")
-def get_templates(category: Optional[str] = Query(None)):
+def get_templates(category: Optional[str] = Query(None), user: CurrentUser = Depends(require_read)):
     """List all workout templates with full details."""
     templates = list_templates()
     if category:
@@ -225,7 +227,7 @@ def get_templates(category: Optional[str] = Query(None)):
 
 
 @router.get("/templates/{template_id}")
-def get_template_detail(template_id: int):
+def get_template_detail(template_id: int, user: CurrentUser = Depends(require_read)):
     """Get a single workout template with parsed steps in viewer-compatible format."""
     from server.database import get_db
     import json
@@ -268,7 +270,7 @@ class GenerateWorkoutRequest(BaseModel):
 
 
 @router.post("/workouts/generate")
-def generate_workout(req: GenerateWorkoutRequest):
+def generate_workout(req: GenerateWorkoutRequest, user: CurrentUser = Depends(require_write)):
     """Generate a ZWO workout file."""
     try:
         xml_str, name = generate_zwo(req.workout_type, req.duration_minutes, req.ftp)
@@ -278,7 +280,7 @@ def generate_workout(req: GenerateWorkoutRequest):
 
 
 @router.post("/workouts/generate/download")
-def download_workout(req: GenerateWorkoutRequest):
+def download_workout(req: GenerateWorkoutRequest, user: CurrentUser = Depends(require_write)):
     """Generate and download a ZWO workout file."""
     try:
         xml_str, name = generate_zwo(req.workout_type, req.duration_minutes, req.ftp)
@@ -293,7 +295,7 @@ def download_workout(req: GenerateWorkoutRequest):
 
 
 @router.post("/workouts/{workout_id}/sync")
-def sync_workout_to_intervals(workout_id: int):
+def sync_workout_to_intervals(workout_id: int, user: CurrentUser = Depends(require_write)):
     """Push a planned workout to intervals.icu for Garmin sync."""
     from server.services.intervals_icu import push_workout, is_configured
 
@@ -328,7 +330,7 @@ def sync_workout_to_intervals(workout_id: int):
 
 
 @router.get("/integrations/status")
-def integration_status():
+def integration_status(user: CurrentUser = Depends(require_read)):
     """Check if external integrations are configured."""
     from server.services.intervals_icu import is_configured
     return {"intervals_icu": is_configured()}
@@ -429,7 +431,7 @@ def _zone_label(pct: float) -> str:
 
 
 @router.get("/workouts/by-date/{date}")
-def get_workout_by_date(date: str):
+def get_workout_by_date(date: str, user: CurrentUser = Depends(require_read)):
     """Get parsed workout steps for a given date (for ride overlay)."""
     with get_db() as conn:
         row = conn.execute(
@@ -466,7 +468,7 @@ def get_workout_by_date(date: str):
 
 
 @router.get("/workouts/{workout_id}")
-def get_workout_detail(workout_id: int):
+def get_workout_detail(workout_id: int, user: CurrentUser = Depends(require_read)):
     """Get parsed workout detail with steps for visualization."""
     with get_db() as conn:
         row = conn.execute(
@@ -510,7 +512,7 @@ class WorkoutNotesUpdate(BaseModel):
 
 
 @router.put("/workouts/{workout_id}/notes")
-def update_workout_notes(workout_id: int, body: WorkoutNotesUpdate):
+def update_workout_notes(workout_id: int, body: WorkoutNotesUpdate, user: CurrentUser = Depends(require_write)):
     """Update athlete's pre-ride notes on a planned workout."""
     with get_db() as conn:
         row = conn.execute("SELECT id FROM planned_workouts WHERE id = ?", (workout_id,)).fetchone()
@@ -524,7 +526,7 @@ def update_workout_notes(workout_id: int, body: WorkoutNotesUpdate):
 
 
 @router.get("/workouts/{workout_id}/download")
-def download_planned_workout(workout_id: int, fmt: str = "tcx"):
+def download_planned_workout(workout_id: int, fmt: str = "tcx", user: CurrentUser = Depends(require_read)):
     """Download a planned workout file.
 
     Args:

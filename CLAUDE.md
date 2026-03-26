@@ -63,4 +63,26 @@ Single-athlete cycling coaching platform. Web app that ingests ride data, comput
 - `pytest tests/test_database.py -v` — run specific test file
 
 ## Authentication
+
+### AI / Vertex AI
 Uses GCP Application Default Credentials. Run `gcloud auth application-default login` before starting.
+
+### Google Sign-In (RBAC)
+- Frontend uses `@react-oauth/google` with the Google Identity Services credential (JWT) flow
+- Backend verifies Google ID tokens via `google.oauth2.id_token.verify_oauth2_token()`
+- Roles: `none` (no access, default for new users), `read`, `readwrite`, `admin`
+- `GOOGLE_AUTH_ENABLED=false` disables auth for local dev (returns admin dev user)
+
+### Environment Variables
+| Variable | Where | Purpose |
+|----------|-------|---------|
+| `GOOGLE_CLIENT_ID` | `.env` (local), Cloud Run env var (prod) | Backend token verification |
+| `VITE_GOOGLE_CLIENT_ID` | `.env` (local), GitHub Actions secret (CI) | Frontend build-time injection |
+| `GOOGLE_AUTH_ENABLED` | `.env` (local), Cloud Run env var (prod) | Set `false` to disable auth |
+| `CORS_ALLOWED_ORIGIN` | Cloud Run env var (prod) | Production frontend URL for CORS |
+
+- The Client ID is not a secret — it's public in the JS bundle. Stored in GitHub Secrets for convenience.
+- `VITE_*` vars are inlined by Vite at build time, not read at runtime.
+- Vite's `envDir` is set to `..` (repo root) so both backend and frontend read from the same `.env`.
+- `.env` is gitignored and contains `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`.
+- Tests set `GOOGLE_AUTH_ENABLED=false` in `conftest.py` to bypass auth.

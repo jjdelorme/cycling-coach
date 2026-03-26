@@ -1,8 +1,9 @@
 """PMC (Performance Management Chart) endpoints."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Optional
 
+from server.auth import CurrentUser, require_read
 from server.database import get_db
 from server.models.schemas import PMCEntry
 
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/api/pmc", tags=["pmc"])
 def get_pmc(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
 ):
     query = "SELECT * FROM daily_metrics WHERE 1=1"
     params = []
@@ -30,7 +32,7 @@ def get_pmc(
 
 
 @router.get("/current", response_model=PMCEntry)
-def get_current_pmc():
+def get_current_pmc(user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM daily_metrics ORDER BY date DESC LIMIT 1"

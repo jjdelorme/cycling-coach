@@ -1,7 +1,31 @@
+import { getToken } from './auth'
+
 const BASE = ''
 
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  return headers
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init)
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      ...authHeaders(),
+      ...init?.headers,
+    },
+  })
+  if (res.status === 401) {
+    // Token expired or invalid — will be handled by auth context
+    throw new Error('Unauthorized — please sign in again')
+  }
+  if (res.status === 403) {
+    throw new Error('Insufficient permissions')
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `Request failed: ${res.status}`)
@@ -122,3 +146,20 @@ export const fetchSyncStatus = (id: string) => get<SyncStatus>(`/api/sync/status
 
 // Health
 export const fetchHealth = () => get<{ status: string; rides: number }>('/api/health')
+
+// Admin - User Management
+export interface UserRecord {
+  email: string
+  display_name: string | null
+  avatar_url: string | null
+  role: string
+  created_at: string | null
+  last_login: string | null
+}
+export const fetchUsers = () => get<UserRecord[]>('/api/admin/users')
+export const createUser = (email: string, role: string) =>
+  post<{ status: string }>('/api/admin/users', { email, role })
+export const updateUserRole = (email: string, role: string) =>
+  put<{ status: string }>(`/api/admin/users/${encodeURIComponent(email)}`, { role })
+export const deleteUser = (email: string) =>
+  request<{ status: string }>(`/api/admin/users/${encodeURIComponent(email)}`, { method: 'DELETE' })

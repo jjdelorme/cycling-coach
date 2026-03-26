@@ -1,9 +1,10 @@
 """Ride data endpoints."""
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
+from server.auth import CurrentUser, require_read, require_write
 from server.database import get_db
 from server.models.schemas import RideSummary, RideDetail, RideRecord, WeeklySummary, MonthlySummary
 
@@ -24,6 +25,7 @@ def list_rides(
     end_date: Optional[str] = Query(None),
     sport: Optional[str] = Query(None),
     limit: int = Query(500),
+    user: CurrentUser = Depends(require_read),
 ):
     query = "SELECT * FROM rides WHERE 1=1"
     params = []
@@ -48,6 +50,7 @@ def list_rides(
 def weekly_summary(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
 ):
     from datetime import date as dt_date
     query = """
@@ -106,6 +109,7 @@ def weekly_summary(
 def monthly_summary(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
 ):
     query = """
         SELECT
@@ -136,7 +140,7 @@ def monthly_summary(
 
 
 @router.get("/{ride_id}", response_model=RideDetail)
-def get_ride(ride_id: int):
+def get_ride(ride_id: int, user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
         ride = conn.execute("SELECT * FROM rides WHERE id = ?", (ride_id,)).fetchone()
         if not ride:
@@ -154,7 +158,7 @@ def get_ride(ride_id: int):
 
 
 @router.put("/{ride_id}/comments")
-def update_ride_comments(ride_id: int, body: RideCommentsUpdate):
+def update_ride_comments(ride_id: int, body: RideCommentsUpdate, user: CurrentUser = Depends(require_write)):
     with get_db() as conn:
         ride = conn.execute("SELECT id FROM rides WHERE id = ?", (ride_id,)).fetchone()
         if not ride:
@@ -167,7 +171,7 @@ def update_ride_comments(ride_id: int, body: RideCommentsUpdate):
 
 
 @router.put("/{ride_id}/title")
-def update_ride_title(ride_id: int, body: RideTitleUpdate):
+def update_ride_title(ride_id: int, body: RideTitleUpdate, user: CurrentUser = Depends(require_write)):
     with get_db() as conn:
         ride = conn.execute("SELECT id FROM rides WHERE id = ?", (ride_id,)).fetchone()
         if not ride:

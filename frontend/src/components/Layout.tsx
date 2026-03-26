@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { useTheme } from '../lib/theme'
 import CoachPanel from './CoachPanel'
+import UserAvatar from './UserAvatar'
 
 const tabs = [
   { key: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -19,7 +19,6 @@ interface LayoutProps {
 }
 
 export default function Layout({ activeTab, onTabChange, children }: LayoutProps) {
-  const { theme, toggle } = useTheme()
   const [coachOpen, setCoachOpen] = useState(false)
 
   return (
@@ -43,22 +42,28 @@ export default function Layout({ activeTab, onTabChange, children }: LayoutProps
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={toggle}
-            className="p-1.5 rounded-md text-text-muted hover:text-text hover:bg-surface2/50 text-sm"
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
-          <button
             onClick={() => setCoachOpen(o => !o)}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            className={`p-1.5 rounded-md text-sm transition-colors ${
               coachOpen
                 ? 'bg-accent text-white'
-                : 'bg-surface2 text-text-muted hover:text-text border border-border'
+                : 'text-text-muted hover:text-text hover:bg-surface2/50'
             }`}
+            title="Coach"
           >
-            Coach
+            💬
           </button>
+          <button
+            onClick={() => onTabChange('settings')}
+            className={`p-1.5 rounded-md text-sm transition-colors ${
+              activeTab === 'settings'
+                ? 'text-accent'
+                : 'text-text-muted hover:text-text hover:bg-surface2/50'
+            }`}
+            title="Settings"
+          >
+            ⚙️
+          </button>
+          <UserAvatar />
         </div>
       </header>
 

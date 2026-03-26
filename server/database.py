@@ -191,6 +191,15 @@ CREATE TABLE IF NOT EXISTS sync_watermarks (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    email TEXT PRIMARY KEY,
+    display_name TEXT,
+    avatar_url TEXT,
+    role TEXT NOT NULL DEFAULT 'none',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_sync_runs_status ON sync_runs(status);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);

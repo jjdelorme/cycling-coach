@@ -1,8 +1,9 @@
 """Analysis endpoints: power curve, zones, efficiency, FTP history."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Optional
 
+from server.auth import CurrentUser, require_read
 from server.database import get_db
 from server.models.schemas import PowerBestEntry
 
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 def power_curve(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
 ):
     """Best power at standard durations."""
     inner = "SELECT duration_s, MAX(power) as max_power FROM power_bests WHERE 1=1"
@@ -41,7 +43,7 @@ def power_curve(
 
 
 @router.get("/power-curve/history")
-def power_curve_history():
+def power_curve_history(user: CurrentUser = Depends(require_read)):
     """Power curve by month for tracking progression."""
     with get_db() as conn:
         rows = conn.execute("""
@@ -65,6 +67,7 @@ def power_curve_history():
 def zone_distribution(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
 ):
     """Power zone distribution from ride records."""
     query = """
@@ -122,6 +125,7 @@ def zone_distribution(
 def efficiency_factor(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
 ):
     """Efficiency Factor (NP/avgHR) over time."""
     query = """
@@ -156,7 +160,7 @@ def efficiency_factor(
 
 
 @router.get("/ftp-history")
-def ftp_history():
+def ftp_history(user: CurrentUser = Depends(require_read)):
     """FTP progression over time."""
     with get_db() as conn:
         rows = conn.execute("""
@@ -178,7 +182,7 @@ def ftp_history():
 
 
 @router.get("/route-matches")
-def route_matches(ride_id: int, threshold: float = Query(0.8)):
+def route_matches(ride_id: int, threshold: float = Query(0.8), user: CurrentUser = Depends(require_read)):
     """Find rides on similar routes using GPS start position proximity."""
     with get_db() as conn:
         target = conn.execute(
