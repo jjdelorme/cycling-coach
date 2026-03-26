@@ -7,10 +7,9 @@ const tabs = [
   { key: 'rides', label: 'Rides', icon: '🚴' },
   { key: 'calendar', label: 'Calendar', icon: '📅' },
   { key: 'analysis', label: 'Analysis', icon: '📈' },
-  { key: 'settings', label: 'Settings', icon: '⚙️' },
 ] as const
 
-export type TabKey = (typeof tabs)[number]['key']
+export type TabKey = (typeof tabs)[number]['key'] | 'settings'
 
 interface LayoutProps {
   activeTab: TabKey
