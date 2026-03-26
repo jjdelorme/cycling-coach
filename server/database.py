@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
+    "CYCLING_COACH_DATABASE_URL",
     "postgresql://postgres:dev@localhost:5432/coach",
 )
 
