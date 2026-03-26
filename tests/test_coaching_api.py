@@ -1,17 +1,14 @@
 """Tests for coaching chat API endpoint (mocked LLM)."""
 
-import os
 import pytest
 from unittest.mock import patch, AsyncMock
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "coach.db")
+from server.database import init_db
 
 
 @pytest.fixture(scope="module")
 def client():
-    os.environ["COACH_DB_PATH"] = DB_PATH
-    if not os.path.exists(DB_PATH):
-        pytest.skip("Database not found")
+    init_db()
     from fastapi.testclient import TestClient
     from server.main import app
     return TestClient(app)

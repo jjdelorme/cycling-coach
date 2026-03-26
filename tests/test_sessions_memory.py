@@ -7,240 +7,160 @@ from unittest.mock import patch, AsyncMock
 from server.database import init_db
 
 
-@pytest.fixture
-def tmp_db(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    init_db(db_path)
-    with patch("server.database.get_db_path", return_value=db_path):
-        yield db_path
+@pytest.fixture(autouse=True)
+def ensure_db():
+    init_db()
 
 
-# --- SqliteSessionService tests ---
+# --- DbSessionService tests ---
 
 @pytest.mark.asyncio
-async def test_create_and_get_session(tmp_db):
-    with patch("server.coaching.sqlite_session_service.get_db") as mock_get_db:
-        from server.database import get_connection
-        import contextlib
+async def test_create_and_get_session():
+    from server.coaching.session_service import DbSessionService
+    svc = DbSessionService()
 
-        @contextlib.contextmanager
-        def _fake_db():
-            conn = get_connection(tmp_db)
-            try:
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
+    session = await svc.create_session(
+        app_name="test", user_id="athlete", session_id="test-s1"
+    )
+    assert session.id == "test-s1"
 
-        mock_get_db.side_effect = _fake_db
+    retrieved = await svc.get_session(
+        app_name="test", user_id="athlete", session_id="test-s1"
+    )
+    assert retrieved is not None
+    assert retrieved.id == "test-s1"
 
-        from server.coaching.sqlite_session_service import SqliteSessionService
-        svc = SqliteSessionService()
-
-        session = await svc.create_session(
-            app_name="test", user_id="athlete", session_id="s1"
-        )
-        assert session.id == "s1"
-
-        retrieved = await svc.get_session(
-            app_name="test", user_id="athlete", session_id="s1"
-        )
-        assert retrieved is not None
-        assert retrieved.id == "s1"
+    # Cleanup
+    await svc.delete_session(app_name="test", user_id="athlete", session_id="test-s1")
 
 
 @pytest.mark.asyncio
-async def test_list_sessions(tmp_db):
-    with patch("server.coaching.sqlite_session_service.get_db") as mock_get_db:
-        from server.database import get_connection
-        import contextlib
+async def test_list_sessions():
+    from server.coaching.session_service import DbSessionService
+    svc = DbSessionService()
 
-        @contextlib.contextmanager
-        def _fake_db():
-            conn = get_connection(tmp_db)
-            try:
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
+    await svc.create_session(app_name="test", user_id="athlete", session_id="test-list-s1")
+    await svc.create_session(app_name="test", user_id="athlete", session_id="test-list-s2")
 
-        mock_get_db.side_effect = _fake_db
+    result = await svc.list_sessions(app_name="test", user_id="athlete")
+    session_ids = [s.id for s in result.sessions]
+    assert "test-list-s1" in session_ids
+    assert "test-list-s2" in session_ids
 
-        from server.coaching.sqlite_session_service import SqliteSessionService
-        svc = SqliteSessionService()
-
-        await svc.create_session(app_name="test", user_id="athlete", session_id="s1")
-        await svc.create_session(app_name="test", user_id="athlete", session_id="s2")
-
-        result = await svc.list_sessions(app_name="test", user_id="athlete")
-        assert len(result.sessions) == 2
+    # Cleanup
+    await svc.delete_session(app_name="test", user_id="athlete", session_id="test-list-s1")
+    await svc.delete_session(app_name="test", user_id="athlete", session_id="test-list-s2")
 
 
 @pytest.mark.asyncio
-async def test_delete_session(tmp_db):
-    with patch("server.coaching.sqlite_session_service.get_db") as mock_get_db:
-        from server.database import get_connection
-        import contextlib
+async def test_delete_session():
+    from server.coaching.session_service import DbSessionService
+    svc = DbSessionService()
 
-        @contextlib.contextmanager
-        def _fake_db():
-            conn = get_connection(tmp_db)
-            try:
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
+    await svc.create_session(app_name="test", user_id="athlete", session_id="test-del-s1")
+    await svc.delete_session(app_name="test", user_id="athlete", session_id="test-del-s1")
 
-        mock_get_db.side_effect = _fake_db
-
-        from server.coaching.sqlite_session_service import SqliteSessionService
-        svc = SqliteSessionService()
-
-        await svc.create_session(app_name="test", user_id="athlete", session_id="s1")
-        await svc.delete_session(app_name="test", user_id="athlete", session_id="s1")
-
-        result = await svc.get_session(app_name="test", user_id="athlete", session_id="s1")
-        assert result is None
+    result = await svc.get_session(app_name="test", user_id="athlete", session_id="test-del-s1")
+    assert result is None
 
 
-# --- SqliteMemoryService tests ---
+# --- DbMemoryService tests ---
 
 @pytest.mark.asyncio
-async def test_memory_add_and_search(tmp_db):
-    with patch("server.coaching.sqlite_memory_service.get_db") as mock_get_db:
-        from server.database import get_connection
-        import contextlib
+async def test_memory_add_and_search():
+    from server.coaching.memory_service import DbMemoryService
+    from google.adk.sessions import Session
+    from google.adk.events import Event
+    from google.genai import types
 
-        @contextlib.contextmanager
-        def _fake_db():
-            conn = get_connection(tmp_db)
-            try:
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
+    svc = DbMemoryService()
 
-        mock_get_db.side_effect = _fake_db
-
-        from server.coaching.sqlite_memory_service import SqliteMemoryService
-        from google.adk.sessions import Session
-        from google.adk.events import Event
-        from google.genai import types
-
-        svc = SqliteMemoryService()
-
-        # Create a session with events
-        session = Session(
-            app_name="test",
-            user_id="athlete",
-            id="s1",
-            state={},
-            events=[
-                Event(
-                    author="user",
-                    content=types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(text="What is my FTP trend?")],
-                    ),
+    # Create a session with events
+    session = Session(
+        app_name="test",
+        user_id="test-mem-athlete",
+        id="test-mem-s1",
+        state={},
+        events=[
+            Event(
+                author="user",
+                content=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text="What is my FTP trend?")],
                 ),
-                Event(
-                    author="cycling_coach",
-                    content=types.Content(
-                        role="model",
-                        parts=[types.Part.from_text(text="Your FTP has been climbing steadily to 261w.")],
-                    ),
+            ),
+            Event(
+                author="cycling_coach",
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text="Your FTP has been climbing steadily to 261w.")],
                 ),
-            ],
-        )
+            ),
+        ],
+    )
 
-        await svc.add_session_to_memory(session)
+    await svc.add_session_to_memory(session)
 
-        # Search should find FTP-related memories
-        result = await svc.search_memory(app_name="test", user_id="athlete", query="FTP")
-        assert len(result.memories) >= 1
+    # Search should find FTP-related memories
+    result = await svc.search_memory(app_name="test", user_id="test-mem-athlete", query="FTP")
+    assert len(result.memories) >= 1
 
-        # Search for unrelated term should return less
-        result2 = await svc.search_memory(app_name="test", user_id="athlete", query="swimming")
-        ftp_count = len([m for m in result2.memories if "FTP" in (m.content.parts[0].text if m.content.parts else "")])
-        # "swimming" shouldn't match FTP memories
-        assert ftp_count == 0
+    # Search for unrelated term should return less
+    result2 = await svc.search_memory(app_name="test", user_id="test-mem-athlete", query="swimming")
+    ftp_count = len([m for m in result2.memories if "FTP" in (m.content.parts[0].text if m.content.parts else "")])
+    assert ftp_count == 0
+
+    # Cleanup
+    from server.database import get_db
+    with get_db() as conn:
+        conn.execute("DELETE FROM coach_memory WHERE user_id = 'test-mem-athlete'")
 
 
 @pytest.mark.asyncio
-async def test_memory_deduplication(tmp_db):
-    with patch("server.coaching.sqlite_memory_service.get_db") as mock_get_db:
-        from server.database import get_connection
-        import contextlib
+async def test_memory_deduplication():
+    from server.coaching.memory_service import DbMemoryService
+    from google.adk.sessions import Session
+    from google.adk.events import Event
+    from google.genai import types
 
-        @contextlib.contextmanager
-        def _fake_db():
-            conn = get_connection(tmp_db)
-            try:
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
+    svc = DbMemoryService()
 
-        mock_get_db.side_effect = _fake_db
-
-        from server.coaching.sqlite_memory_service import SqliteMemoryService
-        from google.adk.sessions import Session
-        from google.adk.events import Event
-        from google.genai import types
-
-        svc = SqliteMemoryService()
-
-        session = Session(
-            app_name="test",
-            user_id="athlete",
-            id="s1",
-            state={},
-            events=[
-                Event(
-                    author="user",
-                    content=types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(text="How is my CTL?")],
-                    ),
+    session = Session(
+        app_name="test",
+        user_id="test-dedup-athlete",
+        id="test-dedup-s1",
+        state={},
+        events=[
+            Event(
+                author="user",
+                content=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text="How is my CTL?")],
                 ),
-            ],
-        )
+            ),
+        ],
+    )
 
-        # Add same session twice
-        await svc.add_session_to_memory(session)
-        await svc.add_session_to_memory(session)
+    # Add same session twice
+    await svc.add_session_to_memory(session)
+    await svc.add_session_to_memory(session)
 
-        result = await svc.search_memory(app_name="test", user_id="athlete", query="CTL")
-        assert len(result.memories) == 1
+    result = await svc.search_memory(app_name="test", user_id="test-dedup-athlete", query="CTL")
+    assert len(result.memories) == 1
+
+    # Cleanup
+    from server.database import get_db
+    with get_db() as conn:
+        conn.execute("DELETE FROM coach_memory WHERE user_id = 'test-dedup-athlete'")
 
 
 # --- API endpoint tests ---
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "coach.db")
-
-
 @pytest.fixture(scope="module")
 def client():
-    os.environ["COACH_DB_PATH"] = DB_PATH
-    if not os.path.exists(DB_PATH):
-        pytest.skip("Database not found")
     from fastapi.testclient import TestClient
     from server.main import app
+    init_db()
     return TestClient(app)
 
 

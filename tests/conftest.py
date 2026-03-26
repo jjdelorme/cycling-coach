@@ -1,23 +1,16 @@
 """Shared test fixtures."""
 
 import os
-import tempfile
 import pytest
 from server.database import init_db, get_db
 
 
 @pytest.fixture
-def tmp_db():
-    """Create a temporary database for testing."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
-    init_db(db_path)
-    yield db_path
-    os.unlink(db_path)
+def db_conn():
+    """Provide a database connection for testing.
 
-
-@pytest.fixture
-def db_conn(tmp_db):
-    """Provide a database connection for testing."""
-    with get_db(tmp_db) as conn:
+    Requires DATABASE_URL to be set (local Postgres via podman-compose).
+    """
+    init_db()
+    with get_db() as conn:
         yield conn

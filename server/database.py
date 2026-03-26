@@ -1,209 +1,24 @@
-"""Database setup and connection management supporting SQLite and PostgreSQL."""
+"""Database setup and connection management for PostgreSQL."""
 
 import os
 import re
-import sqlite3
+import psycopg2
+import psycopg2.extras
 from contextlib import contextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-DB_PATH = os.environ.get("COACH_DB_PATH", os.path.join(os.path.dirname(__file__), "..", "data", "coach.db"))
-
-_backend = "postgres" if DATABASE_URL.startswith("postgres") else "sqlite"
-
-
-def _get_backend():
-    return _backend
-
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:dev@localhost:5432/coach",
+)
 
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
 
-_SCHEMA_SQLITE = """
-CREATE TABLE IF NOT EXISTS rides (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    filename TEXT UNIQUE NOT NULL,
-    sport TEXT,
-    sub_sport TEXT,
-    duration_s REAL,
-    distance_m REAL,
-    avg_power INTEGER,
-    normalized_power INTEGER,
-    max_power INTEGER,
-    avg_hr INTEGER,
-    max_hr INTEGER,
-    avg_cadence INTEGER,
-    total_ascent INTEGER,
-    total_descent INTEGER,
-    total_calories INTEGER,
-    tss REAL,
-    intensity_factor REAL,
-    ftp INTEGER,
-    total_work_kj REAL,
-    training_effect REAL,
-    variability_index REAL,
-    best_1min_power INTEGER,
-    best_5min_power INTEGER,
-    best_20min_power INTEGER,
-    best_60min_power INTEGER,
-    weight REAL,
-    start_lat REAL,
-    start_lon REAL,
-    post_ride_comments TEXT,
-    coach_comments TEXT
-);
-
-CREATE TABLE IF NOT EXISTS ride_records (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ride_id INTEGER NOT NULL,
-    timestamp_utc TEXT,
-    power INTEGER,
-    heart_rate INTEGER,
-    cadence INTEGER,
-    speed REAL,
-    altitude REAL,
-    distance REAL,
-    lat REAL,
-    lon REAL,
-    temperature REAL,
-    FOREIGN KEY (ride_id) REFERENCES rides(id)
-);
-
-CREATE TABLE IF NOT EXISTS planned_workouts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    name TEXT,
-    sport TEXT,
-    total_duration_s REAL,
-    planned_tss REAL,
-    workout_xml TEXT,
-    coach_notes TEXT,
-    athlete_notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS daily_metrics (
-    date TEXT PRIMARY KEY,
-    total_tss REAL,
-    ctl REAL,
-    atl REAL,
-    tsb REAL,
-    weight REAL,
-    notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS athlete_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    type TEXT NOT NULL,
-    value REAL,
-    note TEXT
-);
-
-CREATE TABLE IF NOT EXISTS power_bests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ride_id INTEGER NOT NULL,
-    date TEXT NOT NULL,
-    duration_s INTEGER NOT NULL,
-    power REAL NOT NULL,
-    FOREIGN KEY (ride_id) REFERENCES rides(id)
-);
-
-CREATE TABLE IF NOT EXISTS periodization_phases (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    start_date TEXT NOT NULL,
-    end_date TEXT NOT NULL,
-    focus TEXT,
-    hours_per_week_low REAL,
-    hours_per_week_high REAL,
-    tss_target_low REAL,
-    tss_target_high REAL
-);
-
-CREATE INDEX IF NOT EXISTS idx_rides_date ON rides(date);
-CREATE INDEX IF NOT EXISTS idx_ride_records_ride_id ON ride_records(ride_id);
-CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date);
-CREATE INDEX IF NOT EXISTS idx_power_bests_date ON power_bests(date);
-CREATE INDEX IF NOT EXISTS idx_power_bests_duration ON power_bests(duration_s);
-
-CREATE TABLE IF NOT EXISTS chat_sessions (
-    session_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL DEFAULT 'athlete',
-    title TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS chat_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    author TEXT,
-    role TEXT,
-    content_text TEXT,
-    timestamp TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
-);
-
-CREATE TABLE IF NOT EXISTS coach_memory (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL DEFAULT 'athlete',
-    author TEXT,
-    content_text TEXT NOT NULL,
-    timestamp TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS coach_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS athlete_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS workout_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    category TEXT DEFAULT 'general',
-    steps TEXT NOT NULL,
-    source TEXT DEFAULT 'built-in',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS sync_runs (
-    id TEXT PRIMARY KEY,
-    status TEXT NOT NULL DEFAULT 'pending',
-    started_at TEXT,
-    completed_at TEXT,
-    rides_downloaded INTEGER DEFAULT 0,
-    rides_skipped INTEGER DEFAULT 0,
-    workouts_uploaded INTEGER DEFAULT 0,
-    workouts_skipped INTEGER DEFAULT 0,
-    errors TEXT,
-    log TEXT
-);
-
-CREATE TABLE IF NOT EXISTS sync_watermarks (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_sync_runs_status ON sync_runs(status);
-CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at);
-CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
-CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
-"""
-
-_SCHEMA_POSTGRES = """
+_SCHEMA = """
 CREATE TABLE IF NOT EXISTS rides (
     id SERIAL PRIMARY KEY,
     date TEXT NOT NULL,
@@ -235,7 +50,9 @@ CREATE TABLE IF NOT EXISTS rides (
     start_lat REAL,
     start_lon REAL,
     post_ride_comments TEXT,
-    coach_comments TEXT
+    coach_comments TEXT,
+    title TEXT,
+    start_time TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ride_records (
@@ -382,54 +199,36 @@ CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
 """
 
 # ---------------------------------------------------------------------------
-# Connection wrapper for SQLite/Postgres compatibility
+# Connection wrapper
 # ---------------------------------------------------------------------------
-
-# Regex to convert :named params to %(named)s for psycopg2
-_NAMED_PARAM_RE = re.compile(r":([a-zA-Z_]\w*)")
-
-
-def _adapt_sql(sql, backend):
-    """Convert SQL from SQLite dialect to the target backend."""
-    if backend == "sqlite":
-        return sql
-    # Convert ? positional params to %s
-    sql = sql.replace("?", "%s")
-    # Convert :name named params to %(name)s
-    sql = _NAMED_PARAM_RE.sub(r"%(\1)s", sql)
-    return sql
 
 
 class _DbConnection:
-    """Thin wrapper providing a unified interface for SQLite and PostgreSQL."""
+    """Wrapper providing a dict-cursor interface over psycopg2."""
 
-    def __init__(self, conn, backend):
+    def __init__(self, conn):
         self._conn = conn
-        self._backend = backend
-        if backend == "postgres":
-            import psycopg2.extras
-            self._cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        else:
-            self._cursor = None
+        self._cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    @staticmethod
+    def _adapt_sql(sql):
+        """Convert SQLite-style placeholders to psycopg2 format."""
+        # Convert ? positional params to %s
+        sql = sql.replace("?", "%s")
+        # Convert :name named params to %(name)s
+        sql = re.sub(r":([a-zA-Z_]\w*)", r"%(\1)s", sql)
+        return sql
 
     def execute(self, sql, params=None):
-        sql = _adapt_sql(sql, self._backend)
-        if self._backend == "postgres":
-            self._cursor.execute(sql, params)
-            return self._cursor
-        else:
-            if params is None:
-                return self._conn.execute(sql)
-            return self._conn.execute(sql, params)
+        sql = self._adapt_sql(sql)
+        self._cursor.execute(sql, params)
+        return self._cursor
 
     def executemany(self, sql, params_list):
-        sql = _adapt_sql(sql, self._backend)
-        if self._backend == "postgres":
-            for params in params_list:
-                self._cursor.execute(sql, params)
-            return self._cursor
-        else:
-            return self._conn.executemany(sql, params_list)
+        sql = self._adapt_sql(sql)
+        for params in params_list:
+            self._cursor.execute(sql, params)
+        return self._cursor
 
     def commit(self):
         self._conn.commit()
@@ -438,8 +237,7 @@ class _DbConnection:
         self._conn.rollback()
 
     def close(self):
-        if self._cursor:
-            self._cursor.close()
+        self._cursor.close()
         self._conn.close()
 
 
@@ -509,26 +307,19 @@ SETTINGS_DEFAULTS = {
 def get_setting(key: str) -> str:
     """Get a coach setting value, returning the default if not set."""
     with get_db() as conn:
-        row = conn.execute("SELECT value FROM coach_settings WHERE key = ?", (key,)).fetchone()
+        row = conn.execute("SELECT value FROM coach_settings WHERE key = %s", (key,)).fetchone()
     if row:
-        return row["value"] if isinstance(row, dict) else row[0]
+        return row["value"]
     return SETTINGS_DEFAULTS.get(key, "")
 
 
 def set_setting(key: str, value: str):
     """Set a coach setting value."""
-    if _backend == "postgres":
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO coach_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                (key, value),
-            )
-    else:
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO coach_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, value),
-            )
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO coach_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (key, value),
+        )
 
 
 def get_all_settings() -> dict:
@@ -537,10 +328,7 @@ def get_all_settings() -> dict:
     with get_db() as conn:
         rows = conn.execute("SELECT key, value FROM coach_settings").fetchall()
     for row in rows:
-        if isinstance(row, dict):
-            result[row["key"]] = row["value"]
-        else:
-            result[row[0]] = row[1]
+        result[row["key"]] = row["value"]
     return result
 
 
@@ -562,26 +350,19 @@ ATHLETE_SETTINGS_DEFAULTS = {
 def get_athlete_setting(key: str) -> str:
     """Get an athlete setting value, returning the default if not set."""
     with get_db() as conn:
-        row = conn.execute("SELECT value FROM athlete_settings WHERE key = ?", (key,)).fetchone()
+        row = conn.execute("SELECT value FROM athlete_settings WHERE key = %s", (key,)).fetchone()
     if row:
-        return row["value"] if isinstance(row, dict) else row[0]
+        return row["value"]
     return ATHLETE_SETTINGS_DEFAULTS.get(key, "")
 
 
 def set_athlete_setting(key: str, value: str):
     """Set an athlete setting value."""
-    if _backend == "postgres":
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO athlete_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                (key, value),
-            )
-    else:
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO athlete_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, value),
-            )
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO athlete_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (key, value),
+        )
 
 
 def get_all_athlete_settings() -> dict:
@@ -590,10 +371,7 @@ def get_all_athlete_settings() -> dict:
     with get_db() as conn:
         rows = conn.execute("SELECT key, value FROM athlete_settings").fetchall()
     for row in rows:
-        if isinstance(row, dict):
-            result[row["key"]] = row["value"]
-        else:
-            result[row[0]] = row[1]
+        result[row["key"]] = row["value"]
     return result
 
 
@@ -601,127 +379,27 @@ def get_all_athlete_settings() -> dict:
 # Connection management
 # ---------------------------------------------------------------------------
 
-def get_db_path():
-    return os.path.abspath(DB_PATH)
+
+def _get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 
-def _get_postgres_conn():
-    import psycopg2
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
-
-
-def init_db(db_path=None):
-    if _backend == "postgres":
-        conn = _get_postgres_conn()
-        cur = conn.cursor()
-        # Execute each statement individually for postgres
-        for stmt in _SCHEMA_POSTGRES.split(";"):
-            stmt = stmt.strip()
-            if stmt:
-                cur.execute(stmt)
-        conn.commit()
-        _migrate_postgres(conn)
-        _seed_workout_templates_pg(conn)
-        cur.close()
-        conn.close()
-        return DATABASE_URL
-    else:
-        path = db_path or get_db_path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        conn = sqlite3.connect(path)
-        conn.executescript(_SCHEMA_SQLITE)
-        conn.commit()
-        _migrate_sqlite(conn)
-        _seed_workout_templates(conn)
-        conn.close()
-        return path
-
-
-def _migrate_postgres(conn):
-    """Add columns to existing Postgres tables if they don't exist yet."""
+def init_db():
+    """Initialize database schema and seed data."""
+    conn = _get_connection()
     cur = conn.cursor()
-    for table, col, col_type in [
-        ("rides", "post_ride_comments", "TEXT"),
-        ("rides", "coach_comments", "TEXT"),
-        ("rides", "title", "TEXT"),
-        ("rides", "start_time", "TEXT"),  # Full ISO timestamp of ride start
-        ("planned_workouts", "planned_tss", "REAL"),
-        ("planned_workouts", "coach_notes", "TEXT"),
-        ("planned_workouts", "athlete_notes", "TEXT"),
-    ]:
-        cur.execute(
-            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"
-        )
-    # Rename ride_records.timestamp -> timestamp_utc if needed
-    cur.execute("""
-        DO $$ BEGIN
-            ALTER TABLE ride_records RENAME COLUMN timestamp TO timestamp_utc;
-        EXCEPTION WHEN undefined_column THEN NULL;
-        END $$;
-    """)
+    for stmt in _SCHEMA.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            cur.execute(stmt)
     conn.commit()
+    _seed_workout_templates(conn)
     cur.close()
-
-
-def _migrate_sqlite(conn):
-    """Add columns to existing SQLite tables if they don't exist yet."""
-    ride_cols = {row[1] for row in conn.execute("PRAGMA table_info(rides)").fetchall()}
-    for col in ("post_ride_comments", "coach_comments", "title", "start_time"):
-        if col not in ride_cols:
-            conn.execute(f"ALTER TABLE rides ADD COLUMN {col} TEXT")
-    # One-time backfill of start_time and GPS from ride_records
-    needs_backfill = conn.execute(
-        "SELECT COUNT(*) FROM rides WHERE start_time IS NULL AND EXISTS "
-        "(SELECT 1 FROM ride_records WHERE ride_records.ride_id = rides.id AND timestamp_utc IS NOT NULL)"
-    ).fetchone()
-    if (needs_backfill[0] if isinstance(needs_backfill, (tuple, list)) else needs_backfill["COUNT(*)"]) > 0:
-        conn.execute("""
-            UPDATE rides SET start_time = (
-                SELECT timestamp_utc FROM ride_records
-                WHERE ride_records.ride_id = rides.id AND timestamp_utc IS NOT NULL
-                ORDER BY id LIMIT 1
-            ) WHERE start_time IS NULL
-        """)
-        conn.execute("""
-            UPDATE rides SET
-                start_lat = (SELECT lat FROM ride_records WHERE ride_records.ride_id = rides.id AND lat IS NOT NULL ORDER BY id LIMIT 1),
-                start_lon = (SELECT lon FROM ride_records WHERE ride_records.ride_id = rides.id AND lon IS NOT NULL ORDER BY id LIMIT 1)
-            WHERE start_lat IS NULL AND EXISTS (
-                SELECT 1 FROM ride_records WHERE ride_records.ride_id = rides.id AND lat IS NOT NULL
-            )
-        """)
-    # Rename ride_records.timestamp -> timestamp_utc if needed
-    record_cols = {row[1] for row in conn.execute("PRAGMA table_info(ride_records)").fetchall()}
-    if "timestamp" in record_cols and "timestamp_utc" not in record_cols:
-        conn.execute("ALTER TABLE ride_records RENAME COLUMN timestamp TO timestamp_utc")
-    workout_cols = {row[1] for row in conn.execute("PRAGMA table_info(planned_workouts)").fetchall()}
-    if "planned_tss" not in workout_cols:
-        conn.execute("ALTER TABLE planned_workouts ADD COLUMN planned_tss REAL")
-    for col in ("coach_notes", "athlete_notes"):
-        if col not in workout_cols:
-            conn.execute(f"ALTER TABLE planned_workouts ADD COLUMN {col} TEXT")
-    conn.commit()
+    conn.close()
 
 
 def _seed_workout_templates(conn):
     """Seed built-in workout templates if the table is empty."""
-    import json
-    count = conn.execute("SELECT COUNT(*) as cnt FROM workout_templates").fetchone()[0]
-    if count > 0:
-        return
-
-    templates = _get_seed_templates()
-    for t in templates:
-        conn.execute(
-            "INSERT INTO workout_templates (key, name, description, category, steps, source) VALUES (?, ?, ?, ?, ?, ?)",
-            (t["key"], t["name"], t["description"], t["category"], json.dumps(t["steps"]), "built-in"),
-        )
-    conn.commit()
-
-
-def _seed_workout_templates_pg(conn):
-    """Seed built-in workout templates for postgres."""
     import json
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM workout_templates")
@@ -823,21 +501,13 @@ def _get_seed_templates():
     ]
 
 
-def get_connection(db_path=None):
-    if _backend == "postgres":
-        return _DbConnection(_get_postgres_conn(), "postgres")
-    else:
-        path = db_path or get_db_path()
-        conn = sqlite3.connect(path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return _DbConnection(conn, "sqlite")
+def get_connection():
+    return _DbConnection(_get_connection())
 
 
 @contextmanager
-def get_db(db_path=None):
-    conn = get_connection(db_path)
+def get_db():
+    conn = get_connection()
     try:
         yield conn
         conn.commit()

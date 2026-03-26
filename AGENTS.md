@@ -4,7 +4,7 @@
 
 A web-based cycling coaching platform for a single athlete (50yo male, targeting Big Sky Biggie in late August 2026). It ingests ride data from Garmin/TrainingPeaks, computes training metrics, and provides AI-powered coaching insights via an LLM abstraction layer.
 
-Raw training data (FIT files, ride JSON, planned workouts) lives in GCS at `gs://jasondel-coach-data`. The app ingests from there into a local SQLite database. The build plan is at `plans/coaching-platform-build-plan.md`.
+Raw training data (FIT files, ride JSON, planned workouts) lives in GCS at `gs://jasondel-coach-data`. The app ingests from there into PostgreSQL. The build plan is at `plans/coaching-platform-build-plan.md`.
 
 ## Glossary
 

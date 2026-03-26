@@ -4,11 +4,12 @@
 Single-athlete cycling coaching platform. Web app that ingests ride data, computes training metrics, and provides AI coaching insights. Target: Big Sky Biggie (late August 2026, ~50mi MTB, ~6000ft climbing).
 
 ## Tech Stack
-- **Backend**: Python 3.11+ / FastAPI / SQLite
+- **Backend**: Python 3.11+ / FastAPI / PostgreSQL (psycopg2)
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS + Chart.js
 - **AI Coaching**: Google ADK with Gemini via Vertex AI (Application Default Credentials)
 - **Testing**: pytest
 - **Package management**: pip + requirements.txt
+- **Containers**: Podman (not Docker) — use `podman` and `podman-compose` commands
 
 ## Athlete Profile
 - 50yo male, ~163 lbs (goal: 160 race weight), 5'10"
@@ -37,7 +38,8 @@ Single-athlete cycling coaching platform. Web app that ingests ride data, comput
 
 ## Data Sources
 - Raw data in GCS: `gs://jasondel-coach-data` (fit/, json/, planned_workouts/)
-- Local SQLite DB is always rebuildable from GCS JSON files
+- PostgreSQL DB is always rebuildable from GCS JSON files
+- Local dev uses Podman-managed Postgres (`podman-compose up -d`)
 - Ride JSON files have: session, sport, user_profile, record (per-second data)
 
 ## Project Structure
@@ -50,9 +52,10 @@ Single-athlete cycling coaching platform. Web app that ingests ride data, comput
 - `plans/` — Build plans
 
 ## Commands
+- `podman-compose up -d` — start local Postgres
 - `pip install -r requirements.txt` — install backend deps
 - `cd frontend && npm install` — install frontend deps
-- `python -m server.ingest` — ingest data from JSON files into SQLite
+- `python -m server.ingest` — ingest data from JSON files into Postgres
 - `uvicorn server.main:app --reload` — run backend dev server
 - `cd frontend && npm run dev` — run frontend dev server (Vite)
 - `cd frontend && npm run build` — production frontend build

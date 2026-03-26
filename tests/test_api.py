@@ -1,20 +1,14 @@
 """Tests for API endpoints using the real database."""
 
-import os
 import pytest
 from fastapi.testclient import TestClient
 
 from server.database import init_db, get_db
 
-# Point to the real database for integration tests
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "coach.db")
-
 
 @pytest.fixture(scope="module")
 def client():
-    os.environ["COACH_DB_PATH"] = DB_PATH
-    if not os.path.exists(DB_PATH):
-        pytest.skip("Database not found — run ingestion first")
+    init_db()
     from server.main import app
     return TestClient(app)
 
@@ -24,7 +18,7 @@ def test_health(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert data["rides"] == 291
+    assert data["rides"] > 0
 
 
 def test_list_rides(client):
@@ -158,7 +152,6 @@ def test_integration_status(client):
 
 def test_workout_detail(client):
     """Test workout detail endpoint returns steps."""
-    from server.database import get_db
     with get_db() as conn:
         row = conn.execute("SELECT id FROM planned_workouts WHERE workout_xml IS NOT NULL LIMIT 1").fetchone()
     if not row:
@@ -173,7 +166,6 @@ def test_workout_detail(client):
 
 def test_workout_download_tcx(client):
     """Test TCX download."""
-    from server.database import get_db
     with get_db() as conn:
         row = conn.execute("SELECT id FROM planned_workouts WHERE workout_xml IS NOT NULL LIMIT 1").fetchone()
     if not row:

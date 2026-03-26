@@ -1,4 +1,4 @@
-"""SQLite-backed session service for persistent chat history."""
+"""Database-backed session service for persistent chat history."""
 
 import uuid
 from datetime import datetime, timezone
@@ -12,8 +12,8 @@ from google.genai import types
 from server.database import get_db
 
 
-class SqliteSessionService(BaseSessionService):
-    """Persists chat sessions and events to SQLite."""
+class DbSessionService(BaseSessionService):
+    """Persists chat sessions and events to PostgreSQL."""
 
     async def create_session(
         self,
@@ -28,7 +28,7 @@ class SqliteSessionService(BaseSessionService):
 
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO chat_sessions (session_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (session_id) DO NOTHING",
+                "INSERT INTO chat_sessions (session_id, user_id, title, created_at, updated_at) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (session_id) DO NOTHING",
                 (sid, user_id, "New conversation", now, now),
             )
 
@@ -50,14 +50,14 @@ class SqliteSessionService(BaseSessionService):
     ) -> Optional[Session]:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT * FROM chat_sessions WHERE session_id = ?", (session_id,)
+                "SELECT * FROM chat_sessions WHERE session_id = %s", (session_id,)
             ).fetchone()
 
             if not row:
                 return None
 
             events_rows = conn.execute(
-                "SELECT * FROM chat_events WHERE session_id = ? ORDER BY id",
+                "SELECT * FROM chat_events WHERE session_id = %s ORDER BY id",
                 (session_id,),
             ).fetchall()
 
@@ -86,7 +86,7 @@ class SqliteSessionService(BaseSessionService):
         with get_db() as conn:
             if user_id:
                 rows = conn.execute(
-                    "SELECT * FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC",
+                    "SELECT * FROM chat_sessions WHERE user_id = %s ORDER BY updated_at DESC",
                     (user_id,),
                 ).fetchall()
             else:
@@ -110,8 +110,8 @@ class SqliteSessionService(BaseSessionService):
         self, *, app_name: str, user_id: str, session_id: str
     ) -> None:
         with get_db() as conn:
-            conn.execute("DELETE FROM chat_events WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM chat_sessions WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM chat_events WHERE session_id = %s", (session_id,))
+            conn.execute("DELETE FROM chat_sessions WHERE session_id = %s", (session_id,))
 
     async def append_event(self, session: Session, event: Event) -> Event:
         event = await super().append_event(session, event)
@@ -126,18 +126,18 @@ class SqliteSessionService(BaseSessionService):
 
                 with get_db() as conn:
                     conn.execute(
-                        "INSERT INTO chat_events (session_id, author, role, content_text, timestamp) VALUES (?, ?, ?, ?, ?)",
+                        "INSERT INTO chat_events (session_id, author, role, content_text, timestamp) VALUES (%s, %s, %s, %s, %s)",
                         (session.id, event.author, role, content_text, now),
                     )
                     # Update session title from first user message if still default
                     if role == "user":
                         conn.execute(
-                            "UPDATE chat_sessions SET updated_at = ?, title = CASE WHEN title = 'New conversation' THEN ? ELSE title END WHERE session_id = ?",
+                            "UPDATE chat_sessions SET updated_at = %s, title = CASE WHEN title = 'New conversation' THEN %s ELSE title END WHERE session_id = %s",
                             (now, content_text[:80], session.id),
                         )
                     else:
                         conn.execute(
-                            "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ?",
+                            "UPDATE chat_sessions SET updated_at = %s WHERE session_id = %s",
                             (now, session.id),
                         )
 

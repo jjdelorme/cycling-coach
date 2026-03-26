@@ -1,18 +1,13 @@
 """Tests for planning tools."""
 
-import os
 import pytest
 
 from server.database import init_db, get_db
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "coach.db")
-
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    if not os.path.exists(DB_PATH):
-        pytest.skip("Database not found")
-    os.environ["COACH_DB_PATH"] = DB_PATH
+    init_db()
 
 
 def test_generate_weekly_plan():
@@ -87,7 +82,7 @@ def test_adjust_phase():
     # Restore original
     with get_db() as conn:
         conn.execute(
-            "UPDATE periodization_phases SET end_date = ? WHERE name = 'Base Rebuild'",
+            "UPDATE periodization_phases SET end_date = %s WHERE name = 'Base Rebuild'",
             (original_end,),
         )
 

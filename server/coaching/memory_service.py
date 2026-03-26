@@ -1,4 +1,4 @@
-"""SQLite-backed memory service for persistent coach memory."""
+"""Database-backed memory service for persistent coach memory."""
 
 import re
 from datetime import datetime, timezone
@@ -16,8 +16,8 @@ def _extract_words_lower(text: str) -> set[str]:
     return set(word.lower() for word in re.findall(r'[A-Za-z]+', text))
 
 
-class SqliteMemoryService(BaseMemoryService):
-    """Persists conversation memory to SQLite with keyword-based search."""
+class DbMemoryService(BaseMemoryService):
+    """Persists conversation memory to PostgreSQL with keyword-based search."""
 
     async def add_session_to_memory(self, session: Session) -> None:
         if not session.events:
@@ -37,14 +37,14 @@ class SqliteMemoryService(BaseMemoryService):
 
                 # Avoid duplicates: check if this exact text already exists for this session
                 existing = conn.execute(
-                    "SELECT id FROM coach_memory WHERE user_id = ? AND author = ? AND content_text = ?",
+                    "SELECT id FROM coach_memory WHERE user_id = %s AND author = %s AND content_text = %s",
                     (session.user_id, author, content_text),
                 ).fetchone()
                 if existing:
                     continue
 
                 conn.execute(
-                    "INSERT INTO coach_memory (user_id, author, content_text, timestamp) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO coach_memory (user_id, author, content_text, timestamp) VALUES (%s, %s, %s, %s)",
                     (session.user_id, author, content_text, now),
                 )
 
@@ -53,7 +53,7 @@ class SqliteMemoryService(BaseMemoryService):
     ) -> SearchMemoryResponse:
         with get_db() as conn:
             rows = conn.execute(
-                "SELECT * FROM coach_memory WHERE user_id = ? ORDER BY id DESC LIMIT 500",
+                "SELECT * FROM coach_memory WHERE user_id = %s ORDER BY id DESC LIMIT 500",
                 (user_id,),
             ).fetchall()
 

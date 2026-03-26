@@ -6,8 +6,8 @@ from google.adk.tools.preload_memory_tool import preload_memory_tool
 from google.genai import types
 
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION
-from server.coaching.sqlite_session_service import SqliteSessionService
-from server.coaching.sqlite_memory_service import SqliteMemoryService
+from server.coaching.session_service import DbSessionService
+from server.coaching.memory_service import DbMemoryService
 from server.coaching.tools import (
     get_pmc_metrics,
     get_recent_rides,
@@ -94,8 +94,8 @@ def _get_agent():
 def get_runner():
     global _session_service, _runner, _memory_service
     if _runner is None:
-        _session_service = SqliteSessionService()
-        _memory_service = SqliteMemoryService()
+        _session_service = DbSessionService()
+        _memory_service = DbMemoryService()
         _runner = Runner(
             agent=_get_agent(),
             app_name=APP_NAME,

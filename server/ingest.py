@@ -1,4 +1,4 @@
-"""Data ingestion: reads ride JSON files and ZWO workouts into SQLite."""
+"""Data ingestion: reads ride JSON files and ZWO workouts into PostgreSQL."""
 
 import json
 import os
@@ -414,12 +414,12 @@ def ingest_workouts(conn, workouts_dir=None):
     return ingested
 
 
-def run_ingestion(db_path=None):
+def run_ingestion():
     """Full ingestion pipeline."""
-    path = init_db(db_path)
-    print(f"Database: {path}")
+    init_db()
+    print(f"Database: {os.environ.get('DATABASE_URL', 'localhost')}")
 
-    with get_db(db_path) as conn:
+    with get_db() as conn:
         print("Ingesting rides...")
         ride_count = ingest_rides(conn)
         print(f"  Ingested {ride_count} new rides")

@@ -1,16 +1,13 @@
 """Tests for coaching agent tools."""
 
-import os
 import pytest
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "coach.db")
+from server.database import init_db
 
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    if not os.path.exists(DB_PATH):
-        pytest.skip("Database not found")
-    os.environ["COACH_DB_PATH"] = DB_PATH
+    init_db()
 
 
 def test_get_pmc_metrics():
