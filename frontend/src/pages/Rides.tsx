@@ -938,8 +938,6 @@ function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
 
   const { chartData, stepIndexMap: woStepMap } = useMemo(() => {
     const labels: string[] = []
-    const powers: number[] = []
-    const bgColors: string[] = []
     const stepMap: number[] = []
     const SAMPLE = 5
     for (let si = 0; si < workout.steps.length; si++) {
@@ -947,26 +945,26 @@ function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
       const endS = step.start_s + step.duration_s
       for (let t = step.start_s; t < endS; t += SAMPLE) {
         labels.push(fmtTime(t))
-        powers.push(step.power_watts)
-        bgColors.push(zoneColor(step.power_pct, 0.35))
         stepMap.push(si)
       }
     }
+
+    // One dataset per step so each interval gets its own zone fill color
+    const datasets = workout.steps.map((step, si) => ({
+      label: si === 0 ? 'Target Power' : '',
+      data: stepMap.map((mappedSi, _i) => mappedSi === si ? step.power_watts : null),
+      borderColor: zoneColor(step.power_pct, 0.8),
+      backgroundColor: zoneColor(step.power_pct, 0.35),
+      fill: true,
+      stepped: 'before' as const,
+      pointRadius: 0,
+      borderWidth: 2,
+      tension: 0,
+      spanGaps: false,
+    }))
+
     return {
-      chartData: {
-        labels,
-        datasets: [{
-          label: 'Target Power',
-          data: powers,
-          borderColor: bgColors.map((_, i) => zoneColor(workout.steps[stepMap[i]].power_pct, 0.8)),
-          backgroundColor: bgColors,
-          fill: true,
-          stepped: 'before' as const,
-          pointRadius: 0,
-          borderWidth: 2,
-          tension: 0,
-        }],
-      },
+      chartData: { labels, datasets },
       stepIndexMap: stepMap,
     }
   }, [workout])
@@ -988,7 +986,10 @@ function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
     maintainAspectRatio: false,
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: (ctx: any) => `${ctx.parsed.y}w` } },
+      tooltip: {
+        filter: (item: any) => item.parsed.y != null,
+        callbacks: { label: (ctx: any) => `${ctx.parsed.y}w` },
+      },
     },
     scales: {
       x: {
