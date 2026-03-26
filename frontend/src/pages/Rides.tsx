@@ -205,7 +205,8 @@ export default function Rides({ initialRideId, initialDate }: Props) {
             >
               &larr; Prev
             </button>
-            <span className="text-sm font-medium text-text">
+            <span className="text-sm font-medium text-text text-center leading-tight">
+              {currentDate && <span className="block text-text-muted text-xs">{new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })}</span>}
               {currentDate ?? ''}
             </span>
             <button
