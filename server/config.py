@@ -14,6 +14,10 @@ DATABASE_URL = os.getenv("CYCLING_COACH_DATABASE_URL", "postgresql://postgres:de
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_AUTH_ENABLED = os.getenv("GOOGLE_AUTH_ENABLED", "true").lower() == "true"
 
+# App session JWT
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
+
 # intervals.icu integration
 INTERVALS_ICU_API_KEY = os.getenv("INTERVALS_ICU_API_KEY", "")
 INTERVALS_ICU_ATHLETE_ID = os.getenv("INTERVALS_ICU_ATHLETE_ID", "")

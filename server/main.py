@@ -13,6 +13,10 @@ from server.database import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from server.config import GOOGLE_AUTH_ENABLED, JWT_SECRET
+    if GOOGLE_AUTH_ENABLED and not JWT_SECRET:
+        raise RuntimeError("JWT_SECRET is required when GOOGLE_AUTH_ENABLED=true. "
+                           "Set it via environment variable or Secret Manager.")
     init_db()
     yield
 

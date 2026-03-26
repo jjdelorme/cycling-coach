@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useSettings, useUpdateSetting } from '../hooks/useApi'
 
 type Theme = 'dark' | 'light'
 
@@ -10,18 +11,28 @@ interface ThemeCtx {
 const ThemeContext = createContext<ThemeCtx>({ theme: 'dark', toggle: () => {} })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('theme') as Theme | null
-    return saved || 'dark'
-  })
+  const { data: settings } = useSettings()
+  const updateSetting = useUpdateSetting()
+  const [theme, setTheme] = useState<Theme>('dark')
 
+  // Sync from server settings when they load
+  useEffect(() => {
+    if (settings?.theme === 'light' || settings?.theme === 'dark') {
+      setTheme(settings.theme)
+    }
+  }, [settings?.theme])
+
+  // Apply theme class to document
   useEffect(() => {
     document.documentElement.classList.remove('dark', 'light')
     document.documentElement.classList.add(theme)
-    localStorage.setItem('theme', theme)
   }, [theme])
 
-  const toggle = () => setTheme(t => (t === 'dark' ? 'light' : 'dark'))
+  const toggle = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    updateSetting.mutate({ key: 'theme', value: next })
+  }
 
   return (
     <ThemeContext.Provider value={{ theme, toggle }}>

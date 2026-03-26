@@ -147,6 +147,17 @@ export const fetchSyncStatus = (id: string) => get<SyncStatus>(`/api/sync/status
 // Health
 export const fetchHealth = () => get<{ status: string; rides: number }>('/api/health')
 
+// Auth
+export interface LoginResponse {
+  token: string
+  email: string
+  display_name: string
+  avatar_url: string
+  role: string
+}
+export const exchangeGoogleToken = (googleToken: string) =>
+  post<LoginResponse>('/api/auth/login', { google_token: googleToken })
+
 // Admin - User Management
 export interface UserRecord {
   email: string

@@ -1,11 +1,13 @@
-"""Google OAuth token verification and role-based access control."""
+"""Google OAuth token verification, app session JWTs, and role-based access control."""
 
+import datetime
 from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+import jwt
 
-from server.config import GOOGLE_CLIENT_ID, GOOGLE_AUTH_ENABLED
+from server.config import GOOGLE_CLIENT_ID, GOOGLE_AUTH_ENABLED, JWT_SECRET, JWT_EXPIRY_HOURS
 from server.database import get_db
 
 
@@ -26,6 +28,30 @@ def verify_google_token(token: str) -> dict:
         return claims
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+
+def create_app_token(email: str, display_name: str, avatar_url: str) -> str:
+    """Create a long-lived app JWT after successful Google auth."""
+    payload = {
+        "email": email,
+        "name": display_name,
+        "picture": avatar_url,
+        "exp": datetime.datetime.now(datetime.timezone.utc)
+        + datetime.timedelta(hours=JWT_EXPIRY_HOURS),
+        "iat": datetime.datetime.now(datetime.timezone.utc),
+        "iss": "cycling-coach",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+def verify_app_token(token: str) -> dict:
+    """Verify an app-issued JWT and return its claims."""
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"], issuer="cycling-coach")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired, please log in again")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid session token: {e}")
 
 
 def _upsert_user(email: str, display_name: str, avatar_url: str) -> str:
@@ -50,7 +76,7 @@ def _upsert_user(email: str, display_name: str, avatar_url: str) -> str:
 
 
 async def get_current_user(request: Request) -> CurrentUser:
-    """FastAPI dependency: extract and verify the Google ID token, return CurrentUser."""
+    """FastAPI dependency: extract and verify the token (app JWT or Google ID token), return CurrentUser."""
     if not GOOGLE_AUTH_ENABLED:
         return CurrentUser(
             email="dev@localhost",
@@ -64,7 +90,13 @@ async def get_current_user(request: Request) -> CurrentUser:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
     token = auth_header[7:]
-    claims = verify_google_token(token)
+
+    # Try app JWT first (fast, no network call)
+    try:
+        claims = verify_app_token(token)
+    except HTTPException:
+        # Fall back to Google ID token verification
+        claims = verify_google_token(token)
 
     email = claims.get("email", "")
     display_name = claims.get("name", "")

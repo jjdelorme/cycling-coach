@@ -310,6 +310,7 @@ SETTINGS_DEFAULTS = {
     "intervals_icu_api_key": "",
     "intervals_icu_athlete_id": "",
     "units": "imperial",
+    "theme": "dark",
 }
 
 

@@ -4,6 +4,7 @@ import { startSync, fetchSyncStatus } from '../lib/api'
 import { timeAgo } from '../lib/format'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../lib/auth'
+import { useTheme } from '../lib/theme'
 import UserManagement from '../components/UserManagement'
 
 const SETTING_CARDS: { key: string; title: string; hint: string }[] = [
@@ -31,6 +32,7 @@ const SETTING_CARDS: { key: string; title: string; hint: string }[] = [
 
 export default function Settings() {
   const { user } = useAuth()
+  const { theme, toggle: toggleTheme } = useTheme()
   const { data: settings, isLoading } = useSettings()
   const { data: syncOverview } = useSyncOverview()
   const updateSetting = useUpdateSetting()
@@ -252,9 +254,9 @@ export default function Settings() {
         <p className="text-text-muted text-sm mb-4">
           Choose how distances and elevation are displayed throughout the app.
         </p>
-        <div className="bg-surface rounded-lg border border-border p-4">
+        <div className="bg-surface rounded-lg border border-border p-4 space-y-4">
           <div className="flex items-center gap-4">
-            <span className="text-text text-sm font-medium">Units</span>
+            <span className="text-text text-sm font-medium w-16">Units</span>
             <div className="flex rounded-md overflow-hidden border border-border">
               <button
                 onClick={() => handleChange('units', 'imperial')}
@@ -275,6 +277,31 @@ export default function Settings() {
                 }`}
               >
                 Metric (km / m)
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-text text-sm font-medium w-16">Theme</span>
+            <div className="flex rounded-md overflow-hidden border border-border">
+              <button
+                onClick={() => theme !== 'dark' && toggleTheme()}
+                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  theme === 'dark'
+                    ? 'bg-accent text-white'
+                    : 'bg-surface2 text-text-muted hover:text-text'
+                }`}
+              >
+                Dark
+              </button>
+              <button
+                onClick={() => theme !== 'light' && toggleTheme()}
+                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  theme === 'light'
+                    ? 'bg-accent text-white'
+                    : 'bg-surface2 text-text-muted hover:text-text'
+                }`}
+              >
+                Light
               </button>
             </div>
           </div>

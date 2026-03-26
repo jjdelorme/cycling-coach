@@ -3,10 +3,36 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from server.auth import CurrentUser, get_current_user, require_admin
+from server.auth import CurrentUser, get_current_user, require_admin, verify_google_token, create_app_token, _upsert_user
 from server.database import get_db
 
 router = APIRouter(prefix="/api", tags=["admin"])
+
+
+# --- Auth ---
+
+class LoginRequest(BaseModel):
+    google_token: str
+
+
+@router.post("/auth/login")
+async def login(body: LoginRequest):
+    """Exchange a Google ID token for a long-lived app session token."""
+    claims = verify_google_token(body.google_token)
+    email = claims.get("email", "")
+    display_name = claims.get("name", "")
+    avatar_url = claims.get("picture", "")
+
+    role = _upsert_user(email, display_name, avatar_url)
+
+    app_token = create_app_token(email, display_name, avatar_url)
+    return {
+        "token": app_token,
+        "email": email,
+        "display_name": display_name,
+        "avatar_url": avatar_url,
+        "role": role,
+    }
 
 
 # --- Current user (any authenticated user) ---

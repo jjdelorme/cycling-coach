@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { GoogleOAuthProvider, googleLogout } from '@react-oauth/google'
+import { exchangeGoogleToken } from './api'
 
 interface AuthUser {
   email: string
@@ -43,35 +44,51 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   // Expose token getter for api.ts
   _getToken = useCallback(() => token, [token])
 
-  // Handle a credential (JWT ID token) from Google
-  const handleCredential = useCallback(async (idToken: string) => {
+  const setSession = useCallback((appToken: string, email: string, displayName: string, avatarUrl: string, role: string) => {
+    setToken(appToken)
+    sessionStorage.setItem('auth_token', appToken)
+    setUser({
+      email,
+      name: displayName || email,
+      avatar: avatarUrl || '',
+      role,
+    })
+  }, [])
+
+  const clearSession = useCallback(() => {
+    setUser(null)
+    setToken(null)
+    sessionStorage.removeItem('auth_token')
+  }, [])
+
+  // Handle a Google credential by exchanging it for an app token
+  const handleCredential = useCallback(async (googleIdToken: string) => {
+    try {
+      const data = await exchangeGoogleToken(googleIdToken)
+      setSession(data.token, data.email, data.display_name, data.avatar_url, data.role)
+    } catch {
+      clearSession()
+    }
+  }, [setSession, clearSession])
+
+  // Restore an existing app token from sessionStorage
+  const restoreSession = useCallback(async (appToken: string) => {
     try {
       const res = await fetch('/api/users/me', {
-        headers: { Authorization: `Bearer ${idToken}` },
+        headers: { Authorization: `Bearer ${appToken}` },
       })
       if (res.ok) {
         const data = await res.json()
-        setToken(idToken)
-        sessionStorage.setItem('auth_token', idToken)
-        setUser({
-          email: data.email,
-          name: data.display_name || data.email,
-          avatar: data.avatar_url || '',
-          role: data.role,
-        })
+        setSession(appToken, data.email, data.display_name, data.avatar_url, data.role)
       } else {
-        setUser(null)
-        setToken(null)
-        sessionStorage.removeItem('auth_token')
+        clearSession()
       }
     } catch {
-      setUser(null)
-      setToken(null)
-      sessionStorage.removeItem('auth_token')
+      clearSession()
     }
-  }, [])
+  }, [setSession, clearSession])
 
-  // On mount: try to restore session from sessionStorage, then initialize GSI
+  // On mount: try to restore session, then initialize GSI
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) {
       // Dev mode
@@ -89,7 +106,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     // Try to restore from sessionStorage
     const stored = sessionStorage.getItem('auth_token')
     if (stored) {
-      handleCredential(stored).then(() => setIsLoading(false))
+      restoreSession(stored).then(() => setIsLoading(false))
     }
 
     // Initialize GSI for fresh logins and token refresh
@@ -119,7 +136,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       clearInterval(waitForGsi)
       clearTimeout(timeout)
     }
-  }, [handleCredential])
+  }, [handleCredential, restoreSession])
 
   const login = useCallback(() => {
     if (window.google?.accounts?.id) {
@@ -129,10 +146,8 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     googleLogout()
-    sessionStorage.removeItem('auth_token')
-    setUser(null)
-    setToken(null)
-  }, [])
+    clearSession()
+  }, [clearSession])
 
   return (
     <AuthContext.Provider

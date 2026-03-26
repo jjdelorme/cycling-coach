@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import CoachPanel from './CoachPanel'
 import UserAvatar from './UserAvatar'
+import { useTheme } from '../lib/theme'
 
 const tabs = [
   { key: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -19,6 +20,7 @@ interface LayoutProps {
 
 export default function Layout({ activeTab, onTabChange, children }: LayoutProps) {
   const [coachOpen, setCoachOpen] = useState(false)
+  const { theme, toggle: toggleTheme } = useTheme()
 
   return (
     <div className="flex h-screen h-[100dvh] flex-col">
@@ -50,6 +52,13 @@ export default function Layout({ activeTab, onTabChange, children }: LayoutProps
             title="Coach"
           >
             💬
+          </button>
+          <button
+            onClick={toggleTheme}
+            className="p-1.5 rounded-md text-sm transition-colors text-text-muted hover:text-text hover:bg-surface2/50"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
           </button>
           <button
             onClick={() => onTabChange('settings')}
@@ -98,6 +107,15 @@ export default function Layout({ activeTab, onTabChange, children }: LayoutProps
         >
           <span className="text-lg">💬</span>
           <span>Coach</span>
+        </button>
+        <button
+          onClick={() => { onTabChange('settings'); setCoachOpen(false) }}
+          className={`flex-1 flex flex-col items-center py-2 text-xs ${
+            activeTab === 'settings' && !coachOpen ? 'text-accent' : 'text-text-muted'
+          }`}
+        >
+          <span className="text-lg">⚙️</span>
+          <span>Settings</span>
         </button>
       </nav>
     </div>

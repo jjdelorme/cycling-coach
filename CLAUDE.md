@@ -1,7 +1,7 @@
 # Cycling Coaching Platform
 
 ## Project Overview
-Single-athlete cycling coaching platform. Web app that ingests ride data, computes training metrics, and provides AI coaching insights. Target: Big Sky Biggie (late August 2026, ~50mi MTB, ~6000ft climbing).
+Cycling coaching platform. Currently single-athlete, but designed for multi-user support in the future. Used across multiple devices, so all user preferences must be stored server-side (database), not in localStorage. Web app that ingests ride data, computes training metrics, and provides AI coaching insights. Target: Big Sky Biggie (late August 2026, ~50mi MTB, ~6000ft climbing).
 
 ## Tech Stack
 - **Backend**: Python 3.11+ / FastAPI / PostgreSQL (psycopg2)
@@ -69,20 +69,51 @@ Uses GCP Application Default Credentials. Run `gcloud auth application-default l
 
 ### Google Sign-In (RBAC)
 - Frontend uses `@react-oauth/google` with the Google Identity Services credential (JWT) flow
-- Backend verifies Google ID tokens via `google.oauth2.id_token.verify_oauth2_token()`
+- On login, the Google ID token is exchanged for an app-issued JWT (24h expiry) via `POST /api/auth/login`
+- Subsequent API calls use the app JWT (no per-request Google verification)
 - Roles: `none` (no access, default for new users), `read`, `readwrite`, `admin`
 - `GOOGLE_AUTH_ENABLED=false` disables auth for local dev (returns admin dev user)
 
 ### Environment Variables
 | Variable | Where | Purpose |
 |----------|-------|---------|
-| `GOOGLE_CLIENT_ID` | `.env` (local), Cloud Run env var (prod) | Backend token verification |
+| `GOOGLE_CLIENT_ID` | `.env` (local), Secret Manager (prod) | Backend token verification |
 | `VITE_GOOGLE_CLIENT_ID` | `.env` (local), GitHub Actions secret (CI) | Frontend build-time injection |
 | `GOOGLE_AUTH_ENABLED` | `.env` (local), Cloud Run env var (prod) | Set `false` to disable auth |
 | `CORS_ALLOWED_ORIGIN` | Cloud Run env var (prod) | Production frontend URL for CORS |
+| `JWT_SECRET` | `.env` (local), Secret Manager (prod) | Signs app session JWTs. **Required** when auth enabled. Must be stable across restarts and replicas. |
+| `JWT_EXPIRY_HOURS` | `.env` (local), Cloud Run env var (prod) | Session duration in hours (default: 24) |
 
 - The Client ID is not a secret — it's public in the JS bundle. Stored in GitHub Secrets for convenience.
 - `VITE_*` vars are inlined by Vite at build time, not read at runtime.
 - Vite's `envDir` is set to `..` (repo root) so both backend and frontend read from the same `.env`.
-- `.env` is gitignored and contains `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`.
+- `.env` is gitignored and contains `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`, `JWT_SECRET`.
 - Tests set `GOOGLE_AUTH_ENABLED=false` in `conftest.py` to bypass auth.
+
+### Setting up JWT_SECRET in Secret Manager
+
+```bash
+# Generate a cryptographically secure secret
+JWT_VALUE=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+
+# Create the secret in Secret Manager
+gcloud secrets create JWT_SECRET --project=jasondel-cloudrun10
+
+# Add the secret value
+echo -n "$JWT_VALUE" | gcloud secrets versions add JWT_SECRET --data-file=- --project=jasondel-cloudrun10
+
+# Grant the Cloud Run service account access
+gcloud secrets add-iam-policy-binding JWT_SECRET \
+  --member="serviceAccount:cycling-coach-deployer@jasondel-cloudrun10.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=jasondel-cloudrun10
+
+# Also grant the Cloud Run runtime service account (if different from deployer)
+gcloud secrets add-iam-policy-binding JWT_SECRET \
+  --member="serviceAccount:$(gcloud iam service-accounts list --project=jasondel-cloudrun10 --filter='email:compute@developer' --format='value(email)')" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=jasondel-cloudrun10
+
+# For local dev, add to .env
+echo "JWT_SECRET=$JWT_VALUE" >> .env
+```
