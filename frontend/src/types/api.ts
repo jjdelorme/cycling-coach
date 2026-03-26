@@ -90,6 +90,7 @@ export interface WorkoutDetail {
   name?: string
   sport?: string
   total_duration_s: number
+  planned_tss?: number
   ftp: number
   steps: WorkoutStep[]
   has_xml?: boolean

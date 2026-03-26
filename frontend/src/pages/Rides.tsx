@@ -229,16 +229,40 @@ export default function Rides({ initialRideId, initialDate }: Props) {
             </div>
 
             {/* Metric cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <MetricCard label="Duration" value={fmtDuration(ride.duration_s)} />
-              <MetricCard label="Distance" value={fmtDistance(ride.distance_m)} />
-              <MetricCard label="TSS" value={ride.tss?.toFixed(0) ?? '--'} />
-              <MetricCard label="Avg Power" value={ride.avg_power ? `${ride.avg_power}w` : '--'} />
-              <MetricCard label="NP" value={ride.normalized_power ? `${ride.normalized_power}w` : '--'} />
-              <MetricCard label="Avg HR" value={ride.avg_hr ? `${ride.avg_hr} bpm` : '--'} />
-              <MetricCard label="IF" value={ride.intensity_factor?.toFixed(2) ?? '--'} />
-              <MetricCard label="Ascent" value={ride.total_ascent ? `${ride.total_ascent}m` : '--'} />
-            </div>
+            {(() => {
+              // Compute planned IF from planned TSS and duration
+              const pw = plannedWorkout
+              const plannedDur = pw?.total_duration_s
+              const plannedTss = pw?.planned_tss ? Number(pw.planned_tss) : undefined
+              const plannedIF = plannedTss && plannedDur && plannedDur > 0
+                ? Math.sqrt(plannedTss / (plannedDur / 3600) / 100)
+                : undefined
+
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <MetricCard
+                    label="Duration"
+                    value={fmtDuration(ride.duration_s)}
+                    planned={plannedDur ? fmtDuration(plannedDur) : null}
+                  />
+                  <MetricCard label="Distance" value={fmtDistance(ride.distance_m)} />
+                  <MetricCard
+                    label="TSS"
+                    value={ride.tss?.toFixed(0) ?? '--'}
+                    planned={plannedTss ? plannedTss.toFixed(0) : null}
+                  />
+                  <MetricCard label="Avg Power" value={ride.avg_power ? `${ride.avg_power}w` : '--'} />
+                  <MetricCard label="NP" value={ride.normalized_power ? `${ride.normalized_power}w` : '--'} />
+                  <MetricCard label="Avg HR" value={ride.avg_hr ? `${ride.avg_hr} bpm` : '--'} higherIsBetter={false} />
+                  <MetricCard
+                    label="IF"
+                    value={ride.intensity_factor?.toFixed(2) ?? '--'}
+                    planned={plannedIF ? plannedIF.toFixed(2) : null}
+                  />
+                  <MetricCard label="Ascent" value={ride.total_ascent ? `${ride.total_ascent}m` : '--'} />
+                </div>
+              )
+            })()}
 
             {/* Timeline chart with workout overlay */}
             {ride.records && ride.records.length > 0 && (
@@ -451,11 +475,47 @@ export default function Rides({ initialRideId, initialDate }: Props) {
 
 // ── Subcomponents ──
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({ label, value, planned, higherIsBetter = true }: {
+  label: string
+  value: string
+  planned?: string | null
+  higherIsBetter?: boolean
+}) {
+  // Parse numeric values for comparison
+  let indicator: 'above' | 'below' | 'match' | null = null
+  if (planned) {
+    const actualNum = parseFloat(value.replace(/[^\d.]/g, ''))
+    const plannedNum = parseFloat(planned.replace(/[^\d.]/g, ''))
+    if (!isNaN(actualNum) && !isNaN(plannedNum) && plannedNum > 0) {
+      const pct = ((actualNum - plannedNum) / plannedNum) * 100
+      if (Math.abs(pct) < 3) indicator = 'match'
+      else if (actualNum > plannedNum) indicator = 'above'
+      else indicator = 'below'
+    }
+  }
+
+  const indicatorColor = indicator === 'match'
+    ? 'text-green'
+    : indicator === 'above'
+      ? higherIsBetter ? 'text-green' : 'text-yellow'
+      : indicator === 'below'
+        ? higherIsBetter ? 'text-red' : 'text-green'
+        : ''
+
+  const arrow = indicator === 'above' ? '\u25B2' : indicator === 'below' ? '\u25BC' : indicator === 'match' ? '\u2713' : ''
+
   return (
     <div className="bg-surface border border-border rounded-lg p-3">
       <div className="text-xs text-text-muted mb-1">{label}</div>
-      <div className="text-lg font-semibold text-text">{value}</div>
+      <div className="text-lg font-semibold text-text">
+        {value}
+        {indicator && <span className={`ml-1.5 text-xs ${indicatorColor}`}>{arrow}</span>}
+      </div>
+      {planned && (
+        <div className="text-xs text-text-muted mt-0.5">
+          planned: {planned}
+        </div>
+      )}
     </div>
   )
 }

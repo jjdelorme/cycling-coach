@@ -350,6 +350,7 @@ def get_workout_by_date(date: str):
         "id": workout["id"],
         "name": workout["name"],
         "total_duration_s": total_duration,
+        "planned_tss": workout.get("planned_tss"),
         "ftp": ftp,
         "steps": steps,
         "coach_notes": workout.get("coach_notes"),
