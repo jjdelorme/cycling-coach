@@ -42,10 +42,8 @@ def health():
     return {"status": "ok", "rides": ride_count}
 
 
-# Serve frontend static files
-# Prefer React build (frontend/dist), fall back to legacy (web/)
+# Serve frontend static files (React build)
 _frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-_web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
 
 if os.path.isdir(_frontend_dist):
     # Serve static assets (JS, CSS, images)
@@ -60,5 +58,3 @@ if os.path.isdir(_frontend_dist):
             return FileResponse(file_path)
         # Fall back to index.html for SPA routing
         return FileResponse(os.path.join(_frontend_dist, "index.html"))
-elif os.path.isdir(_web_dir):
-    app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")
