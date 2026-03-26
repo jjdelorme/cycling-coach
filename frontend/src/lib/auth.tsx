@@ -45,13 +45,14 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   // Handle a credential (JWT ID token) from Google
   const handleCredential = useCallback(async (idToken: string) => {
-    setToken(idToken)
     try {
       const res = await fetch('/api/users/me', {
         headers: { Authorization: `Bearer ${idToken}` },
       })
       if (res.ok) {
         const data = await res.json()
+        setToken(idToken)
+        sessionStorage.setItem('auth_token', idToken)
         setUser({
           email: data.email,
           name: data.display_name || data.email,
@@ -61,26 +62,37 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       } else {
         setUser(null)
         setToken(null)
+        sessionStorage.removeItem('auth_token')
       }
     } catch {
       setUser(null)
       setToken(null)
+      sessionStorage.removeItem('auth_token')
     }
   }, [])
 
-  // Initialize Google Identity Services for the credential (JWT) flow
+  // On mount: try to restore session from sessionStorage, then initialize GSI
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || gsiInitialized.current) {
-      if (!GOOGLE_CLIENT_ID) {
-        // Dev mode
-        setUser({ email: 'dev@localhost', name: 'Dev User', avatar: '', role: 'admin' })
-        setToken('dev-mode')
-      }
+    if (!GOOGLE_CLIENT_ID) {
+      // Dev mode
+      setUser({ email: 'dev@localhost', name: 'Dev User', avatar: '', role: 'admin' })
+      setToken('dev-mode')
       setIsLoading(false)
       return
     }
 
-    // Wait for the GSI script to load (loaded by @react-oauth/google)
+    if (gsiInitialized.current) {
+      setIsLoading(false)
+      return
+    }
+
+    // Try to restore from sessionStorage
+    const stored = sessionStorage.getItem('auth_token')
+    if (stored) {
+      handleCredential(stored).then(() => setIsLoading(false))
+    }
+
+    // Initialize GSI for fresh logins and token refresh
     const waitForGsi = setInterval(() => {
       if (window.google?.accounts?.id) {
         clearInterval(waitForGsi)
@@ -91,14 +103,13 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
           callback: (response: { credential: string }) => {
             handleCredential(response.credential)
           },
-          auto_select: true, // silent re-auth if user previously signed in
+          auto_select: true,
         })
 
-        setIsLoading(false)
+        if (!stored) setIsLoading(false)
       }
     }, 100)
 
-    // Timeout after 5s
     const timeout = setTimeout(() => {
       clearInterval(waitForGsi)
       setIsLoading(false)
@@ -118,6 +129,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     googleLogout()
+    sessionStorage.removeItem('auth_token')
     setUser(null)
     setToken(null)
   }, [])
