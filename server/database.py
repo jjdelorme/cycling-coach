@@ -311,6 +311,9 @@ SETTINGS_DEFAULTS = {
     "intervals_icu_athlete_id": "",
     "units": "imperial",
     "theme": "dark",
+    "gemini_model": "",
+    "gcp_location": "",
+    "gemini_api_key": "",
 }
 
 

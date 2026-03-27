@@ -102,10 +102,14 @@ class SettingUpdate(BaseModel):
 @router.put("/settings")
 async def update_setting(req: SettingUpdate, user: CurrentUser = Depends(require_write)):
     """Update a single coach setting."""
-    valid_keys = {"athlete_profile", "coaching_principles", "coach_role", "plan_management", "theme", "units", "intervals_icu_api_key", "intervals_icu_athlete_id"}
+    valid_keys = {"athlete_profile", "coaching_principles", "coach_role", "plan_management", "theme", "units", "intervals_icu_api_key", "intervals_icu_athlete_id", "gemini_model", "gcp_location", "gemini_api_key"}
     if req.key not in valid_keys:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid key. Must be one of: {', '.join(sorted(valid_keys))}")
+    # Reset the cached agent/runner when AI settings change so new values take effect
+    if req.key in ("gemini_model", "gcp_location", "gemini_api_key"):
+        from server.coaching.agent import reset_runner
+        reset_runner()
     set_setting(req.key, req.value)
     return {"status": "updated", "key": req.key}
 
