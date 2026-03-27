@@ -244,4 +244,7 @@ export interface CoachSettings {
   intervals_icu_athlete_id?: string
   units?: string
   theme?: string
+  gemini_model?: string
+  gcp_location?: string
+  gemini_api_key?: string
 }

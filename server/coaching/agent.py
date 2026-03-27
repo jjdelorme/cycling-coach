@@ -8,6 +8,7 @@ from google.adk.tools.preload_memory_tool import preload_memory_tool
 from google.genai import types
 
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION
+from server.database import get_setting
 from server.coaching.session_service import DbSessionService
 from server.coaching.memory_service import DbMemoryService
 from server.coaching.tools import (
@@ -99,6 +100,20 @@ PLAN MANAGEMENT:
 {settings['plan_management']}"""
 
 
+def _get_effective_model() -> str:
+    """Return the Gemini model, preferring DB setting over env var default."""
+    db_model = get_setting("gemini_model")
+    return db_model if db_model else GEMINI_MODEL
+
+
+def reset_runner():
+    """Reset cached runner so the next chat() picks up new settings."""
+    global _runner, _session_service, _memory_service
+    _runner = None
+    _session_service = None
+    _memory_service = None
+
+
 def _get_agent():
     # Wrap write tools with permission gate
     tools = [
@@ -118,7 +133,7 @@ def _get_agent():
 
     return Agent(
         name="cycling_coach",
-        model=GEMINI_MODEL,
+        model=_get_effective_model(),
         description="Expert cycling coach",
         instruction=_build_system_instruction,
         tools=tools,
@@ -142,9 +157,22 @@ def get_runner():
 async def chat(message: str, user_id: str = "athlete", session_id: str = "default", user=None) -> str:
     """Send a message to the coaching agent and get a response."""
     import os
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", GCP_PROJECT)
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", GCP_LOCATION)
-    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
+
+    # Check for API key in DB settings (overrides ADC auth)
+    db_api_key = get_setting("gemini_api_key")
+    db_location = get_setting("gcp_location")
+
+    if db_api_key:
+        # API key auth: use Google AI (not Vertex AI)
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "False"
+        os.environ["GOOGLE_API_KEY"] = db_api_key
+    else:
+        # Default: ADC via Vertex AI
+        os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
+        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", GCP_PROJECT)
+
+    effective_location = db_location if db_location else GCP_LOCATION
+    os.environ["GOOGLE_CLOUD_LOCATION"] = effective_location
 
     # Set the current user's role for permission gating on write tools
     if user is not None:

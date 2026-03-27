@@ -410,7 +410,7 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
 
 
 def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0,
-                     name: str = "", description: str = "", steps: list = []) -> dict:
+                     name: str = "", description: str = "", steps: list[dict] = []) -> dict:
     """Replace or create a single day's planned workout without affecting other days.
 
     Use this when the athlete wants to change, customize, or add a workout for one day.
@@ -692,7 +692,7 @@ def list_workout_templates(category: str = "") -> dict:
 
 
 def save_workout_template(key: str, name: str, description: str, category: str,
-                           steps: list, from_workout_id: int = 0) -> dict:
+                           steps: list[dict] = [], from_workout_id: int = 0) -> dict:
     """Save a new workout template to the database for future reuse.
 
     Use this when:
