@@ -2,9 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useSendChat, useSessions } from '../hooks/useApi'
 import { fetchSession } from '../lib/api'
+import type { ViewContext } from './Layout'
 
 interface Props {
   onClose: () => void
+  viewContext?: ViewContext
 }
 
 interface Message {
@@ -12,7 +14,32 @@ interface Message {
   content: string
 }
 
-export default function CoachPanel({ onClose }: Props) {
+function buildViewHint(ctx?: ViewContext): string {
+  if (!ctx) return ''
+  const parts: string[] = []
+  switch (ctx.tab) {
+    case 'dashboard':
+      parts.push('Viewing: Dashboard')
+      break
+    case 'rides':
+      if (ctx.rideId) parts.push(`Viewing: Ride #${ctx.rideId}`)
+      else if (ctx.rideDate) parts.push(`Viewing: Workout on ${ctx.rideDate}`)
+      else parts.push('Viewing: Rides list')
+      break
+    case 'calendar':
+      parts.push('Viewing: Calendar')
+      break
+    case 'analysis':
+      parts.push('Viewing: Analysis')
+      break
+    case 'settings':
+      parts.push('Viewing: Settings')
+      break
+  }
+  return parts.length > 0 ? `[${parts.join(', ')}]\n` : ''
+}
+
+export default function CoachPanel({ onClose, viewContext }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sessionId, setSessionId] = useState<string | undefined>()
@@ -34,7 +61,8 @@ export default function CoachPanel({ onClose }: Props) {
     setMessages(prev => [...prev, { role: 'user', content: msg }])
 
     try {
-      const res = await chat.mutateAsync({ message: msg, session_id: sessionId })
+      const hint = buildViewHint(viewContext)
+      const res = await chat.mutateAsync({ message: hint + msg, session_id: sessionId })
       setSessionId(res.session_id)
       setMessages(prev => [...prev, { role: 'assistant', content: res.response }])
     } catch {

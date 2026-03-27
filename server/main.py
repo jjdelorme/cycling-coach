@@ -11,6 +11,17 @@ from server.routers import rides, pmc, analysis, planning, coaching, sync, athle
 from server.database import init_db
 
 
+def _read_version() -> str:
+    version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+    try:
+        with open(version_file) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "unknown"
+
+APP_VERSION = _read_version()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from server.config import GOOGLE_AUTH_ENABLED, JWT_SECRET
@@ -21,7 +32,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Cycling Coach", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Cycling Coach", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,6 +61,11 @@ def health():
     with get_db() as conn:
         ride_count = conn.execute("SELECT COUNT(*) as cnt FROM rides").fetchone()["cnt"]
     return {"status": "ok", "rides": ride_count}
+
+
+@app.get("/api/version")
+def version():
+    return {"version": APP_VERSION}
 
 
 # Serve frontend static files (React build)

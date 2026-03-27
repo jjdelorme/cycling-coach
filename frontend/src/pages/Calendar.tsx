@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useRides } from '../hooks/useApi'
 import { fetchWeekPlan } from '../lib/api'
-import { fmtDuration } from '../lib/format'
+import { fmtDuration, fmtDistance } from '../lib/format'
+import { useUnits } from '../lib/units'
 import { useQuery } from '@tanstack/react-query'
 import type { PlannedWorkout, RideSummary } from '../types/api'
 
@@ -65,11 +66,12 @@ function getWeekMondays(calendarDays: Date[]): string[] {
 }
 
 export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
+  const units = useUnits()
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
   })
-  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => toDateStr(new Date()))
 
   const calendarDays = useMemo(
     () => buildCalendarDays(currentDate.year, currentDate.month),
@@ -211,16 +213,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
           return (
             <div
               key={dateStr}
-              onClick={() => {
-                // Navigate directly: ride takes priority, then workout, otherwise toggle detail panel
-                if (dayRides.length > 0) {
-                  onRideSelect(dayRides[0].id)
-                } else if (dayWorkouts.length > 0 && dayWorkouts[0].id) {
-                  onWorkoutSelect(dayWorkouts[0].id, dateStr)
-                } else {
-                  setSelectedDay(isSelected ? null : dateStr)
-                }
-              }}
+              onClick={() => setSelectedDay(isSelected ? null : dateStr)}
               className={`
                 min-h-[80px] md:min-h-[100px] p-1 cursor-pointer transition-colors
                 ${isCurrentMonth ? 'bg-surface' : 'bg-bg'}
@@ -238,8 +231,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
                 {dayRides.map((r) => (
                   <div
                     key={r.id}
-                    onClick={(e) => { e.stopPropagation(); onRideSelect(r.id) }}
-                    className="text-[10px] md:text-xs text-green truncate cursor-pointer hover:underline"
+                    className="text-[10px] md:text-xs text-green truncate"
                   >
                     {r.sport ?? 'Ride'}{r.tss ? ` ${Math.round(r.tss)}` : ''}
                   </div>
@@ -249,8 +241,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
                 {dayWorkouts.map((w, i) => (
                   <div
                     key={w.id ?? i}
-                    onClick={(e) => { e.stopPropagation(); onWorkoutSelect(w.id, dateStr) }}
-                    className="text-[10px] md:text-xs text-yellow truncate cursor-pointer hover:underline"
+                    className="text-[10px] md:text-xs text-yellow truncate"
                   >
                     {w.name ?? 'Workout'}
                   </div>
@@ -271,7 +262,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
       {/* Day detail panel */}
       {selectedDay && (
         <div className="bg-surface border border-border rounded-lg p-4">
-          <h3 className="text-text font-semibold mb-2">
+          <h3 className="text-text font-semibold mb-3">
             {new Date(selectedDay + 'T00:00:00').toLocaleDateString('en-US', {
               weekday: 'long',
               month: 'long',
@@ -284,51 +275,104 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
             <p className="text-text-muted text-sm">Rest day</p>
           )}
 
-          {selectedRides.length > 0 && (
-            <div className="mb-3">
-              <h4 className="text-text-muted text-xs uppercase tracking-wide mb-1">Rides</h4>
-              <ul className="space-y-1">
-                {selectedRides.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      onClick={() => onRideSelect(r.id)}
-                      className="text-sm text-green hover:text-accent underline text-left"
-                    >
-                      {r.sport ?? 'Ride'}
-                      {r.tss ? ` - TSS ${Math.round(r.tss)}` : ''}
-                      {r.duration_s ? ` - ${fmtDuration(r.duration_s)}` : ''}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          {/* Ride previews */}
+          {selectedRides.map((r) => (
+            <div key={r.id} className="mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-text-muted text-xs uppercase tracking-wide">
+                  {r.title || r.sport || 'Ride'}
+                </h4>
+                <button
+                  onClick={() => onRideSelect(r.id)}
+                  className="text-xs text-accent hover:underline"
+                >
+                  View Details &rarr;
+                </button>
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {r.duration_s != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">Duration</div>
+                    <div className="text-sm font-medium text-text">{fmtDuration(r.duration_s)}</div>
+                  </div>
+                )}
+                {r.distance_m != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">Distance</div>
+                    <div className="text-sm font-medium text-text">{fmtDistance(r.distance_m, units)}</div>
+                  </div>
+                )}
+                {r.tss != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">TSS</div>
+                    <div className="text-sm font-medium text-text">{Math.round(r.tss)}</div>
+                  </div>
+                )}
+                {r.avg_power != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">Avg Power</div>
+                    <div className="text-sm font-medium text-text">{r.avg_power}w</div>
+                  </div>
+                )}
+                {r.normalized_power != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">NP</div>
+                    <div className="text-sm font-medium text-text">{r.normalized_power}w</div>
+                  </div>
+                )}
+                {r.avg_hr != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">Avg HR</div>
+                    <div className="text-sm font-medium text-text">{r.avg_hr} bpm</div>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
+          ))}
 
-          {selectedWorkouts.length > 0 && (
-            <div>
-              <h4 className="text-text-muted text-xs uppercase tracking-wide mb-1">Planned Workouts</h4>
-              <ul className="space-y-1">
-                {selectedWorkouts.map((w, i) => (
-                  <li key={w.id ?? i}>
-                    {w.id ? (
-                      <button
-                        onClick={() => onWorkoutSelect(w.id, selectedDay!)}
-                        className="text-sm text-yellow hover:text-accent underline text-left"
-                      >
-                        {w.name ?? 'Workout'}
-                        {w.total_duration_s ? ` - ${fmtDuration(w.total_duration_s)}` : ''}
-                      </button>
-                    ) : (
-                      <span className="text-sm text-yellow">
-                        {w.name ?? 'Workout'}
-                        {w.total_duration_s ? ` - ${fmtDuration(w.total_duration_s)}` : ''}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+          {/* Workout previews */}
+          {selectedWorkouts.map((w, i) => (
+            <div key={w.id ?? i} className={selectedRides.length > 0 ? 'mt-3 pt-3 border-t border-border' : ''}>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-text-muted text-xs uppercase tracking-wide">
+                  Planned: {w.name ?? 'Workout'}
+                </h4>
+                {w.id && (
+                  <button
+                    onClick={() => onWorkoutSelect(w.id, selectedDay!)}
+                    className="text-xs text-accent hover:underline"
+                  >
+                    View Details &rarr;
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {w.total_duration_s != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">Duration</div>
+                    <div className="text-sm font-medium text-text">{fmtDuration(w.total_duration_s)}</div>
+                  </div>
+                )}
+                {w.planned_tss != null && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">TSS (est)</div>
+                    <div className="text-sm font-medium text-text">{Math.round(Number(w.planned_tss))}</div>
+                  </div>
+                )}
+                {w.sport && (
+                  <div className="text-center">
+                    <div className="text-[10px] text-text-muted">Sport</div>
+                    <div className="text-sm font-medium text-text capitalize">{w.sport}</div>
+                  </div>
+                )}
+              </div>
+              {w.coach_notes && (
+                <div className="mt-2 text-xs text-text-muted bg-surface2 rounded p-2 whitespace-pre-wrap">
+                  {w.coach_notes}
+                </div>
+              )}
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>

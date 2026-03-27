@@ -73,10 +73,18 @@ def _permission_gate(fn):
 
 def _build_system_instruction(ctx) -> str:
     """Build the system instruction dynamically from database settings."""
+    from datetime import datetime
     from server.database import get_all_settings
     settings = get_all_settings()
 
+    today = datetime.now()
+    today_str = today.strftime("%A, %B %d, %Y")  # e.g. "Friday, March 28, 2026"
+    today_iso = today.strftime("%Y-%m-%d")
+
     return f"""You are an expert cycling coach working with a specific athlete.
+
+TODAY'S DATE: {today_str} ({today_iso})
+Use this date to correctly map day-of-week references (e.g. "Saturday", "today", "next Tuesday") to YYYY-MM-DD date strings when calling tools.
 
 ATHLETE PROFILE:
 {settings['athlete_profile']}

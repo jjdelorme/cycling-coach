@@ -12,13 +12,21 @@ const tabs = [
 
 export type TabKey = (typeof tabs)[number]['key'] | 'settings'
 
+export interface ViewContext {
+  tab: TabKey
+  rideId?: number
+  rideDate?: string
+  calendarDate?: string
+}
+
 interface LayoutProps {
   activeTab: TabKey
   onTabChange: (tab: TabKey) => void
+  viewContext?: ViewContext
   children: ReactNode
 }
 
-export default function Layout({ activeTab, onTabChange, children }: LayoutProps) {
+export default function Layout({ activeTab, onTabChange, viewContext, children }: LayoutProps) {
   const [coachOpen, setCoachOpen] = useState(false)
   const { theme, toggle: toggleTheme } = useTheme()
 
@@ -81,7 +89,7 @@ export default function Layout({ activeTab, onTabChange, children }: LayoutProps
           {children}
         </main>
         {coachOpen && (
-          <CoachPanel onClose={() => setCoachOpen(false)} />
+          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} />
         )}
       </div>
 

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAuth } from './lib/auth'
-import Layout, { type TabKey } from './components/Layout'
+import Layout, { type TabKey, type ViewContext } from './components/Layout'
 import LoginPage from './components/LoginPage'
 import Dashboard from './pages/Dashboard'
 import Rides from './pages/Rides'
@@ -26,6 +26,12 @@ export default function App() {
     setTab('rides')
   }
 
+  const viewContext = useMemo<ViewContext>(() => ({
+    tab,
+    rideId,
+    rideDate,
+  }), [tab, rideId, rideDate])
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-bg">
@@ -40,7 +46,7 @@ export default function App() {
   }
 
   return (
-    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined) }}>
+    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined) }} viewContext={viewContext}>
       {tab === 'dashboard' && <Dashboard onRideSelect={handleRideSelect} />}
       {tab === 'rides' && <Rides initialRideId={rideId} initialDate={rideDate} />}
       {tab === 'calendar' && (

@@ -69,11 +69,6 @@ export default function Rides({ initialRideId, initialDate }: Props) {
     }
   }, [initialDate])
 
-  function handleBack() {
-    setSelectedRideId(null)
-    setSelectedDate(null)
-  }
-
   function handleFilter() {
     const params: { start_date?: string; end_date?: string } = {}
     if (startDate) params.start_date = startDate
@@ -189,13 +184,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
     return (
       <div className="space-y-6">
         {/* Navigation */}
-        <div className="flex items-center justify-between">
-          <button
-            onClick={handleBack}
-            className="text-sm text-text-muted hover:text-text transition-colors"
-          >
-            &larr; Back to rides
-          </button>
+        <div className="flex items-center justify-end">
           <div className="flex items-center gap-2">
             <button
               onClick={() => prevDate && navigateToDate(prevDate)}

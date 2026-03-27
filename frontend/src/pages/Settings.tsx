@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSettings, useUpdateSetting, useResetSettings, useSyncOverview, useAthleteSettings, useUpdateAthleteSetting } from '../hooks/useApi'
-import { startSync, fetchSyncStatus } from '../lib/api'
+import { startSync, fetchSyncStatus, fetchVersion } from '../lib/api'
 import { timeAgo } from '../lib/format'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
 import UserManagement from '../components/UserManagement'
@@ -38,6 +38,13 @@ export default function Settings() {
   const updateSetting = useUpdateSetting()
   const resetSettings = useResetSettings()
   const queryClient = useQueryClient()
+
+  // Version info
+  const { data: backendVersion } = useQuery({
+    queryKey: ['version'],
+    queryFn: fetchVersion,
+    staleTime: Infinity,
+  })
 
   // Athlete settings
   const { data: athleteSettings } = useAthleteSettings()
@@ -536,6 +543,12 @@ export default function Settings() {
         {saveStatus === 'failed' && (
           <span className="text-red-400 text-sm">Save failed</span>
         )}
+      </div>
+
+      {/* Version info */}
+      <div className="border-t border-border pt-4 text-xs text-text-muted flex gap-4">
+        <span>Frontend: v{__APP_VERSION__}</span>
+        <span>Backend: v{backendVersion?.version ?? '...'}</span>
       </div>
     </div>
   )

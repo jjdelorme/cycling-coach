@@ -144,8 +144,9 @@ export const fetchSyncOverview = () => get<SyncOverview>('/api/sync/overview')
 export const startSync = () => post<{ sync_id: string; ws_url: string }>('/api/sync/start')
 export const fetchSyncStatus = (id: string) => get<SyncStatus>(`/api/sync/status/${id}`)
 
-// Health
+// Health & Version
 export const fetchHealth = () => get<{ status: string; rides: number }>('/api/health')
+export const fetchVersion = () => get<{ version: string }>('/api/version')
 
 // Auth
 export interface LoginResponse {
