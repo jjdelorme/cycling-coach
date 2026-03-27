@@ -111,12 +111,31 @@ export function useUpdateWorkoutNotes() {
     },
   })
 }
+export function useDeleteWorkout() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.deleteWorkout(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar-week-plans'] })
+      qc.invalidateQueries({ queryKey: ['week-plan'] })
+      qc.invalidateQueries({ queryKey: ['weekly-overview'] })
+    },
+  })
+}
 
 // Coaching
 export function useSendChat() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ message, session_id }: { message: string; session_id?: string }) =>
       api.sendChat(message, session_id),
+    onSuccess: () => {
+      // Refresh calendar/plan data in case the coach modified workouts
+      qc.invalidateQueries({ queryKey: ['calendar-week-plans'] })
+      qc.invalidateQueries({ queryKey: ['week-plan'] })
+      qc.invalidateQueries({ queryKey: ['weekly-overview'] })
+      qc.invalidateQueries({ queryKey: ['macro-plan'] })
+    },
   })
 }
 export function useSessions() {

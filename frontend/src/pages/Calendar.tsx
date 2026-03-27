@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useRides } from '../hooks/useApi'
+import { useRides, useDeleteWorkout } from '../hooks/useApi'
 import { fetchWeekPlan } from '../lib/api'
 import { fmtDuration, fmtDistance } from '../lib/format'
 import { useUnits } from '../lib/units'
@@ -67,6 +67,7 @@ function getWeekMondays(calendarDays: Date[]): string[] {
 
 export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
   const units = useUnits()
+  const deleteWorkout = useDeleteWorkout()
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
@@ -84,10 +85,10 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
   const gridStart = toDateStr(calendarDays[0])
   const gridEnd = toDateStr(calendarDays[calendarDays.length - 1])
 
-  const { data: rides } = useRides({ start_date: gridStart, end_date: gridEnd, limit: 500 })
+  const { data: rides, isLoading: ridesLoading } = useRides({ start_date: gridStart, end_date: gridEnd, limit: 500 })
 
   // Fetch week plans for every Monday visible on the grid, then merge
-  const { data: weekPlans, refetch } = useQuery({
+  const { data: weekPlans, isLoading: plansLoading, refetch } = useQuery({
     queryKey: ['calendar-week-plans', weekMondays],
     queryFn: async () => {
       const results = await Promise.all(weekMondays.map((m) => fetchWeekPlan(m)))
@@ -190,6 +191,13 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
           &rarr;
         </button>
       </div>
+
+      {/* Loading spinner */}
+      {(ridesLoading || plansLoading) && (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-border border-t-accent" />
+        </div>
+      )}
 
       {/* Calendar grid */}
       <div className="grid grid-cols-7 gap-px bg-border rounded overflow-hidden">
@@ -337,14 +345,24 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
                 <h4 className="text-text-muted text-xs uppercase tracking-wide">
                   Planned: {w.name ?? 'Workout'}
                 </h4>
-                {w.id && (
-                  <button
-                    onClick={() => onWorkoutSelect(w.id, selectedDay!)}
-                    className="text-xs text-accent hover:underline"
-                  >
-                    View Details &rarr;
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {w.id && (
+                    <button
+                      onClick={() => onWorkoutSelect(w.id, selectedDay!)}
+                      className="text-xs text-accent hover:underline"
+                    >
+                      View Details &rarr;
+                    </button>
+                  )}
+                  {w.id && (
+                    <button
+                      onClick={() => { if (confirm(`Delete "${w.name ?? 'Workout'}"?`)) deleteWorkout.mutate(w.id) }}
+                      className="text-xs text-red hover:underline"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {w.total_duration_s != null && (

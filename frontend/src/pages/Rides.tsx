@@ -43,7 +43,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
 
   // Extract date from ride for workout lookup, or use selectedDate
   const rideDate = ride?.date?.slice(0, 10) ?? selectedDate
-  const { data: plannedWorkout } = useWorkoutByDate(rideDate)
+  const { data: plannedWorkout, isLoading: workoutLoading } = useWorkoutByDate(rideDate)
 
   // Sync post_ride_comments into local state when ride loads
   useEffect(() => {
@@ -209,7 +209,11 @@ export default function Rides({ initialRideId, initialDate }: Props) {
           </div>
         </div>
 
-        {rideLoading && <p className="text-text-muted">Loading ride...</p>}
+        {(rideLoading || workoutLoading) && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-border border-t-accent" />
+          </div>
+        )}
 
         {isRideView && ride && (
           <>
@@ -410,7 +414,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
         )}
 
         {/* Loading state for date-only navigation */}
-        {selectedDate && !isRideView && !isWorkoutOnly && !rideLoading && (
+        {selectedDate && !isRideView && !isWorkoutOnly && !rideLoading && !workoutLoading && (
           <p className="text-text-muted text-sm">No ride or workout found for {selectedDate}.</p>
         )}
       </div>

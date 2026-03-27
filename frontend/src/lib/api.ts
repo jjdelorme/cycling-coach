@@ -125,6 +125,8 @@ export const fetchWorkoutByDate = (date: string) => get<WorkoutDetail | null>(`/
 export const fetchWorkoutDetail = (id: number) => get<WorkoutDetail>(`/api/plan/workouts/${id}`)
 export const updateWorkoutNotes = (id: number, body: { athlete_notes?: string | null }) =>
   put<{ status: string }>(`/api/plan/workouts/${id}/notes`, body)
+export const deleteWorkout = (id: number) =>
+  request<{ status: string }>(`/api/plan/workouts/${id}`, { method: 'DELETE' })
 
 // Coaching
 export const sendChat = (message: string, session_id?: string) =>

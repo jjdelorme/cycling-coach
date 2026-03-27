@@ -430,6 +430,17 @@ def _zone_label(pct: float) -> str:
         return "Z6 Anaerobic"
 
 
+@router.delete("/workouts/{workout_id}")
+def delete_workout(workout_id: int, user: CurrentUser = Depends(require_write)):
+    """Delete a planned workout."""
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM planned_workouts WHERE id = ?", (workout_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        conn.execute("DELETE FROM planned_workouts WHERE id = ?", (workout_id,))
+    return {"status": "ok"}
+
+
 @router.get("/workouts/by-date/{date}")
 def get_workout_by_date(date: str, user: CurrentUser = Depends(require_read)):
     """Get parsed workout steps for a given date (for ride overlay)."""
