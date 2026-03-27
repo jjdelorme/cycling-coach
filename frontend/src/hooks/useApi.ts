@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as api from '../lib/api'
+import { useAuth } from '../lib/auth'
 
 // Rides
 export function useRides(params?: Parameters<typeof api.fetchRides>[0]) {
@@ -124,7 +125,8 @@ export function useSessions() {
 
 // Settings
 export function useSettings() {
-  return useQuery({ queryKey: ['settings'], queryFn: api.fetchSettings })
+  const { isAuthenticated } = useAuth()
+  return useQuery({ queryKey: ['settings'], queryFn: api.fetchSettings, enabled: isAuthenticated })
 }
 export function useUpdateSetting() {
   const qc = useQueryClient()
