@@ -1,14 +1,28 @@
 """FastAPI application entry point."""
 
+import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete, admin
 from server.database import init_db
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 
 def _read_version() -> str:
@@ -44,6 +58,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        t0 = time.monotonic()
+        response = await call_next(request)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        path = request.url.path
+        if not path.startswith("/assets/"):
+            logger.info("%s %s %d %.0fms", request.method, path, response.status_code, elapsed_ms)
+        return response
+
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(rides.router)
 app.include_router(pmc.router)

@@ -47,8 +47,38 @@ export interface RideRecord {
   temperature?: number
 }
 
+export interface RideLap {
+  lap_index: number
+  start_time?: string
+  total_timer_time?: number
+  total_elapsed_time?: number
+  total_distance?: number
+  avg_power?: number
+  normalized_power?: number
+  max_power?: number
+  avg_hr?: number
+  max_hr?: number
+  avg_cadence?: number
+  max_cadence?: number
+  avg_speed?: number
+  max_speed?: number
+  total_ascent?: number
+  total_descent?: number
+  total_calories?: number
+  total_work?: number
+  intensity?: string
+  lap_trigger?: string
+  wkt_step_index?: number
+  start_lat?: number
+  start_lon?: number
+  end_lat?: number
+  end_lon?: number
+  avg_temperature?: number
+}
+
 export interface RideDetail extends RideSummary {
   records: RideRecord[]
+  laps: RideLap[]
 }
 
 export interface PMCEntry {

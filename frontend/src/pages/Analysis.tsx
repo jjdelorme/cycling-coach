@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { usePowerCurve, useEfficiency, useZones, useFTPHistory, useMacroPlan, useWeeklyOverview } from '../hooks/useApi'
+import { usePowerCurve, useEfficiency, useZones, useFTPHistory, useMacroPlan, useWeeklyOverview, useAthleteSettings } from '../hooks/useApi'
 import { useChartColors } from '../lib/theme'
 import { fmtWeight } from '../lib/format'
 import {
@@ -539,8 +539,31 @@ function EfficiencyChart({ dateRange }: { dateRange: DateRange }) {
   )
 }
 
+const ZONE_INFO: Record<string, { label: string; pctLow: number; pctHigh: number }> = {
+  z0: { label: 'Coasting', pctLow: 0, pctHigh: 0 },
+  z1: { label: 'Active Recovery', pctLow: 0, pctHigh: 0.55 },
+  z2: { label: 'Endurance', pctLow: 0.55, pctHigh: 0.75 },
+  z3: { label: 'Tempo', pctLow: 0.75, pctHigh: 0.90 },
+  z4: { label: 'Threshold', pctLow: 0.90, pctHigh: 1.05 },
+  z5: { label: 'VO2max', pctLow: 1.05, pctHigh: 1.20 },
+  z6: { label: 'Anaerobic', pctLow: 1.20, pctHigh: Infinity },
+}
+
+function zoneWattRange(zone: string, ftp: number): string {
+  const info = ZONE_INFO[zone.toLowerCase()]
+  if (!info || !ftp) return ''
+  if (zone.toLowerCase() === 'z0') return '0w'
+  if (info.pctHigh === Infinity) return `>${Math.round(ftp * info.pctLow)}w`
+  return `${Math.round(ftp * info.pctLow)}-${Math.round(ftp * info.pctHigh)}w`
+}
+
+function zoneName(zone: string): string {
+  return ZONE_INFO[zone.toLowerCase()]?.label || zone
+}
+
 function ZonesChart({ dateRange }: { dateRange: DateRange }) {
   const { data, isLoading, error } = useZones(dateRange)
+  const { data: athleteSettings } = useAthleteSettings()
   const cc = useChartColors()
 
   if (isLoading) return <p className="text-text-muted">Loading zones...</p>
@@ -548,10 +571,15 @@ function ZonesChart({ dateRange }: { dateRange: DateRange }) {
   if (!data || data.length === 0)
     return <p className="text-text-muted">No zone data available.</p>
 
+  const ftp = parseInt(athleteSettings?.ftp || '0', 10)
   const colors = data.map((d) => ZONE_COLORS[d.zone] || '#888')
 
   const chartData = {
-    labels: data.map((d) => d.zone),
+    labels: data.map((d) => {
+      const label = zoneName(d.zone)
+      const range = ftp ? zoneWattRange(d.zone, ftp) : ''
+      return range ? `${d.zone.toUpperCase()} ${label} (${range})` : `${d.zone.toUpperCase()} ${label}`
+    }),
     datasets: [
       {
         data: data.map((d) => d.percentage),
@@ -574,7 +602,7 @@ function ZonesChart({ dateRange }: { dateRange: DateRange }) {
         callbacks: {
           label: (ctx: { dataIndex: number }) => {
             const z = data[ctx.dataIndex]
-            return `${z.zone}: ${z.percentage.toFixed(1)}% (${z.hours.toFixed(1)}h)`
+            return `${z.percentage.toFixed(1)}% (${z.hours.toFixed(1)}h)`
           },
         },
       },
@@ -588,11 +616,15 @@ function ZonesChart({ dateRange }: { dateRange: DateRange }) {
       <div className="h-80 flex items-center justify-center">
         <Doughnut data={chartData} options={options} />
       </div>
-      <div className="mt-6 overflow-x-auto">
+      {ftp > 0 && (
+        <p className="text-xs text-text-muted text-center mt-2">Power zones based on FTP: {ftp}w</p>
+      )}
+      <div className="mt-4 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-text-muted">
               <th className="text-left py-2 px-3">Zone</th>
+              <th className="text-left py-2 px-3">Range</th>
               <th className="text-right py-2 px-3">Hours</th>
               <th className="text-right py-2 px-3">Percentage</th>
             </tr>
@@ -605,7 +637,10 @@ function ZonesChart({ dateRange }: { dateRange: DateRange }) {
                     className="inline-block w-3 h-3 rounded-full"
                     style={{ backgroundColor: ZONE_COLORS[z.zone] || '#888' }}
                   />
-                  {z.zone}
+                  {z.zone.toUpperCase()} {zoneName(z.zone)}
+                </td>
+                <td className="py-2 px-3 text-text-muted">
+                  {ftp ? zoneWattRange(z.zone, ftp) : '-'}
                 </td>
                 <td className="text-right py-2 px-3">{z.hours.toFixed(1)}h</td>
                 <td className="text-right py-2 px-3">{z.percentage.toFixed(1)}%</td>
@@ -613,6 +648,7 @@ function ZonesChart({ dateRange }: { dateRange: DateRange }) {
             ))}
             <tr className="font-semibold text-text">
               <td className="py-2 px-3">Total</td>
+              <td></td>
               <td className="text-right py-2 px-3">{totalHours.toFixed(1)}h</td>
               <td className="text-right py-2 px-3">100%</td>
             </tr>

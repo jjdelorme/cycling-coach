@@ -1,6 +1,8 @@
 """Data ingestion: reads ride JSON files and ZWO workouts into PostgreSQL."""
 
+import bisect
 import json
+import logging
 import os
 import hashlib
 import xml.etree.ElementTree as ET
@@ -9,11 +11,22 @@ from collections import defaultdict
 
 from server.database import init_db, get_db
 
+logger = logging.getLogger(__name__)
+
 DATA_DIR = os.environ.get("COACH_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "data"))
 RIDES_DIR = os.path.join(DATA_DIR, "rides")
 WORKOUTS_DIR = os.path.join(DATA_DIR, "planned_workouts")
 
 POWER_BEST_DURATIONS = [5, 30, 60, 300, 1200, 3600]  # seconds
+
+
+def _semicircles_to_degrees(val):
+    """Convert Garmin semicircle coordinates to decimal degrees, or return None."""
+    if val is None:
+        return None
+    if abs(val) > 180:
+        return val * (180 / 2**31)
+    return val
 
 
 def file_hash(filepath):
@@ -44,7 +57,7 @@ def parse_ride_json(filepath):
 
     start_time = session.get("start_time", session.get("timestamp", ""))
     if not start_time or not session.get("total_timer_time"):
-        return None, None, None
+        return None, None, None, None
 
     ftp = session.get("threshold_power", 0) or 0
     avg_power = session.get("avg_power", 0) or 0
@@ -65,13 +78,8 @@ def parse_ride_json(filepath):
     best_60min = compute_rolling_best(powers, 3600) if powers else None
 
     # GPS start position
-    start_lat = session.get("start_position_lat")
-    start_lon = session.get("start_position_long")
-    # Garmin stores lat/lon as semicircles, convert if very large
-    if start_lat and abs(start_lat) > 180:
-        start_lat = start_lat * (180 / 2**31)
-    if start_lon and abs(start_lon) > 180:
-        start_lon = start_lon * (180 / 2**31)
+    start_lat = _semicircles_to_degrees(session.get("start_position_lat"))
+    start_lon = _semicircles_to_degrees(session.get("start_position_long"))
 
     ride = {
         "date": start_time[:10] if len(start_time) >= 10 else start_time,
@@ -121,12 +129,8 @@ def parse_ride_json(filepath):
     # Build record rows
     record_rows = []
     for r in records:
-        lat = r.get("position_lat")
-        lon = r.get("position_long")
-        if lat and abs(lat) > 180:
-            lat = lat * (180 / 2**31)
-        if lon and abs(lon) > 180:
-            lon = lon * (180 / 2**31)
+        lat = _semicircles_to_degrees(r.get("position_lat"))
+        lon = _semicircles_to_degrees(r.get("position_long"))
         record_rows.append({
             "timestamp": r.get("timestamp", ""),
             "power": r.get("power"),
@@ -147,7 +151,46 @@ def parse_ride_json(filepath):
         if best and best > 0:
             power_bests.append({"duration_s": dur, "power": best})
 
-    return ride, record_rows, power_bests
+    # Extract lap data
+    laps = data.get("lap", [])
+    lap_rows = []
+    for lap in laps:
+        intensity = lap.get("intensity")
+        if not isinstance(intensity, str):
+            intensity = None
+        lap_trigger = lap.get("lap_trigger")
+        if not isinstance(lap_trigger, str):
+            lap_trigger = None
+        lap_rows.append({
+            "lap_index": lap.get("message_index", len(lap_rows)),
+            "start_time": lap.get("start_time", ""),
+            "total_timer_time": lap.get("total_timer_time"),
+            "total_elapsed_time": lap.get("total_elapsed_time"),
+            "total_distance": lap.get("total_distance"),
+            "avg_power": lap.get("avg_power"),
+            "normalized_power": lap.get("normalized_power"),
+            "max_power": lap.get("max_power"),
+            "avg_hr": lap.get("avg_heart_rate"),
+            "max_hr": lap.get("max_heart_rate"),
+            "avg_cadence": lap.get("avg_cadence"),
+            "max_cadence": lap.get("max_cadence"),
+            "avg_speed": lap.get("enhanced_avg_speed"),
+            "max_speed": lap.get("enhanced_max_speed"),
+            "total_ascent": lap.get("total_ascent"),
+            "total_descent": lap.get("total_descent"),
+            "total_calories": lap.get("total_calories"),
+            "total_work": lap.get("total_work"),
+            "intensity": intensity,
+            "lap_trigger": lap_trigger,
+            "wkt_step_index": lap.get("wkt_step_index"),
+            "start_lat": _semicircles_to_degrees(lap.get("start_position_lat")),
+            "start_lon": _semicircles_to_degrees(lap.get("start_position_long")),
+            "end_lat": _semicircles_to_degrees(lap.get("end_position_lat")),
+            "end_lon": _semicircles_to_degrees(lap.get("end_position_long")),
+            "avg_temperature": lap.get("avg_temperature"),
+        })
+
+    return ride, record_rows, power_bests, lap_rows
 
 
 def parse_zwo(filepath):
@@ -247,12 +290,19 @@ def backfill_hr_tss(conn):
             conn.execute("UPDATE rides SET tss = ? WHERE id = ?", (hr_tss, r["id"]))
             updated += 1
 
-    print(f"Backfilled hrTSS for {updated} rides (of {len(rows)} without TSS)")
+    logger.info("Backfilled hrTSS for %d rides (of %d without TSS)", updated, len(rows))
     return updated
 
 
-def compute_daily_pmc(conn):
-    """Compute CTL/ATL/TSB for every day from first ride to today."""
+def compute_daily_pmc(conn, since_date: str | None = None):
+    """Compute CTL/ATL/TSB for every day from first ride (or since_date) to today.
+
+    Args:
+        conn: Database connection.
+        since_date: Optional YYYY-MM-DD string. If provided, carry forward
+            CTL/ATL from the previous day and only recompute from this date.
+            Falls back to full recompute if no previous day data exists.
+    """
     cursor = conn.execute(
         "SELECT date, SUM(tss) as total_tss FROM rides WHERE tss > 0 GROUP BY date ORDER BY date"
     )
@@ -261,16 +311,44 @@ def compute_daily_pmc(conn):
     if not daily_tss:
         return
 
-    # Also include dates with zero TSS
+    # Prefetch all weight data (eliminates N+1 queries)
+    weight_rows = conn.execute(
+        "SELECT date, weight FROM rides WHERE weight IS NOT NULL ORDER BY date"
+    ).fetchall()
+    weight_dates = [r["date"] for r in weight_rows]
+    weight_values = [r["weight"] for r in weight_rows]
+
+    def _lookup_weight(ds: str):
+        """O(log n) weight lookup using bisect."""
+        if not weight_dates:
+            return None
+        idx = bisect.bisect_right(weight_dates, ds) - 1
+        return weight_values[idx] if idx >= 0 else None
+
     all_ride_dates = list(daily_tss.keys())
-    start = datetime.fromisoformat(min(all_ride_dates))
     end = datetime.today()
 
     ctl = 0.0
     atl = 0.0
-    day = start
 
-    conn.execute("DELETE FROM daily_metrics")
+    # Determine start point
+    if since_date:
+        prev_day = (datetime.fromisoformat(since_date) - timedelta(days=1)).strftime("%Y-%m-%d")
+        prev = conn.execute(
+            "SELECT ctl, atl FROM daily_metrics WHERE date = ?", (prev_day,)
+        ).fetchone()
+        if prev:
+            ctl = prev["ctl"]
+            atl = prev["atl"]
+            start = datetime.fromisoformat(since_date)
+        else:
+            # No previous data — fall back to full recompute
+            start = datetime.fromisoformat(min(all_ride_dates))
+    else:
+        start = datetime.fromisoformat(min(all_ride_dates))
+
+    day = start
+    pmc_rows = []
 
     while day <= end:
         ds = day.strftime("%Y-%m-%d")
@@ -278,19 +356,19 @@ def compute_daily_pmc(conn):
         ctl = ctl + (tss - ctl) / 42
         atl = atl + (tss - atl) / 7
         tsb = ctl - atl
+        weight = _lookup_weight(ds)
 
-        # Get weight from nearest ride
-        weight_row = conn.execute(
-            "SELECT weight FROM rides WHERE date <= ? AND weight IS NOT NULL ORDER BY date DESC LIMIT 1",
-            (ds,),
-        ).fetchone()
-        weight = weight_row["weight"] if weight_row else None
-
-        conn.execute(
-            "INSERT INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (date) DO UPDATE SET total_tss = EXCLUDED.total_tss, ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb, weight = EXCLUDED.weight",
-            (ds, round(tss, 1), round(ctl, 1), round(atl, 1), round(tsb, 1), weight),
-        )
+        pmc_rows.append((ds, round(tss, 1), round(ctl, 1), round(atl, 1), round(tsb, 1), weight))
         day += timedelta(days=1)
+
+    # Batch upsert all rows
+    conn.executemany(
+        "INSERT INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (date) DO UPDATE SET "
+        "total_tss = EXCLUDED.total_tss, ctl = EXCLUDED.ctl, "
+        "atl = EXCLUDED.atl, tsb = EXCLUDED.tsb, weight = EXCLUDED.weight",
+        pmc_rows,
+    )
 
 
 def seed_periodization(conn):
@@ -316,7 +394,7 @@ def seed_periodization(conn):
 def ingest_rides(conn, rides_dir=None):
     rides_dir = rides_dir or RIDES_DIR
     if not os.path.isdir(rides_dir):
-        print(f"Rides directory not found: {rides_dir}")
+        logger.warning("Rides directory not found: %s", rides_dir)
         return 0
 
     # Get already-ingested filenames
@@ -333,7 +411,7 @@ def ingest_rides(conn, rides_dir=None):
             continue
 
         filepath = os.path.join(rides_dir, fname)
-        ride, records, power_bests = parse_ride_json(filepath)
+        ride, records, power_bests, laps = parse_ride_json(filepath)
 
         if ride is None:
             continue
@@ -378,15 +456,72 @@ def ingest_rides(conn, rides_dir=None):
                 [(ride_id, ride["date"], pb["duration_s"], pb["power"]) for pb in power_bests],
             )
 
+        # Insert laps
+        if laps:
+            conn.executemany(
+                """INSERT INTO ride_laps (ride_id, lap_index, start_time, total_timer_time,
+                   total_elapsed_time, total_distance, avg_power, normalized_power, max_power,
+                   avg_hr, max_hr, avg_cadence, max_cadence, avg_speed, max_speed,
+                   total_ascent, total_descent, total_calories, total_work,
+                   intensity, lap_trigger, wkt_step_index,
+                   start_lat, start_lon, end_lat, end_lon, avg_temperature)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [(ride_id, l["lap_index"], l["start_time"], l["total_timer_time"],
+                  l["total_elapsed_time"], l["total_distance"], l["avg_power"], l["normalized_power"], l["max_power"],
+                  l["avg_hr"], l["max_hr"], l["avg_cadence"], l["max_cadence"], l["avg_speed"], l["max_speed"],
+                  l["total_ascent"], l["total_descent"], l["total_calories"], l["total_work"],
+                  l["intensity"], l["lap_trigger"], l["wkt_step_index"],
+                  l["start_lat"], l["start_lon"], l["end_lat"], l["end_lon"], l["avg_temperature"])
+                 for l in laps],
+            )
+
         ingested += 1
 
     return ingested
 
 
+def backfill_laps(conn, rides_dir=None):
+    """Backfill lap data for rides ingested before lap support."""
+    rides_dir = rides_dir or RIDES_DIR
+    rides_with_laps = set(
+        r["ride_id"] for r in conn.execute("SELECT DISTINCT ride_id FROM ride_laps").fetchall()
+    )
+    all_rides = conn.execute("SELECT id, filename FROM rides").fetchall()
+    backfilled = 0
+    for ride_row in all_rides:
+        if ride_row["id"] in rides_with_laps:
+            continue
+        filepath = os.path.join(rides_dir, ride_row["filename"])
+        if not os.path.exists(filepath):
+            continue
+        _ride, _records, _power_bests, laps = parse_ride_json(filepath)
+        if not laps:
+            continue
+        conn.executemany(
+            """INSERT INTO ride_laps (ride_id, lap_index, start_time, total_timer_time,
+               total_elapsed_time, total_distance, avg_power, normalized_power, max_power,
+               avg_hr, max_hr, avg_cadence, max_cadence, avg_speed, max_speed,
+               total_ascent, total_descent, total_calories, total_work,
+               intensity, lap_trigger, wkt_step_index,
+               start_lat, start_lon, end_lat, end_lon, avg_temperature)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [(ride_row["id"], l["lap_index"], l["start_time"], l["total_timer_time"],
+              l["total_elapsed_time"], l["total_distance"], l["avg_power"], l["normalized_power"], l["max_power"],
+              l["avg_hr"], l["max_hr"], l["avg_cadence"], l["max_cadence"], l["avg_speed"], l["max_speed"],
+              l["total_ascent"], l["total_descent"], l["total_calories"], l["total_work"],
+              l["intensity"], l["lap_trigger"], l["wkt_step_index"],
+              l["start_lat"], l["start_lon"], l["end_lat"], l["end_lon"], l["avg_temperature"])
+             for l in laps],
+        )
+        backfilled += 1
+    logger.info("Backfilled laps for %d rides", backfilled)
+    return backfilled
+
+
 def ingest_workouts(conn, workouts_dir=None):
     workouts_dir = workouts_dir or WORKOUTS_DIR
     if not os.path.isdir(workouts_dir):
-        print(f"Workouts directory not found: {workouts_dir}")
+        logger.warning("Workouts directory not found: %s", workouts_dir)
         return 0
 
     # Check if we already have workouts
@@ -417,24 +552,27 @@ def ingest_workouts(conn, workouts_dir=None):
 def run_ingestion():
     """Full ingestion pipeline."""
     init_db()
-    print(f"Database: {os.environ.get('DATABASE_URL', 'localhost')}")
+    logger.info("Database: %s", os.environ.get("DATABASE_URL", "localhost"))
 
     with get_db() as conn:
-        print("Ingesting rides...")
+        logger.info("Ingesting rides...")
         ride_count = ingest_rides(conn)
-        print(f"  Ingested {ride_count} new rides")
+        logger.info("Ingested %d new rides", ride_count)
 
-        print("Ingesting planned workouts...")
+        logger.info("Ingesting planned workouts...")
         workout_count = ingest_workouts(conn)
-        print(f"  Ingested {workout_count} planned workouts")
+        logger.info("Ingested %d planned workouts", workout_count)
 
-        print("Backfilling hrTSS for rides without power...")
+        logger.info("Backfilling laps...")
+        backfill_laps(conn)
+
+        logger.info("Backfilling hrTSS for rides without power...")
         backfill_hr_tss(conn)
 
-        print("Computing PMC (CTL/ATL/TSB)...")
+        logger.info("Computing PMC (CTL/ATL/TSB)...")
         compute_daily_pmc(conn)
 
-        print("Seeding periodization phases...")
+        logger.info("Seeding periodization phases...")
         seed_periodization(conn)
 
         # Summary
@@ -443,11 +581,8 @@ def run_ingestion():
         total_workouts = conn.execute("SELECT COUNT(*) as cnt FROM planned_workouts").fetchone()["cnt"]
         total_pmc = conn.execute("SELECT COUNT(*) as cnt FROM daily_metrics").fetchone()["cnt"]
 
-        print(f"\nDatabase summary:")
-        print(f"  Rides: {total_rides}")
-        print(f"  Records: {total_records}")
-        print(f"  Planned workouts: {total_workouts}")
-        print(f"  Daily PMC entries: {total_pmc}")
+        logger.info("Database summary: Rides=%d Records=%d Workouts=%d PMC=%d",
+                     total_rides, total_records, total_workouts, total_pmc)
 
 
 if __name__ == "__main__":

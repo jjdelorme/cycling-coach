@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional
 
 from server.auth import CurrentUser, require_read
-from server.database import get_db
+from server.database import get_db, get_athlete_setting
 from server.models.schemas import PowerBestEntry
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -161,7 +161,9 @@ def efficiency_factor(
 
 @router.get("/ftp-history")
 def ftp_history(user: CurrentUser = Depends(require_read)):
-    """FTP progression over time."""
+    """FTP progression over time, including current athlete setting."""
+    from datetime import datetime
+
     with get_db() as conn:
         rows = conn.execute("""
             SELECT m.month, m.max_ftp as ftp,
@@ -170,7 +172,7 @@ def ftp_history(user: CurrentUser = Depends(require_read)):
             ORDER BY m.month
         """).fetchall()
 
-    return [
+    result = [
         {
             "month": r["month"],
             "ftp": r["ftp"],
@@ -179,6 +181,35 @@ def ftp_history(user: CurrentUser = Depends(require_read)):
         }
         for r in rows
     ]
+
+    # Append current athlete_settings FTP if it differs from the latest ride-based entry
+    try:
+        current_ftp = int(get_athlete_setting("ftp") or 0)
+    except (ValueError, TypeError):
+        current_ftp = 0
+    if current_ftp > 0:
+        current_month = datetime.now().strftime("%Y-%m")
+        last_entry_ftp = result[-1]["ftp"] if result else 0
+        last_entry_month = result[-1]["month"] if result else ""
+        if current_ftp != last_entry_ftp or current_month != last_entry_month:
+            try:
+                weight = float(get_athlete_setting("weight_kg") or 0)
+            except (ValueError, TypeError):
+                weight = 0
+            entry = {
+                "month": current_month,
+                "ftp": current_ftp,
+                "weight": weight if weight > 0 else None,
+                "w_per_kg": round(current_ftp / weight, 2) if weight > 0 else None,
+                "source": "athlete_setting",
+            }
+            # Replace existing entry for the same month, or append
+            if result and last_entry_month == current_month:
+                result[-1] = entry
+            else:
+                result.append(entry)
+
+    return result
 
 
 @router.get("/route-matches")

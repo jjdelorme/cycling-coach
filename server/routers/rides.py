@@ -6,7 +6,7 @@ from typing import Optional
 
 from server.auth import CurrentUser, require_read, require_write
 from server.database import get_db
-from server.models.schemas import RideSummary, RideDetail, RideRecord, WeeklySummary, MonthlySummary
+from server.models.schemas import RideSummary, RideDetail, RideRecord, RideLap, WeeklySummary, MonthlySummary
 
 
 class RideCommentsUpdate(BaseModel):
@@ -151,9 +151,15 @@ def get_ride(ride_id: int, user: CurrentUser = Depends(require_read)):
             (ride_id,),
         ).fetchall()
 
+        laps = conn.execute(
+            "SELECT * FROM ride_laps WHERE ride_id = ? ORDER BY lap_index",
+            (ride_id,),
+        ).fetchall()
+
     return RideDetail(
         **dict(ride),
         records=[RideRecord(**dict(r)) for r in records],
+        laps=[RideLap(**{k: v for k, v in dict(l).items() if k not in ("id", "ride_id")}) for l in laps],
     )
 
 

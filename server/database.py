@@ -1,11 +1,16 @@
 """Database setup and connection management for PostgreSQL."""
 
+import logging
 import os
 import re
+import time
 import psycopg2
 import psycopg2.extras
 from contextlib import contextmanager
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+SLOW_QUERY_MS = int(os.environ.get("SLOW_QUERY_MS", "100"))
 
 load_dotenv()
 
@@ -69,6 +74,39 @@ CREATE TABLE IF NOT EXISTS ride_records (
     lon REAL,
     temperature REAL
 );
+
+CREATE TABLE IF NOT EXISTS ride_laps (
+    id SERIAL PRIMARY KEY,
+    ride_id INTEGER NOT NULL REFERENCES rides(id),
+    lap_index INTEGER NOT NULL,
+    start_time TEXT,
+    total_timer_time REAL,
+    total_elapsed_time REAL,
+    total_distance REAL,
+    avg_power INTEGER,
+    normalized_power INTEGER,
+    max_power INTEGER,
+    avg_hr INTEGER,
+    max_hr INTEGER,
+    avg_cadence INTEGER,
+    max_cadence INTEGER,
+    avg_speed REAL,
+    max_speed REAL,
+    total_ascent INTEGER,
+    total_descent INTEGER,
+    total_calories INTEGER,
+    total_work INTEGER,
+    intensity TEXT,
+    lap_trigger TEXT,
+    wkt_step_index INTEGER,
+    start_lat REAL,
+    start_lon REAL,
+    end_lat REAL,
+    end_lon REAL,
+    avg_temperature REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ride_laps_ride_id ON ride_laps(ride_id);
 
 CREATE TABLE IF NOT EXISTS planned_workouts (
     id SERIAL PRIMARY KEY,
@@ -229,14 +267,24 @@ class _DbConnection:
         return sql
 
     def execute(self, sql, params=None):
-        sql = self._adapt_sql(sql)
-        self._cursor.execute(sql, params)
+        adapted = self._adapt_sql(sql)
+        t0 = time.monotonic()
+        self._cursor.execute(adapted, params)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        if elapsed_ms >= SLOW_QUERY_MS:
+            sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
+            logger.warning("Slow query (%.1fms): %s", elapsed_ms, sql_preview)
         return self._cursor
 
-    def executemany(self, sql, params_list):
-        sql = self._adapt_sql(sql)
-        for params in params_list:
-            self._cursor.execute(sql, params)
+    def executemany(self, sql, params_list, page_size=1000):
+        adapted = self._adapt_sql(sql)
+        t0 = time.monotonic()
+        psycopg2.extras.execute_batch(self._cursor, adapted, params_list, page_size=page_size)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        if elapsed_ms >= SLOW_QUERY_MS:
+            sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
+            logger.warning("Slow executemany (%.1fms, %d rows): %s",
+                           elapsed_ms, len(params_list), sql_preview)
         return self._cursor
 
     def commit(self):
@@ -275,7 +323,11 @@ DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
 - Consider the athlete's age and recovery needs
 - Always relate advice back to the athlete's goals and target events
 - If asked about the plan, check the periodization status tool
-- Keep responses concise - this athlete wants coaching, not lectures"""
+- Keep responses concise - this athlete wants coaching, not lectures
+- When analyzing a specific ride, use get_ride_analysis first for the computed summary, then get_ride_segments to see how the ride progressed over time
+- Use get_ride_records_window to drill into specific intervals (use start_offset_s from best efforts)
+- Use get_power_curve with date ranges to compare fitness across training blocks
+- When power data is unavailable (has_power = false), focus on HR zones, HR drift, and perceived effort"""
 
 DEFAULT_PLAN_MANAGEMENT = """- CRITICAL: When you recommend changing, swapping, or adjusting a workout, you MUST call replace_workout to persist the change to the database. Never just verbally recommend a different workout without updating the plan. The calendar and all other views read from the database — if you don't call the tool, your advice will contradict what the athlete sees everywhere else.
 - You can generate weekly training plans using generate_weekly_plan
@@ -299,8 +351,10 @@ DEFAULT_PLAN_MANAGEMENT = """- CRITICAL: When you recommend changing, swapping, 
 - After any plan changes, summarize what you did and show the updated schedule
 - You can sync planned workouts to Garmin via intervals.icu using sync_workouts_to_garmin
 - When asked to sync, you can sync by date, by workout name, or sync all remaining workouts this week
+- After generating or replacing workouts, ALWAYS call set_workout_coach_notes for each workout with personalized pre-ride coaching notes. Think like a real coach: terrain advice (e.g. "find a 15-20 min climb for these intervals"), indoor/outdoor guidance, RPE cues, cadence targets, what to focus on mentally, how the workout fits the week's goals, recovery reminders. Make notes specific and actionable, not generic.
 - After generating a weekly plan, offer to sync the workouts to Garmin
-- You can update the athlete profile and coaching settings using update_coach_settings when the athlete tells you about changes (new FTP, new goals, weight changes, etc.)"""
+- You can update the athlete profile and coaching settings using update_coach_settings when the athlete tells you about changes (new FTP, new goals, weight changes, etc.)
+- IMPORTANT: When the athlete reports a new FTP, weight, or heart rate value, ALWAYS call update_athlete_setting to persist the numeric value. This ensures workout power targets, zone calculations, and FTP history are updated correctly. Call both update_coach_settings (for the text profile) AND update_athlete_setting (for the structured value)."""
 
 SETTINGS_DEFAULTS = {
     "athlete_profile": DEFAULT_ATHLETE_PROFILE,
@@ -407,7 +461,15 @@ def init_db():
             cur.execute(stmt)
     conn.commit()
     _seed_workout_templates(conn)
-    cur.close()
+    # Migrations: add sync tracking columns to planned_workouts
+    for col, col_type in [("icu_event_id", "INTEGER"), ("sync_hash", "TEXT"), ("synced_at", "TEXT")]:
+        try:
+            cur = conn.cursor()
+            cur.execute(f"ALTER TABLE planned_workouts ADD COLUMN {col} {col_type}")
+            conn.commit()
+            cur.close()
+        except Exception:
+            conn.rollback()
     conn.close()
 
 

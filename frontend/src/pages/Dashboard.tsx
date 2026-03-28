@@ -84,6 +84,40 @@ export default function Dashboard({ onRideSelect }: Props) {
     return map
   }, [plannedWeeks])
 
+  // Find next upcoming workout (today or later)
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+
+  const nextWorkout = useMemo(() => {
+    if (!plannedWeeks) return null
+    const upcoming: { date: string; name: string; duration_s: number; tss: number; notes?: string }[] = []
+    for (const wp of plannedWeeks) {
+      for (const w of wp.planned) {
+        if (w.date && w.date >= today) {
+          upcoming.push({
+            date: w.date,
+            name: w.name || 'Workout',
+            duration_s: w.total_duration_s || 0,
+            tss: Number(w.planned_tss || 0),
+            notes: w.coach_notes || undefined,
+          })
+        }
+      }
+    }
+    upcoming.sort((a, b) => a.date.localeCompare(b.date))
+    return upcoming[0] || null
+  }, [plannedWeeks, today])
+
+  // Find latest ride: today's ride, or yesterday's if none today
+  const latestRide = useMemo(() => {
+    if (!rides || rides.length === 0) return null
+    const todayRide = rides.find((r) => r.date === today)
+    if (todayRide) return { ...todayRide, isToday: true }
+    const yesterdayRide = rides.find((r) => r.date === yesterday)
+    if (yesterdayRide) return { ...yesterdayRide, isToday: false }
+    return { ...rides[0], isToday: false }
+  }, [rides, today, yesterday])
+
   if (pmcLoading || ridesLoading || weeklyLoading || plannedLoading) {
     return <div className="p-6 text-text-muted">Loading...</div>
   }
@@ -191,6 +225,99 @@ export default function Dashboard({ onRideSelect }: Props) {
             <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Next Workout + Latest Ride tiles */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Next Workout */}
+        <div className="bg-surface rounded-lg border border-border p-4">
+          <h2 className="text-sm font-medium text-text-muted mb-2">Next Workout</h2>
+          {nextWorkout ? (
+            <div>
+              <div className="flex items-baseline justify-between">
+                <p className="text-lg font-semibold text-text">{nextWorkout.name}</p>
+                <span className="text-sm text-text-muted">
+                  {nextWorkout.date === today ? 'Today' : new Date(nextWorkout.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </span>
+              </div>
+              <div className="flex gap-4 mt-1 text-sm">
+                {nextWorkout.duration_s > 0 && (
+                  <span className="text-blue">{fmtDuration(nextWorkout.duration_s)}</span>
+                )}
+                {nextWorkout.tss > 0 && (
+                  <span className="text-accent">{Math.round(nextWorkout.tss)} TSS</span>
+                )}
+              </div>
+              {nextWorkout.notes && (
+                <p className="mt-2 text-xs text-text-muted line-clamp-2">{nextWorkout.notes}</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-text-muted text-sm">No upcoming workouts planned</p>
+          )}
+        </div>
+
+        {/* Latest Ride */}
+        <div className="bg-surface rounded-lg border border-border p-4">
+          <h2 className="text-sm font-medium text-text-muted mb-2">
+            {latestRide?.isToday ? "Today's Ride" : 'Last Ride'}
+          </h2>
+          {latestRide ? (
+            <div
+              className="cursor-pointer hover:bg-surface2 -m-4 p-4 rounded-lg transition-colors"
+              onClick={() => onRideSelect?.(latestRide.id)}
+            >
+              <div className="flex items-baseline justify-between">
+                <p className="text-lg font-semibold text-text">
+                  {latestRide.title || latestRide.sub_sport || latestRide.sport || 'Ride'}
+                </p>
+                <span className="text-sm text-text-muted">
+                  {latestRide.isToday ? 'Today' : latestRide.date === yesterday ? 'Yesterday' : latestRide.date}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-3 mt-2 text-sm">
+                <div>
+                  <span className="text-text-muted text-xs block">Duration</span>
+                  <span className="text-text">{fmtDuration(latestRide.duration_s)}</span>
+                </div>
+                <div>
+                  <span className="text-text-muted text-xs block">TSS</span>
+                  <span className="text-accent">{latestRide.tss?.toFixed(0) ?? '--'}</span>
+                </div>
+                <div>
+                  <span className="text-text-muted text-xs block">Avg Power</span>
+                  <span className="text-blue">{latestRide.avg_power ? `${latestRide.avg_power}w` : '--'}</span>
+                </div>
+                <div>
+                  <span className="text-text-muted text-xs block">Distance</span>
+                  <span className="text-text">{fmtDistance(latestRide.distance_m, units)}</span>
+                </div>
+              </div>
+              {(latestRide.normalized_power || latestRide.avg_hr) && (
+                <div className="grid grid-cols-4 gap-3 mt-1 text-sm">
+                  <div>
+                    <span className="text-text-muted text-xs block">NP</span>
+                    <span className="text-text">{latestRide.normalized_power ? `${latestRide.normalized_power}w` : '--'}</span>
+                  </div>
+                  <div>
+                    <span className="text-text-muted text-xs block">Avg HR</span>
+                    <span className="text-red">{latestRide.avg_hr ? `${latestRide.avg_hr}bpm` : '--'}</span>
+                  </div>
+                  <div>
+                    <span className="text-text-muted text-xs block">Elevation</span>
+                    <span className="text-text">{latestRide.total_ascent ? `${latestRide.total_ascent}m` : '--'}</span>
+                  </div>
+                  <div>
+                    <span className="text-text-muted text-xs block">IF</span>
+                    <span className="text-text">{latestRide.intensity_factor?.toFixed(2) ?? '--'}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-text-muted text-sm">No recent rides</p>
+          )}
+        </div>
       </div>
 
       {/* PMC + Volume Charts — side by side on desktop */}

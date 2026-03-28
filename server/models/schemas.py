@@ -53,8 +53,38 @@ class RideRecord(BaseModel):
     temperature: Optional[float] = None
 
 
+class RideLap(BaseModel):
+    lap_index: int
+    start_time: Optional[str] = None
+    total_timer_time: Optional[float] = None
+    total_elapsed_time: Optional[float] = None
+    total_distance: Optional[float] = None
+    avg_power: Optional[int] = None
+    normalized_power: Optional[int] = None
+    max_power: Optional[int] = None
+    avg_hr: Optional[int] = None
+    max_hr: Optional[int] = None
+    avg_cadence: Optional[int] = None
+    max_cadence: Optional[int] = None
+    avg_speed: Optional[float] = None
+    max_speed: Optional[float] = None
+    total_ascent: Optional[int] = None
+    total_descent: Optional[int] = None
+    total_calories: Optional[int] = None
+    total_work: Optional[int] = None
+    intensity: Optional[str] = None
+    lap_trigger: Optional[str] = None
+    wkt_step_index: Optional[int] = None
+    start_lat: Optional[float] = None
+    start_lon: Optional[float] = None
+    end_lat: Optional[float] = None
+    end_lon: Optional[float] = None
+    avg_temperature: Optional[float] = None
+
+
 class RideDetail(RideSummary):
     records: list[RideRecord] = []
+    laps: list[RideLap] = []
 
 
 class PMCEntry(BaseModel):

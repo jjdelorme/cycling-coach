@@ -11,6 +11,7 @@ from server.auth import CurrentUser, require_read, require_write
 
 from server.services.sync import (
     _store_streams,
+    backfill_laps_from_icu,
     get_sync_history,
     get_sync_overview,
     get_sync_status,
@@ -114,6 +115,16 @@ async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200), user:
         "total_missing": len(rows),
         "errors": errors[:10] if errors else None,
     }
+
+
+@router.post("/backfill-laps")
+async def backfill_laps(user: CurrentUser = Depends(require_write)):
+    """Backfill lap/interval data from intervals.icu for rides missing laps."""
+    if not is_configured():
+        raise HTTPException(status_code=400, detail="intervals.icu not configured")
+
+    result = await asyncio.to_thread(backfill_laps_from_icu)
+    return result
 
 
 @router.websocket("/ws/{sync_id}")

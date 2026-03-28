@@ -1,5 +1,6 @@
 """intervals.icu API integration for syncing workouts and downloading rides."""
 
+import hashlib
 import logging
 from datetime import datetime, timedelta
 import httpx
@@ -9,6 +10,12 @@ from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://intervals.icu"
+
+
+def compute_sync_hash(name: str, date: str, zwo_xml: str, moving_time_secs: int = 0) -> str:
+    """Compute a hash for deduplication of workout syncs."""
+    content = f"{date}|{name}|{moving_time_secs}|{zwo_xml}"
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 def _get_credentials() -> tuple[str, str]:
@@ -30,13 +37,16 @@ def push_workout(
     zwo_xml: str,
     description: str = "",
     moving_time_secs: int = 0,
+    icu_event_id: int | None = None,
 ) -> dict:
-    """Push a planned workout to intervals.icu calendar."""
+    """Push a planned workout to intervals.icu calendar.
+
+    If icu_event_id is provided, updates the existing event (PUT).
+    Otherwise creates a new event (POST).
+    """
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
         return {"error": "intervals.icu not configured. Set API key and Athlete ID in Settings."}
-
-    url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events"
 
     payload = {
         "category": "WORKOUT",
@@ -50,15 +60,18 @@ def push_workout(
     if moving_time_secs > 0:
         payload["moving_time"] = moving_time_secs
 
-    resp = httpx.post(
-        url,
-        json=payload,
-        auth=("API_KEY", api_key),
-        timeout=15.0,
-    )
+    if icu_event_id:
+        # Update existing event
+        url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events/{icu_event_id}"
+        resp = httpx.put(url, json=payload, auth=("API_KEY", api_key), timeout=15.0)
+    else:
+        # Create new event
+        url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events"
+        resp = httpx.post(url, json=payload, auth=("API_KEY", api_key), timeout=15.0)
 
     if resp.status_code in (200, 201):
-        return {"status": "success", "event": resp.json()}
+        event_data = resp.json()
+        return {"status": "success", "event_id": event_data.get("id"), "event": event_data}
     else:
         logger.error("intervals.icu sync failed: status=%s body=%s", resp.status_code, resp.text[:500])
         return {
@@ -106,6 +119,22 @@ def push_workouts_bulk(workouts: list[dict]) -> dict:
             "code": resp.status_code,
             "message": resp.text[:500],
         }
+
+
+def delete_event(event_id: int) -> dict:
+    """Delete an event from intervals.icu calendar."""
+    api_key, athlete_id = _get_credentials()
+    if not (api_key and athlete_id):
+        return {"status": "error", "message": "intervals.icu not configured"}
+
+    url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events/{event_id}"
+    resp = httpx.delete(url, auth=("API_KEY", api_key), timeout=15.0)
+
+    if resp.status_code in (200, 204):
+        return {"status": "success"}
+    else:
+        logger.warning("Failed to delete event %d: status=%s", event_id, resp.status_code)
+        return {"status": "error", "code": resp.status_code, "message": resp.text[:500]}
 
 
 def fetch_activities(oldest: str | None = None, newest: str | None = None) -> list[dict]:
@@ -161,6 +190,84 @@ def fetch_activity_streams(activity_id: str) -> dict:
         return {}
 
     return resp.json()
+
+
+def fetch_activity_intervals(activity_id: str) -> list[dict]:
+    """Fetch lap/interval data for an activity from intervals.icu.
+
+    Returns list of interval dicts with power, HR, cadence, etc.
+    """
+    api_key, athlete_id = _get_credentials()
+    if not (api_key and athlete_id):
+        raise RuntimeError("intervals.icu not configured")
+
+    url = f"{BASE_URL}/api/v1/activity/{activity_id}/intervals"
+
+    resp = httpx.get(url, auth=("API_KEY", api_key), timeout=30.0)
+
+    if resp.status_code != 200:
+        logger.error("Failed to fetch intervals for %s: status=%s", activity_id, resp.status_code)
+        return []
+
+    data = resp.json()
+    # API returns {"icu_intervals": [...], ...}
+    if isinstance(data, dict):
+        return data.get("icu_intervals", [])
+    return data if isinstance(data, list) else []
+
+
+def map_intervals_to_laps(intervals: list[dict]) -> list[dict]:
+    """Map intervals.icu interval data to our ride_laps schema."""
+    laps = []
+    for i, iv in enumerate(intervals):
+        # intervals.icu uses type field: "RECOVERY", "WORK", "ACTIVE", etc.
+        iv_type = (iv.get("type") or "").upper()
+
+        # Map type to intensity
+        if iv_type in ("REST", "RECOVERY"):
+            intensity = "rest"
+        elif iv_type in ("WORK", "SPRINT", "ACTIVE"):
+            intensity = "active"
+        else:
+            intensity = "active" if iv.get("average_watts") else None
+
+        # Map type to lap_trigger
+        lap_trigger = iv_type.lower() if iv_type else None
+
+        # avg_cadence from icu is a float, round it
+        avg_cad = iv.get("average_cadence")
+        if avg_cad is not None:
+            avg_cad = round(avg_cad)
+
+        laps.append({
+            "lap_index": i,
+            "start_time": None,  # icu intervals use start_index (seconds), not timestamps
+            "total_timer_time": iv.get("moving_time"),
+            "total_elapsed_time": iv.get("elapsed_time"),
+            "total_distance": iv.get("distance"),
+            "avg_power": iv.get("average_watts"),
+            "normalized_power": iv.get("weighted_average_watts"),
+            "max_power": iv.get("max_watts"),
+            "avg_hr": iv.get("average_heartrate"),
+            "max_hr": iv.get("max_heartrate"),
+            "avg_cadence": avg_cad,
+            "max_cadence": iv.get("max_cadence"),
+            "avg_speed": iv.get("average_speed"),
+            "max_speed": iv.get("max_speed"),
+            "total_ascent": iv.get("total_elevation_gain"),
+            "total_descent": None,
+            "total_calories": None,
+            "total_work": iv.get("joules"),
+            "intensity": intensity,
+            "lap_trigger": lap_trigger,
+            "wkt_step_index": None,
+            "start_lat": None,
+            "start_lon": None,
+            "end_lat": None,
+            "end_lon": None,
+            "avg_temperature": iv.get("average_temp"),
+        })
+    return laps
 
 
 def map_activity_to_ride(activity: dict) -> dict | None:
