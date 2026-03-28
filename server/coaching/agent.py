@@ -19,6 +19,10 @@ from server.coaching.tools import (
     get_training_summary,
     get_ftp_history,
     get_periodization_status,
+    get_ride_analysis,
+    get_ride_segments,
+    get_ride_records_window,
+    get_power_curve,
 )
 from server.coaching.planning_tools import (
     replan_missed_day,
@@ -124,6 +128,10 @@ def _get_agent():
         get_training_summary,
         get_ftp_history,
         get_periodization_status,
+        get_ride_analysis,
+        get_ride_segments,
+        get_ride_records_window,
+        get_power_curve,
         get_week_summary,
         list_workout_templates,
         preload_memory_tool,

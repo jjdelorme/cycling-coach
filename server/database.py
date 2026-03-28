@@ -323,7 +323,11 @@ DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
 - Consider the athlete's age and recovery needs
 - Always relate advice back to the athlete's goals and target events
 - If asked about the plan, check the periodization status tool
-- Keep responses concise - this athlete wants coaching, not lectures"""
+- Keep responses concise - this athlete wants coaching, not lectures
+- When analyzing a specific ride, use get_ride_analysis first for the computed summary, then get_ride_segments to see how the ride progressed over time
+- Use get_ride_records_window to drill into specific intervals (use start_offset_s from best efforts)
+- Use get_power_curve with date ranges to compare fitness across training blocks
+- When power data is unavailable (has_power = false), focus on HR zones, HR drift, and perceived effort"""
 
 DEFAULT_PLAN_MANAGEMENT = """- CRITICAL: When you recommend changing, swapping, or adjusting a workout, you MUST call replace_workout to persist the change to the database. Never just verbally recommend a different workout without updating the plan. The calendar and all other views read from the database — if you don't call the tool, your advice will contradict what the athlete sees everywhere else.
 - You can generate weekly training plans using generate_weekly_plan
