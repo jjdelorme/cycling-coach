@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import CoachPanel from './CoachPanel'
 import UserAvatar from './UserAvatar'
 import { useTheme } from '../lib/theme'
+import { useAuth } from '../lib/auth'
 
 const tabs = [
   { key: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -10,7 +11,7 @@ const tabs = [
   { key: 'analysis', label: 'Analysis', icon: '📈' },
 ] as const
 
-export type TabKey = (typeof tabs)[number]['key'] | 'settings'
+export type TabKey = (typeof tabs)[number]['key'] | 'settings' | 'admin'
 
 export interface ViewContext {
   tab: TabKey
@@ -29,6 +30,8 @@ interface LayoutProps {
 export default function Layout({ activeTab, onTabChange, viewContext, children }: LayoutProps) {
   const [coachOpen, setCoachOpen] = useState(false)
   const { theme, toggle: toggleTheme } = useTheme()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
 
   return (
     <div className="flex h-screen h-[100dvh] flex-col">
@@ -68,6 +71,19 @@ export default function Layout({ activeTab, onTabChange, viewContext, children }
           >
             {theme === 'dark' ? '☀️' : '🌙'}
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => onTabChange('admin')}
+              className={`p-1.5 rounded-md text-sm transition-colors ${
+                activeTab === 'admin'
+                  ? 'text-accent'
+                  : 'text-text-muted hover:text-text hover:bg-surface2/50'
+              }`}
+              title="User Management"
+            >
+              👥
+            </button>
+          )}
           <button
             onClick={() => onTabChange('settings')}
             className={`p-1.5 rounded-md text-sm transition-colors ${
@@ -116,6 +132,17 @@ export default function Layout({ activeTab, onTabChange, viewContext, children }
           <span className="text-lg">💬</span>
           <span>Coach</span>
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => { onTabChange('admin'); setCoachOpen(false) }}
+            className={`flex-1 flex flex-col items-center py-2 text-xs ${
+              activeTab === 'admin' && !coachOpen ? 'text-accent' : 'text-text-muted'
+            }`}
+          >
+            <span className="text-lg">👥</span>
+            <span>Users</span>
+          </button>
+        )}
         <button
           onClick={() => { onTabChange('settings'); setCoachOpen(false) }}
           className={`flex-1 flex flex-col items-center py-2 text-xs ${

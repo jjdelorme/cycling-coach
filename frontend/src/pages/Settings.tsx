@@ -3,9 +3,7 @@ import { useSettings, useUpdateSetting, useResetSettings, useSyncOverview, useAt
 import { startSync, fetchSyncStatus, fetchVersion } from '../lib/api'
 import { timeAgo } from '../lib/format'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
-import UserManagement from '../components/UserManagement'
 
 const SETTING_CARDS: { key: string; title: string; hint: string }[] = [
   {
@@ -31,7 +29,6 @@ const SETTING_CARDS: { key: string; title: string; hint: string }[] = [
 ]
 
 export default function Settings() {
-  const { user } = useAuth()
   const { theme, toggle: toggleTheme } = useTheme()
   const { data: settings, isLoading } = useSettings()
   const { data: syncOverview } = useSyncOverview()
@@ -597,9 +594,6 @@ export default function Settings() {
           </div>
         </div>
       </section>
-
-      {/* User Management (admin only) */}
-      {user?.role === 'admin' && <UserManagement />}
 
       {/* Save / Reset */}
       <div className="flex items-center gap-3">

@@ -3,6 +3,7 @@ import { fetchUsers, createUser, updateUserRole, deleteUser, type UserRecord } f
 import { useAuth } from '../lib/auth'
 
 const ROLE_OPTIONS = [
+  { value: 'none', label: 'None' },
   { value: 'read', label: 'Read' },
   { value: 'readwrite', label: 'Read/Write' },
   { value: 'admin', label: 'Admin' },

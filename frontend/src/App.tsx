@@ -7,6 +7,7 @@ import Rides from './pages/Rides'
 import Calendar from './pages/Calendar'
 import Analysis from './pages/Analysis'
 import Settings from './pages/Settings'
+import Admin from './pages/Admin'
 
 export default function App() {
   const { user, isAuthenticated, isLoading } = useAuth()
@@ -54,6 +55,7 @@ export default function App() {
       )}
       {tab === 'analysis' && <Analysis />}
       {tab === 'settings' && <Settings />}
+      {tab === 'admin' && <Admin />}
     </Layout>
   )
 }

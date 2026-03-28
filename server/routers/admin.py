@@ -65,8 +65,8 @@ class UserCreate(BaseModel):
 
 @router.post("/admin/users")
 async def create_user(body: UserCreate, user: CurrentUser = Depends(require_admin)):
-    if body.role not in ("read", "readwrite", "admin"):
-        raise HTTPException(status_code=400, detail="Role must be read, readwrite, or admin")
+    if body.role not in ("none", "read", "readwrite", "admin"):
+        raise HTTPException(status_code=400, detail="Role must be none, read, readwrite, or admin")
 
     with get_db() as conn:
         existing = conn.execute("SELECT email FROM users WHERE email = %s", (body.email,)).fetchone()
@@ -85,8 +85,8 @@ class UserUpdate(BaseModel):
 
 @router.put("/admin/users/{email}")
 async def update_user(email: str, body: UserUpdate, user: CurrentUser = Depends(require_admin)):
-    if body.role not in ("read", "readwrite", "admin"):
-        raise HTTPException(status_code=400, detail="Role must be read, readwrite, or admin")
+    if body.role not in ("none", "read", "readwrite", "admin"):
+        raise HTTPException(status_code=400, detail="Role must be none, read, readwrite, or admin")
     if email == user.email:
         raise HTTPException(status_code=400, detail="Cannot change your own role")
 
