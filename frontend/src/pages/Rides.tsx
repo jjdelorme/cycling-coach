@@ -1010,7 +1010,7 @@ function RideTimelineChart({ records, workout, highlightedStep }: {
 
 /** Laps table for multi-lap rides */
 function LapsTable({ laps }: { laps: RideLap[] }) {
-  const { fmtDist, fmtElev } = useUnits()
+  const units = useUnits()
 
   const formatLapDuration = (s?: number) => {
     if (!s) return '-'
@@ -1046,7 +1046,7 @@ function LapsTable({ laps }: { laps: RideLap[] }) {
                 >
                   <td className="py-1.5 px-2 text-text-muted">{lap.lap_index + 1}</td>
                   <td className="py-1.5 px-2 text-text">{formatLapDuration(lap.total_timer_time)}</td>
-                  <td className="py-1.5 px-2 text-text">{lap.total_distance ? fmtDist(lap.total_distance) : '-'}</td>
+                  <td className="py-1.5 px-2 text-text">{lap.total_distance ? fmtDistance(lap.total_distance, units) : '-'}</td>
                   <td className="py-1.5 px-2 text-text">{lap.avg_power ?? '-'}{lap.avg_power ? 'w' : ''}</td>
                   <td className="py-1.5 px-2 text-text">{lap.normalized_power ?? '-'}{lap.normalized_power ? 'w' : ''}</td>
                   <td className="py-1.5 px-2 text-text">{lap.avg_hr ?? '-'}{lap.avg_hr ? 'bpm' : ''}</td>
