@@ -7,9 +7,24 @@ from typing import Optional
 from pydantic import BaseModel
 
 from server.auth import CurrentUser, require_read, require_write
-from server.database import get_db
+from server.database import get_db, get_athlete_setting
 from server.models.schemas import PlannedWorkout, PeriodizationPhase
 from server.services.workout_generator import generate_zwo, list_templates, get_template
+
+
+def _get_current_ftp() -> int:
+    """Get current FTP: prefer athlete_settings, fall back to latest ride."""
+    try:
+        val = int(get_athlete_setting("ftp") or 0)
+        if val > 0:
+            return val
+    except (ValueError, TypeError):
+        pass
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+    return row["ftp"] if row else 261
 
 router = APIRouter(prefix="/api/plan", tags=["plan"])
 
@@ -240,9 +255,7 @@ def get_template_detail(template_id: int, user: CurrentUser = Depends(require_re
     raw_steps = json.loads(t["steps"])
 
     # Get FTP for absolute watts
-    with get_db() as conn:
-        ftp_row = conn.execute("SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1").fetchone()
-    ftp = ftp_row["ftp"] if ftp_row else 261
+    ftp = _get_current_ftp()
 
     # Generate ZWO XML from template, then parse into viewer-compatible steps
     xml_str, _ = generate_zwo(t["key"], duration_minutes=60, ftp=ftp)
@@ -476,11 +489,7 @@ def get_workout_by_date(date: str, user: CurrentUser = Depends(require_read)):
 
     workout = dict(row)
 
-    with get_db() as conn:
-        ftp_row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-    ftp = ftp_row["ftp"] if ftp_row else 261
+    ftp = _get_current_ftp()
 
     steps = []
     if workout.get("workout_xml"):
@@ -514,11 +523,7 @@ def get_workout_detail(workout_id: int, user: CurrentUser = Depends(require_read
     workout = dict(row)
 
     # Get FTP for absolute watts
-    with get_db() as conn:
-        ftp_row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-    ftp = ftp_row["ftp"] if ftp_row else 261
+    ftp = _get_current_ftp()
 
     steps = []
     if workout.get("workout_xml"):
