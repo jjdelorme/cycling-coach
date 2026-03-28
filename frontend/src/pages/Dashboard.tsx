@@ -84,16 +84,17 @@ export default function Dashboard({ onRideSelect }: Props) {
     return map
   }, [plannedWeeks])
 
-  // Find next upcoming workout (today or later)
+  // Find next upcoming workout (today if no ride yet, otherwise tomorrow+)
   const today = new Date().toISOString().slice(0, 10)
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const rodeTodayAlready = rides?.some((r) => r.date === today) ?? false
 
   const nextWorkout = useMemo(() => {
     if (!plannedWeeks) return null
     const upcoming: { date: string; name: string; duration_s: number; tss: number; notes?: string }[] = []
     for (const wp of plannedWeeks) {
       for (const w of wp.planned) {
-        if (w.date && w.date >= today) {
+        if (w.date && (rodeTodayAlready ? w.date > today : w.date >= today)) {
           upcoming.push({
             date: w.date,
             name: w.name || 'Workout',
@@ -106,7 +107,7 @@ export default function Dashboard({ onRideSelect }: Props) {
     }
     upcoming.sort((a, b) => a.date.localeCompare(b.date))
     return upcoming[0] || null
-  }, [plannedWeeks, today])
+  }, [plannedWeeks, today, rodeTodayAlready])
 
   // Find latest ride: today's ride, or yesterday's if none today
   const latestRide = useMemo(() => {
