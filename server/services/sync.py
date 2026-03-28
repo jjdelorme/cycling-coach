@@ -17,10 +17,12 @@ from server.database import get_db
 from server.services.intervals_icu import (
     compute_sync_hash,
     fetch_activities,
+    fetch_activity_intervals,
     fetch_activity_streams,
     fetch_calendar_events,
     is_configured,
     map_activity_to_ride,
+    map_intervals_to_laps,
     push_workout,
 )
 
@@ -257,6 +259,37 @@ def _backfill_start_location(ride_id: int, streams, conn=None):
                 break
 
 
+def _store_laps(ride_id: int, laps: list[dict], conn=None):
+    """Store lap/interval data for a ride."""
+    rows = [
+        (ride_id, l["lap_index"], l["start_time"], l["total_timer_time"],
+         l["total_elapsed_time"], l["total_distance"], l["avg_power"], l["normalized_power"], l["max_power"],
+         l["avg_hr"], l["max_hr"], l["avg_cadence"], l["max_cadence"], l["avg_speed"], l["max_speed"],
+         l["total_ascent"], l["total_descent"], l["total_calories"], l["total_work"],
+         l["intensity"], l["lap_trigger"], l["wkt_step_index"],
+         l["start_lat"], l["start_lon"], l["end_lat"], l["end_lon"], l["avg_temperature"])
+        for l in laps
+    ]
+
+    def _insert(c):
+        c.executemany(
+            """INSERT INTO ride_laps (ride_id, lap_index, start_time, total_timer_time,
+               total_elapsed_time, total_distance, avg_power, normalized_power, max_power,
+               avg_hr, max_hr, avg_cadence, max_cadence, avg_speed, max_speed,
+               total_ascent, total_descent, total_calories, total_work,
+               intensity, lap_trigger, wkt_step_index,
+               start_lat, start_lon, end_lat, end_lon, avg_temperature)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+    if conn:
+        _insert(conn)
+    else:
+        with get_db() as c:
+            _insert(c)
+    logger.info("Stored %d laps for ride %d", len(rows), ride_id)
+
+
 async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int, int, str | None]:
     """Download rides from intervals.icu that we don't already have.
 
@@ -400,6 +433,17 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                 except Exception as se:
                     logger.warning("Could not fetch streams for %s: %s", icu_id, se)
 
+                # Fetch and store lap/interval data
+                try:
+                    intervals = await asyncio.to_thread(fetch_activity_intervals, icu_id)
+                    if intervals:
+                        laps = map_intervals_to_laps(intervals)
+                        if laps:
+                            _store_laps(ride_db_id, laps, conn=conn)
+                            log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride['date']}"))
+                except Exception as le:
+                    logger.warning("Could not fetch intervals for %s: %s", icu_id, le)
+
         except Exception as e:
             err = f"Error inserting ride {ride['filename']}: {e}"
             logger.error(err)
@@ -519,6 +563,36 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
     logger.info("Workout upload completed in %.1fs: %d uploaded, %d skipped",
                 time.monotonic() - t0, uploaded, skipped)
     return uploaded, skipped
+
+
+def backfill_laps_from_icu() -> dict:
+    """Backfill lap data from intervals.icu for rides that don't have laps yet."""
+    with get_db() as conn:
+        rides_with_laps = set(
+            r["ride_id"] for r in conn.execute("SELECT DISTINCT ride_id FROM ride_laps").fetchall()
+        )
+        icu_rides = conn.execute(
+            "SELECT id, filename FROM rides WHERE filename LIKE 'icu_%'"
+        ).fetchall()
+
+    backfilled = 0
+    errors = 0
+    for ride in icu_rides:
+        if ride["id"] in rides_with_laps:
+            continue
+        icu_id = ride["filename"].replace("icu_", "")
+        try:
+            intervals = fetch_activity_intervals(icu_id)
+            if intervals:
+                laps = map_intervals_to_laps(intervals)
+                if laps:
+                    _store_laps(ride["id"], laps)
+                    backfilled += 1
+        except Exception as e:
+            logger.warning("Could not backfill laps for %s: %s", ride["filename"], e)
+            errors += 1
+
+    return {"backfilled": backfilled, "skipped": len(icu_rides) - backfilled - errors, "errors": errors}
 
 
 async def run_sync(sync_id: str | None = None) -> str:

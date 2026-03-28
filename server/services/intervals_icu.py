@@ -192,6 +192,84 @@ def fetch_activity_streams(activity_id: str) -> dict:
     return resp.json()
 
 
+def fetch_activity_intervals(activity_id: str) -> list[dict]:
+    """Fetch lap/interval data for an activity from intervals.icu.
+
+    Returns list of interval dicts with power, HR, cadence, etc.
+    """
+    api_key, athlete_id = _get_credentials()
+    if not (api_key and athlete_id):
+        raise RuntimeError("intervals.icu not configured")
+
+    url = f"{BASE_URL}/api/v1/activity/{activity_id}/intervals"
+
+    resp = httpx.get(url, auth=("API_KEY", api_key), timeout=30.0)
+
+    if resp.status_code != 200:
+        logger.error("Failed to fetch intervals for %s: status=%s", activity_id, resp.status_code)
+        return []
+
+    data = resp.json()
+    # API returns {"icu_intervals": [...], ...}
+    if isinstance(data, dict):
+        return data.get("icu_intervals", [])
+    return data if isinstance(data, list) else []
+
+
+def map_intervals_to_laps(intervals: list[dict]) -> list[dict]:
+    """Map intervals.icu interval data to our ride_laps schema."""
+    laps = []
+    for i, iv in enumerate(intervals):
+        # intervals.icu uses type field: "RECOVERY", "WORK", "ACTIVE", etc.
+        iv_type = (iv.get("type") or "").upper()
+
+        # Map type to intensity
+        if iv_type in ("REST", "RECOVERY"):
+            intensity = "rest"
+        elif iv_type in ("WORK", "SPRINT", "ACTIVE"):
+            intensity = "active"
+        else:
+            intensity = "active" if iv.get("average_watts") else None
+
+        # Map type to lap_trigger
+        lap_trigger = iv_type.lower() if iv_type else None
+
+        # avg_cadence from icu is a float, round it
+        avg_cad = iv.get("average_cadence")
+        if avg_cad is not None:
+            avg_cad = round(avg_cad)
+
+        laps.append({
+            "lap_index": i,
+            "start_time": None,  # icu intervals use start_index (seconds), not timestamps
+            "total_timer_time": iv.get("moving_time"),
+            "total_elapsed_time": iv.get("elapsed_time"),
+            "total_distance": iv.get("distance"),
+            "avg_power": iv.get("average_watts"),
+            "normalized_power": iv.get("weighted_average_watts"),
+            "max_power": iv.get("max_watts"),
+            "avg_hr": iv.get("average_heartrate"),
+            "max_hr": iv.get("max_heartrate"),
+            "avg_cadence": avg_cad,
+            "max_cadence": iv.get("max_cadence"),
+            "avg_speed": iv.get("average_speed"),
+            "max_speed": iv.get("max_speed"),
+            "total_ascent": iv.get("total_elevation_gain"),
+            "total_descent": None,
+            "total_calories": None,
+            "total_work": iv.get("joules"),
+            "intensity": intensity,
+            "lap_trigger": lap_trigger,
+            "wkt_step_index": None,
+            "start_lat": None,
+            "start_lon": None,
+            "end_lat": None,
+            "end_lon": None,
+            "avg_temperature": iv.get("average_temp"),
+        })
+    return laps
+
+
 def map_activity_to_ride(activity: dict) -> dict | None:
     """Map an intervals.icu activity to our rides table schema.
 
