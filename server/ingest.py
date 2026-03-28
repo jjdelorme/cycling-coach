@@ -1,6 +1,7 @@
 """Data ingestion: reads ride JSON files and ZWO workouts into PostgreSQL."""
 
 import json
+import logging
 import os
 import hashlib
 import xml.etree.ElementTree as ET
@@ -8,6 +9,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from server.database import init_db, get_db
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = os.environ.get("COACH_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "data"))
 RIDES_DIR = os.path.join(DATA_DIR, "rides")
@@ -247,7 +250,7 @@ def backfill_hr_tss(conn):
             conn.execute("UPDATE rides SET tss = ? WHERE id = ?", (hr_tss, r["id"]))
             updated += 1
 
-    print(f"Backfilled hrTSS for {updated} rides (of {len(rows)} without TSS)")
+    logger.info("Backfilled hrTSS for %d rides (of %d without TSS)", updated, len(rows))
     return updated
 
 
@@ -316,7 +319,7 @@ def seed_periodization(conn):
 def ingest_rides(conn, rides_dir=None):
     rides_dir = rides_dir or RIDES_DIR
     if not os.path.isdir(rides_dir):
-        print(f"Rides directory not found: {rides_dir}")
+        logger.warning("Rides directory not found: %s", rides_dir)
         return 0
 
     # Get already-ingested filenames
@@ -386,7 +389,7 @@ def ingest_rides(conn, rides_dir=None):
 def ingest_workouts(conn, workouts_dir=None):
     workouts_dir = workouts_dir or WORKOUTS_DIR
     if not os.path.isdir(workouts_dir):
-        print(f"Workouts directory not found: {workouts_dir}")
+        logger.warning("Workouts directory not found: %s", workouts_dir)
         return 0
 
     # Check if we already have workouts
@@ -417,24 +420,24 @@ def ingest_workouts(conn, workouts_dir=None):
 def run_ingestion():
     """Full ingestion pipeline."""
     init_db()
-    print(f"Database: {os.environ.get('DATABASE_URL', 'localhost')}")
+    logger.info("Database: %s", os.environ.get("DATABASE_URL", "localhost"))
 
     with get_db() as conn:
-        print("Ingesting rides...")
+        logger.info("Ingesting rides...")
         ride_count = ingest_rides(conn)
-        print(f"  Ingested {ride_count} new rides")
+        logger.info("Ingested %d new rides", ride_count)
 
-        print("Ingesting planned workouts...")
+        logger.info("Ingesting planned workouts...")
         workout_count = ingest_workouts(conn)
-        print(f"  Ingested {workout_count} planned workouts")
+        logger.info("Ingested %d planned workouts", workout_count)
 
-        print("Backfilling hrTSS for rides without power...")
+        logger.info("Backfilling hrTSS for rides without power...")
         backfill_hr_tss(conn)
 
-        print("Computing PMC (CTL/ATL/TSB)...")
+        logger.info("Computing PMC (CTL/ATL/TSB)...")
         compute_daily_pmc(conn)
 
-        print("Seeding periodization phases...")
+        logger.info("Seeding periodization phases...")
         seed_periodization(conn)
 
         # Summary
@@ -443,11 +446,8 @@ def run_ingestion():
         total_workouts = conn.execute("SELECT COUNT(*) as cnt FROM planned_workouts").fetchone()["cnt"]
         total_pmc = conn.execute("SELECT COUNT(*) as cnt FROM daily_metrics").fetchone()["cnt"]
 
-        print(f"\nDatabase summary:")
-        print(f"  Rides: {total_rides}")
-        print(f"  Records: {total_records}")
-        print(f"  Planned workouts: {total_workouts}")
-        print(f"  Daily PMC entries: {total_pmc}")
+        logger.info("Database summary: Rides=%d Records=%d Workouts=%d PMC=%d",
+                     total_rides, total_records, total_workouts, total_pmc)
 
 
 if __name__ == "__main__":

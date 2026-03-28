@@ -1,11 +1,16 @@
 """Database setup and connection management for PostgreSQL."""
 
+import logging
 import os
 import re
+import time
 import psycopg2
 import psycopg2.extras
 from contextlib import contextmanager
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+SLOW_QUERY_MS = int(os.environ.get("SLOW_QUERY_MS", "100"))
 
 load_dotenv()
 
@@ -229,14 +234,25 @@ class _DbConnection:
         return sql
 
     def execute(self, sql, params=None):
-        sql = self._adapt_sql(sql)
-        self._cursor.execute(sql, params)
+        adapted = self._adapt_sql(sql)
+        t0 = time.monotonic()
+        self._cursor.execute(adapted, params)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        if elapsed_ms >= SLOW_QUERY_MS:
+            sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
+            logger.warning("Slow query (%.1fms): %s", elapsed_ms, sql_preview)
         return self._cursor
 
     def executemany(self, sql, params_list):
-        sql = self._adapt_sql(sql)
+        adapted = self._adapt_sql(sql)
+        t0 = time.monotonic()
         for params in params_list:
-            self._cursor.execute(sql, params)
+            self._cursor.execute(adapted, params)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        if elapsed_ms >= SLOW_QUERY_MS:
+            sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
+            logger.warning("Slow executemany (%.1fms, %d rows): %s",
+                           elapsed_ms, len(params_list), sql_preview)
         return self._cursor
 
     def commit(self):

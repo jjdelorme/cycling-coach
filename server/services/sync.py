@@ -8,6 +8,7 @@
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable
@@ -31,6 +32,11 @@ _subscribers: dict[str, list[asyncio.Queue]] = {}
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _tlog(msg: str) -> str:
+    """Prefix a log line with an ISO timestamp for sync run logs."""
+    return f"[{_now_iso()}] {msg}"
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +229,7 @@ def _backfill_start_location(ride_id: int, streams):
 
 async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]:
     """Download rides from intervals.icu that we don't already have."""
+    t0 = time.monotonic()
     downloaded = 0
     skipped = 0
 
@@ -241,20 +248,20 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
     if oldest > newest:
         msg = "Rides already up to date"
         logger.info(msg)
-        log_lines.append(msg)
+        log_lines.append(_tlog(msg))
         await _broadcast(sync_id, {"phase": "rides", "detail": msg})
         return 0, 0
 
     msg = f"Fetching rides from {oldest} to {newest}"
     logger.info(msg)
-    log_lines.append(msg)
+    log_lines.append(_tlog(msg))
     await _broadcast(sync_id, {"phase": "rides", "detail": msg})
 
     activities = await asyncio.to_thread(fetch_activities, oldest, newest)
 
     msg = f"Found {len(activities)} activities from intervals.icu"
     logger.info(msg)
-    log_lines.append(msg)
+    log_lines.append(_tlog(msg))
     await _broadcast(sync_id, {"phase": "rides", "detail": msg, "total": len(activities)})
 
     # Get existing rides for dedup: by filename AND by (date, distance) fingerprint.
@@ -313,25 +320,26 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
             existing_fingerprints.add(fingerprint)
             detail = f"Downloaded ride: {ride['date']} ({ride.get('sport', 'ride')})"
             logger.info(detail)
-            log_lines.append(detail)
+            log_lines.append(_tlog(detail))
 
             # Fetch and store per-second stream data
             if ride_db_id:
                 icu_id = activity.get("id", "")
                 try:
+                    t_stream = time.monotonic()
                     streams = await asyncio.to_thread(fetch_activity_streams, icu_id)
                     if streams:
                         _store_streams(ride_db_id, streams)
                         # Backfill start_lat/start_lon from stream GPS data
                         _backfill_start_location(ride_db_id, streams)
-                        log_lines.append(f"  + stored stream data for {ride['date']}")
+                        log_lines.append(_tlog(f"  + stored stream data for {ride['date']} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
                 except Exception as se:
                     logger.warning("Could not fetch streams for %s: %s", icu_id, se)
 
         except Exception as e:
             err = f"Error inserting ride {ride['filename']}: {e}"
             logger.error(err)
-            log_lines.append(err)
+            log_lines.append(_tlog(err))
 
         if (i + 1) % 5 == 0 or i == len(activities) - 1:
             await _broadcast(sync_id, {
@@ -345,11 +353,14 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
     if activities:
         set_watermark("rides_newest", newest)
 
+    logger.info("Ride download completed in %.1fs: %d downloaded, %d skipped",
+                time.monotonic() - t0, downloaded, skipped)
     return downloaded, skipped
 
 
 async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int]:
     """Upload planned workouts to intervals.icu that haven't been synced yet."""
+    t0 = time.monotonic()
     uploaded = 0
     skipped = 0
 
@@ -364,7 +375,7 @@ async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int
 
     msg = f"Checking workouts to sync: {start_date} to {end_date}"
     logger.info(msg)
-    log_lines.append(msg)
+    log_lines.append(_tlog(msg))
     await _broadcast(sync_id, {"phase": "workouts", "detail": msg})
 
     # Get our planned workouts with XML
@@ -378,13 +389,13 @@ async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int
     if not local_workouts:
         msg = "No upcoming workouts to sync"
         logger.info(msg)
-        log_lines.append(msg)
+        log_lines.append(_tlog(msg))
         await _broadcast(sync_id, {"phase": "workouts", "detail": msg})
         return 0, 0
 
     msg = f"Found {len(local_workouts)} upcoming planned workouts"
     logger.info(msg)
-    log_lines.append(msg)
+    log_lines.append(_tlog(msg))
 
     # Fetch existing events from intervals.icu to avoid duplicates
     try:
@@ -411,7 +422,7 @@ async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int
             skipped += 1
             detail = f"Skipped (already on intervals.icu): {w_date} {w_name}"
             logger.info(detail)
-            log_lines.append(detail)
+            log_lines.append(_tlog(detail))
             continue
 
         try:
@@ -426,15 +437,15 @@ async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int
                 uploaded += 1
                 detail = f"Uploaded workout: {w_date} {w_name}"
                 logger.info(detail)
-                log_lines.append(detail)
+                log_lines.append(_tlog(detail))
             else:
                 err = f"Failed to upload {w_date} {w_name}: {result.get('message', result.get('error', 'unknown'))}"
                 logger.error(err)
-                log_lines.append(err)
+                log_lines.append(_tlog(err))
         except Exception as e:
             err = f"Error uploading workout {w_date} {w_name}: {e}"
             logger.error(err)
-            log_lines.append(err)
+            log_lines.append(_tlog(err))
 
         if (i + 1) % 3 == 0 or i == len(local_workouts) - 1:
             await _broadcast(sync_id, {
@@ -447,6 +458,8 @@ async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int
     if uploaded > 0:
         set_watermark("workouts_synced_through", end_date)
 
+    logger.info("Workout upload completed in %.1fs: %d uploaded, %d skipped",
+                time.monotonic() - t0, uploaded, skipped)
     return uploaded, skipped
 
 
@@ -465,6 +478,7 @@ async def run_sync(sync_id: str | None = None) -> str:
 
     _active_syncs[sync_id] = {"status": "running", "started_at": _now_iso()}
     _create_sync_run(sync_id)
+    t_sync = time.monotonic()
 
     log_lines: list[str] = []
     errors: list[str] = []
@@ -483,7 +497,7 @@ async def run_sync(sync_id: str | None = None) -> str:
         # Phase 3: Recompute PMC if we downloaded new rides
         if rides_dl > 0:
             msg = "Recomputing daily metrics (PMC)..."
-            log_lines.append(msg)
+            log_lines.append(_tlog(msg))
             await _broadcast(sync_id, {"phase": "pmc", "detail": msg})
             try:
                 from server.ingest import compute_daily_pmc
@@ -491,26 +505,27 @@ async def run_sync(sync_id: str | None = None) -> str:
                     with get_db() as conn:
                         compute_daily_pmc(conn)
                 await asyncio.to_thread(_recompute_pmc)
-                log_lines.append("PMC recomputed successfully")
+                log_lines.append(_tlog("PMC recomputed successfully"))
             except Exception as e:
                 err = f"PMC recomputation failed: {e}"
                 logger.error(err)
-                log_lines.append(err)
+                log_lines.append(_tlog(err))
                 errors.append(err)
 
         status = "completed"
+        total_elapsed = time.monotonic() - t_sync
         summary = (
-            f"Sync complete: {rides_dl} rides downloaded, {rides_skip} skipped, "
+            f"Sync complete in {total_elapsed:.1f}s: {rides_dl} rides downloaded, {rides_skip} skipped, "
             f"{wo_up} workouts uploaded, {wo_skip} skipped"
         )
         logger.info(summary)
-        log_lines.append(summary)
+        log_lines.append(_tlog(summary))
 
     except Exception as e:
         status = "failed"
         err = f"Sync failed: {e}"
         logger.error(err, exc_info=True)
-        log_lines.append(err)
+        log_lines.append(_tlog(err))
         errors.append(str(e))
         rides_dl = rides_skip = wo_up = wo_skip = 0
 
