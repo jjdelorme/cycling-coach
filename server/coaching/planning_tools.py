@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from server.database import get_db, get_setting, set_setting, get_all_settings
 from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates, calculate_planned_tss
-from server.services.intervals_icu import push_workout, is_configured as icu_is_configured
+from server.services.intervals_icu import push_workout, delete_event, compute_sync_hash, is_configured as icu_is_configured
 
 
 def replan_missed_day(missed_date: str, new_target_date: str) -> dict:
@@ -133,7 +133,16 @@ def generate_weekly_plan(start_date: str, focus: str = "base", hours: float = 12
             duration = max(30, round(base_duration * scale))
             date_str = (dt + timedelta(days=day_offset)).strftime("%Y-%m-%d")
 
-            # Remove any existing workout on this date
+            # Remove any existing workout on this date (collect stale event ID)
+            old_row = conn.execute(
+                "SELECT icu_event_id FROM planned_workouts WHERE date = ? AND icu_event_id IS NOT NULL",
+                (date_str,),
+            ).fetchone()
+            if old_row:
+                try:
+                    delete_event(old_row["icu_event_id"])
+                except Exception:
+                    pass
             conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date_str,))
 
             # Generate ZWO
@@ -312,6 +321,13 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
                     return p
             return None
 
+        # Collect stale event IDs before deleting workouts
+        stale_events = conn.execute(
+            "SELECT icu_event_id FROM planned_workouts WHERE date >= ? AND date <= ? AND icu_event_id IS NOT NULL",
+            (start_date, end_date),
+        ).fetchall()
+        stale_event_ids = [r["icu_event_id"] for r in stale_events]
+
         # Delete existing planned workouts in the range
         conn.execute(
             "DELETE FROM planned_workouts WHERE date >= ? AND date <= ?",
@@ -399,6 +415,13 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
 
             dt += timedelta(days=7)
 
+    # Clean up stale events on intervals.icu (best-effort, after DB commit)
+    for eid in stale_event_ids:
+        try:
+            delete_event(eid)
+        except Exception:
+            pass
+
     return {
         "status": "success",
         "start_date": start_date,
@@ -447,9 +470,16 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
     if workout_type == "rest":
         with get_db() as conn:
             deleted = conn.execute(
-                "SELECT name FROM planned_workouts WHERE date = ?", (date,)
+                "SELECT name, icu_event_id FROM planned_workouts WHERE date = ?", (date,)
             ).fetchone()
+            old_event_id = deleted["icu_event_id"] if deleted else None
             conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date,))
+        # Clean up stale event on intervals.icu
+        if old_event_id:
+            try:
+                delete_event(old_event_id)
+            except Exception:
+                pass
         return {
             "status": "success",
             "date": date,
@@ -465,8 +495,9 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
         ftp = ftp_row["ftp"] if ftp_row else 261
 
         previous = conn.execute(
-            "SELECT name FROM planned_workouts WHERE date = ?", (date,)
+            "SELECT name, icu_event_id FROM planned_workouts WHERE date = ?", (date,)
         ).fetchone()
+        old_event_id = previous["icu_event_id"] if previous else None
 
         # Custom mode: agent-designed workout with specific steps
         if steps and name:
@@ -510,6 +541,13 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
             "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (?, ?, ?, ?, ?, ?)",
             (date, workout_name, "bike", duration_minutes * 60, tss, xml_str),
         )
+
+    # Clean up stale event on intervals.icu
+    if old_event_id:
+        try:
+            delete_event(old_event_id)
+        except Exception:
+            pass
 
     return {
         "status": "success",
@@ -597,6 +635,8 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
     if not icu_is_configured():
         return {"status": "error", "message": "intervals.icu is not configured. Cannot sync to Garmin."}
 
+    now_iso = datetime.now().isoformat(timespec="seconds")
+
     with get_db() as conn:
         # Get FTP for the workout
         ftp_row = conn.execute(
@@ -608,12 +648,12 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
             # Sync workout(s) for a specific date
             if workout_name:
                 rows = conn.execute(
-                    "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts WHERE date = ? AND name LIKE ?",
+                    "SELECT id, date, name, workout_xml, total_duration_s, icu_event_id, sync_hash FROM planned_workouts WHERE date = ? AND name LIKE ?",
                     (date, f"%{workout_name}%"),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts WHERE date = ?",
+                    "SELECT id, date, name, workout_xml, total_duration_s, icu_event_id, sync_hash FROM planned_workouts WHERE date = ?",
                     (date,),
                 ).fetchall()
         else:
@@ -623,37 +663,60 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
             end = dt + timedelta(days=(6 - dt.weekday()))
             end_str = end.strftime("%Y-%m-%d")
             rows = conn.execute(
-                "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL",
+                "SELECT id, date, name, workout_xml, total_duration_s, icu_event_id, sync_hash FROM planned_workouts WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL",
                 (today, end_str),
             ).fetchall()
 
-    if not rows:
-        return {"status": "no_workouts", "message": f"No planned workouts with structured data found for the specified criteria."}
+        if not rows:
+            return {"status": "no_workouts", "message": "No planned workouts with structured data found for the specified criteria."}
 
-    synced = []
-    errors = []
-    for row in rows:
-        if not row["workout_xml"]:
-            errors.append({"name": row["name"], "date": row["date"], "error": "No structured workout data (ZWO) available"})
-            continue
+        synced = []
+        skipped = []
+        errors = []
+        for row in rows:
+            row = dict(row)
+            if not row["workout_xml"]:
+                errors.append({"name": row["name"], "date": row["date"], "error": "No structured workout data (ZWO) available"})
+                continue
 
-        result = push_workout(
-            date=row["date"],
-            name=row["name"] or "Workout",
-            zwo_xml=row["workout_xml"],
-            moving_time_secs=int(row["total_duration_s"] or 0),
-        )
+            w_name = row["name"] or "Workout"
+            moving_time = int(row["total_duration_s"] or 0)
+            current_hash = compute_sync_hash(w_name, row["date"], row["workout_xml"], moving_time)
 
-        if result.get("status") == "success":
-            synced.append({"name": row["name"], "date": row["date"]})
-        else:
-            errors.append({"name": row["name"], "date": row["date"], "error": result.get("message", "Unknown error")})
+            # Skip if unchanged
+            if row.get("sync_hash") == current_hash and row.get("icu_event_id"):
+                skipped.append({"name": w_name, "date": row["date"]})
+                continue
+
+            result = push_workout(
+                date=row["date"],
+                name=w_name,
+                zwo_xml=row["workout_xml"],
+                moving_time_secs=moving_time,
+                icu_event_id=row.get("icu_event_id"),
+            )
+
+            if result.get("status") == "success":
+                conn.execute(
+                    "UPDATE planned_workouts SET icu_event_id = ?, sync_hash = ?, synced_at = ? WHERE id = ?",
+                    (result.get("event_id"), current_hash, now_iso, row["id"]),
+                )
+                synced.append({"name": w_name, "date": row["date"]})
+            else:
+                errors.append({"name": w_name, "date": row["date"], "error": result.get("message", "Unknown error")})
+
+    msg = f"Synced {len(synced)} workout(s) to Garmin via intervals.icu"
+    if skipped:
+        msg += f", {len(skipped)} unchanged (skipped)"
+    if errors:
+        msg += f", {len(errors)} failed"
 
     return {
-        "status": "success" if synced else "error",
+        "status": "success" if synced or skipped else "error",
         "synced": synced,
+        "skipped": skipped,
         "errors": errors,
-        "message": f"Synced {len(synced)} workout(s) to Garmin via intervals.icu" + (f", {len(errors)} failed" if errors else ""),
+        "message": msg,
     }
 
 

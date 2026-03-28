@@ -1,5 +1,6 @@
 """intervals.icu API integration for syncing workouts and downloading rides."""
 
+import hashlib
 import logging
 from datetime import datetime, timedelta
 import httpx
@@ -9,6 +10,12 @@ from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://intervals.icu"
+
+
+def compute_sync_hash(name: str, date: str, zwo_xml: str, moving_time_secs: int = 0) -> str:
+    """Compute a hash for deduplication of workout syncs."""
+    content = f"{date}|{name}|{moving_time_secs}|{zwo_xml}"
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 def _get_credentials() -> tuple[str, str]:
@@ -30,13 +37,16 @@ def push_workout(
     zwo_xml: str,
     description: str = "",
     moving_time_secs: int = 0,
+    icu_event_id: int | None = None,
 ) -> dict:
-    """Push a planned workout to intervals.icu calendar."""
+    """Push a planned workout to intervals.icu calendar.
+
+    If icu_event_id is provided, updates the existing event (PUT).
+    Otherwise creates a new event (POST).
+    """
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
         return {"error": "intervals.icu not configured. Set API key and Athlete ID in Settings."}
-
-    url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events"
 
     payload = {
         "category": "WORKOUT",
@@ -50,15 +60,18 @@ def push_workout(
     if moving_time_secs > 0:
         payload["moving_time"] = moving_time_secs
 
-    resp = httpx.post(
-        url,
-        json=payload,
-        auth=("API_KEY", api_key),
-        timeout=15.0,
-    )
+    if icu_event_id:
+        # Update existing event
+        url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events/{icu_event_id}"
+        resp = httpx.put(url, json=payload, auth=("API_KEY", api_key), timeout=15.0)
+    else:
+        # Create new event
+        url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events"
+        resp = httpx.post(url, json=payload, auth=("API_KEY", api_key), timeout=15.0)
 
     if resp.status_code in (200, 201):
-        return {"status": "success", "event": resp.json()}
+        event_data = resp.json()
+        return {"status": "success", "event_id": event_data.get("id"), "event": event_data}
     else:
         logger.error("intervals.icu sync failed: status=%s body=%s", resp.status_code, resp.text[:500])
         return {
@@ -106,6 +119,22 @@ def push_workouts_bulk(workouts: list[dict]) -> dict:
             "code": resp.status_code,
             "message": resp.text[:500],
         }
+
+
+def delete_event(event_id: int) -> dict:
+    """Delete an event from intervals.icu calendar."""
+    api_key, athlete_id = _get_credentials()
+    if not (api_key and athlete_id):
+        return {"status": "error", "message": "intervals.icu not configured"}
+
+    url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/events/{event_id}"
+    resp = httpx.delete(url, auth=("API_KEY", api_key), timeout=15.0)
+
+    if resp.status_code in (200, 204):
+        return {"status": "success"}
+    else:
+        logger.warning("Failed to delete event %d: status=%s", event_id, resp.status_code)
+        return {"status": "error", "code": resp.status_code, "message": resp.text[:500]}
 
 
 def fetch_activities(oldest: str | None = None, newest: str | None = None) -> list[dict]:

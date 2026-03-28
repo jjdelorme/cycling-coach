@@ -15,6 +15,7 @@ from typing import Callable
 
 from server.database import get_db
 from server.services.intervals_icu import (
+    compute_sync_hash,
     fetch_activities,
     fetch_activity_streams,
     fetch_calendar_events,
@@ -441,9 +442,9 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
     log_lines.append(_tlog(msg))
     await _broadcast(sync_id, {"phase": "workouts", "detail": msg})
 
-    # Get our planned workouts with XML
+    # Get our planned workouts with XML and sync tracking columns
     local_workouts = conn.execute(
-        "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts "
+        "SELECT id, date, name, workout_xml, total_duration_s, icu_event_id, sync_hash FROM planned_workouts "
         "WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL ORDER BY date",
         (start_date, end_date),
     ).fetchall()
@@ -459,30 +460,19 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
     logger.info(msg)
     log_lines.append(_tlog(msg))
 
-    # Fetch existing events from intervals.icu to avoid duplicates
-    try:
-        remote_events = await asyncio.to_thread(
-            fetch_calendar_events, start_date, end_date
-        )
-    except Exception as e:
-        logger.warning("Could not fetch remote events for dedup: %s", e)
-        remote_events = []
-
-    # Build set of (date, name) for dedup
-    remote_keys = set()
-    for ev in remote_events:
-        ev_date = (ev.get("start_date_local") or "")[:10]
-        ev_name = ev.get("name", "")
-        remote_keys.add((ev_date, ev_name))
+    now_iso = _now_iso()
 
     for i, w in enumerate(local_workouts):
         w = dict(w)
         w_date = w["date"]
         w_name = w["name"] or "Workout"
+        moving_time = int(w.get("total_duration_s") or 0)
 
-        if (w_date, w_name) in remote_keys:
+        # Hash-based dedup: skip if unchanged and already synced
+        current_hash = compute_sync_hash(w_name, w_date, w["workout_xml"], moving_time)
+        if w.get("sync_hash") == current_hash and w.get("icu_event_id"):
             skipped += 1
-            detail = f"Skipped (already on intervals.icu): {w_date} {w_name}"
+            detail = f"Skipped (unchanged): {w_date} {w_name}"
             logger.info(detail)
             log_lines.append(_tlog(detail))
             continue
@@ -493,10 +483,16 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
                 date=w_date,
                 name=w_name,
                 zwo_xml=w["workout_xml"],
-                moving_time_secs=int(w.get("total_duration_s") or 0),
+                moving_time_secs=moving_time,
+                icu_event_id=w.get("icu_event_id"),
             )
             if result.get("status") == "success":
                 uploaded += 1
+                # Store event_id and hash for future dedup
+                conn.execute(
+                    "UPDATE planned_workouts SET icu_event_id = ?, sync_hash = ?, synced_at = ? WHERE id = ?",
+                    (result.get("event_id"), current_hash, now_iso, w["id"]),
+                )
                 detail = f"Uploaded workout: {w_date} {w_name}"
                 logger.info(detail)
                 log_lines.append(_tlog(detail))

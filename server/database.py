@@ -422,7 +422,15 @@ def init_db():
             cur.execute(stmt)
     conn.commit()
     _seed_workout_templates(conn)
-    cur.close()
+    # Migrations: add sync tracking columns to planned_workouts
+    for col, col_type in [("icu_event_id", "INTEGER"), ("sync_hash", "TEXT"), ("synced_at", "TEXT")]:
+        try:
+            cur = conn.cursor()
+            cur.execute(f"ALTER TABLE planned_workouts ADD COLUMN {col} {col_type}")
+            conn.commit()
+            cur.close()
+        except Exception:
+            conn.rollback()
     conn.close()
 
 

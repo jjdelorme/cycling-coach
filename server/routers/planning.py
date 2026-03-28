@@ -305,26 +305,40 @@ def sync_workout_to_intervals(workout_id: int, user: CurrentUser = Depends(requi
             detail="intervals.icu not configured. Set INTERVALS_ICU_API_KEY and INTERVALS_ICU_ATHLETE_ID environment variables.",
         )
 
+    from server.services.intervals_icu import compute_sync_hash
+    from datetime import datetime
+
     with get_db() as conn:
         row = conn.execute(
-            "SELECT name, date, workout_xml, total_duration_s FROM planned_workouts WHERE id = ?",
+            "SELECT id, name, date, workout_xml, total_duration_s, icu_event_id FROM planned_workouts WHERE id = ?",
             (workout_id,),
         ).fetchone()
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Workout not found")
-    if not row["workout_xml"]:
-        raise HTTPException(status_code=400, detail="No workout file available")
+        if not row:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if not row["workout_xml"]:
+            raise HTTPException(status_code=400, detail="No workout file available")
 
-    result = push_workout(
-        date=row["date"],
-        name=row["name"] or "Workout",
-        zwo_xml=row["workout_xml"],
-        moving_time_secs=int(row["total_duration_s"] or 0),
-    )
+        w_name = row["name"] or "Workout"
+        moving_time = int(row["total_duration_s"] or 0)
 
-    if result.get("error") or result.get("status") == "error":
-        raise HTTPException(status_code=502, detail=result.get("error") or result.get("message", "Sync failed"))
+        result = push_workout(
+            date=row["date"],
+            name=w_name,
+            zwo_xml=row["workout_xml"],
+            moving_time_secs=moving_time,
+            icu_event_id=row.get("icu_event_id"),
+        )
+
+        if result.get("error") or result.get("status") == "error":
+            raise HTTPException(status_code=502, detail=result.get("error") or result.get("message", "Sync failed"))
+
+        # Store event_id and hash
+        current_hash = compute_sync_hash(w_name, row["date"], row["workout_xml"], moving_time)
+        conn.execute(
+            "UPDATE planned_workouts SET icu_event_id = ?, sync_hash = ?, synced_at = ? WHERE id = ?",
+            (result.get("event_id"), current_hash, datetime.now().isoformat(timespec="seconds"), row["id"]),
+        )
 
     return result
 
@@ -434,10 +448,18 @@ def _zone_label(pct: float) -> str:
 def delete_workout(workout_id: int, user: CurrentUser = Depends(require_write)):
     """Delete a planned workout."""
     with get_db() as conn:
-        row = conn.execute("SELECT id FROM planned_workouts WHERE id = ?", (workout_id,)).fetchone()
+        row = conn.execute("SELECT id, icu_event_id FROM planned_workouts WHERE id = ?", (workout_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Workout not found")
+        icu_event_id = row.get("icu_event_id")
         conn.execute("DELETE FROM planned_workouts WHERE id = ?", (workout_id,))
+    # Clean up stale event on intervals.icu
+    if icu_event_id:
+        try:
+            from server.services.intervals_icu import delete_event
+            delete_event(icu_event_id)
+        except Exception:
+            pass
     return {"status": "ok"}
 
 
