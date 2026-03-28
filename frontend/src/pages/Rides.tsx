@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRides, useRide, useUpdateRideComments, useUpdateRideTitle, useWorkoutByDate, useUpdateWorkoutNotes, useSendChat, useActivityDates } from '../hooks/useApi'
 import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, zoneLabel } from '../lib/format'
 import { useUnits } from '../lib/units'
@@ -651,6 +651,35 @@ const stepHighlightPlugin = {
 
 ChartJS.register(stepHighlightPlugin)
 
+/** Store selection state outside Chart.js options to avoid proxy infinite recursion. */
+const selectionDataMap = new WeakMap<ChartJS, {
+  state: 'idle' | 'dragging' | 'locked'
+  startIdx: number | null
+  endIdx: number | null
+}>()
+
+/** Custom Chart.js plugin that draws a selection rectangle overlay. */
+const selectionPlugin = {
+  id: 'selectionHighlight',
+  afterDraw(chart: any) {
+    const sel = selectionDataMap.get(chart)
+    if (!sel || sel.startIdx == null || sel.endIdx == null || sel.state === 'idle') return
+    const { ctx, chartArea, scales } = chart
+    if (!chartArea || !scales?.x) return
+    const x1 = scales.x.getPixelForValue(Math.min(sel.startIdx, sel.endIdx))
+    const x2 = scales.x.getPixelForValue(Math.max(sel.startIdx, sel.endIdx))
+    ctx.save()
+    ctx.fillStyle = 'rgba(0, 212, 170, 0.12)'
+    ctx.fillRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top)
+    ctx.strokeStyle = 'rgba(0, 212, 170, 0.5)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top)
+    ctx.restore()
+  },
+}
+
+ChartJS.register(selectionPlugin)
+
 function RideTimelineChart({ records, workout, highlightedStep }: {
   records: { timestamp_utc?: string; power?: number; heart_rate?: number; cadence?: number }[]
   workout?: WorkoutDetail
@@ -658,9 +687,12 @@ function RideTimelineChart({ records, workout, highlightedStep }: {
 }) {
   const cc = useChartColors()
   const chartRef = useRef<ChartJS<'line'>>(null)
+  const [selectionStats, setSelectionStats] = useState<{
+    duration: number; avgPower: number | null; avgHR: number | null; avgCadence: number | null
+  } | null>(null)
 
   // Build chart data (without highlight-dependent colors)
-  const { chartData, stepIndexMap } = useMemo(() => {
+  const { chartData, stepIndexMap, downsampleStep } = useMemo(() => {
     const maxPoints = 600
     const step = Math.max(1, Math.floor(records.length / maxPoints))
     const sampled = records.filter((_, i) => i % step === 0)
@@ -755,7 +787,7 @@ function RideTimelineChart({ records, workout, highlightedStep }: {
       })
     }
 
-    return { chartData: { labels, datasets }, stepIndexMap: indexMap }
+    return { chartData: { labels, datasets }, stepIndexMap: indexMap, downsampleStep: step }
   }, [records, workout])
 
   // Update highlight data in WeakMap and trigger redraw
@@ -771,6 +803,114 @@ function RideTimelineChart({ records, workout, highlightedStep }: {
     }
     chart.update('none')
   }, [highlightedStep, stepIndexMap, workout?.steps])
+
+  // Compute selection stats from original records array
+  const computeSelectionStats = useCallback((lo: number, hi: number) => {
+    const origStart = lo * downsampleStep
+    const origEnd = Math.min(hi * downsampleStep, records.length - 1)
+    const slice = records.slice(origStart, origEnd + 1)
+    const durationSec = slice.length
+    const powers = slice.map(r => r.power).filter((v): v is number => v != null && v > 0)
+    const hrs = slice.map(r => r.heart_rate).filter((v): v is number => v != null && v > 0)
+    const cadences = slice.map(r => r.cadence).filter((v): v is number => v != null && v > 0)
+    const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
+    setSelectionStats({
+      duration: durationSec,
+      avgPower: avg(powers),
+      avgHR: avg(hrs),
+      avgCadence: avg(cadences),
+    })
+  }, [records, downsampleStep])
+
+  // Selection event listeners on canvas
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const canvas = chart.canvas
+    if (!canvas) return
+
+    // Initialize selection state
+    selectionDataMap.set(chart, { state: 'idle', startIdx: null, endIdx: null })
+    canvas.style.cursor = 'crosshair'
+
+    const dataLength = chartData.labels?.length ?? 0
+
+    function getIndex(e: MouseEvent): number {
+      const rect = canvas.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const xScale = chart!.scales.x
+      const rawIdx = xScale.getValueForPixel(mouseX)
+      return Math.round(Math.max(0, Math.min(rawIdx ?? 0, dataLength - 1)))
+    }
+
+    function onMouseDown(e: MouseEvent) {
+      const sel = selectionDataMap.get(chart!)
+      if (!sel) return
+      // Check if click is inside chart area
+      const rect = canvas.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      const area = chart!.chartArea
+      if (!area || mouseX < area.left || mouseX > area.right || mouseY < area.top || mouseY > area.bottom) return
+
+      if (sel.state === 'locked') {
+        // Clear locked selection
+        selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null })
+        setSelectionStats(null)
+        chart!.draw()
+        return
+      }
+      const idx = getIndex(e)
+      selectionDataMap.set(chart!, { state: 'dragging', startIdx: idx, endIdx: idx })
+      chart!.draw()
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      const sel = selectionDataMap.get(chart!)
+      if (!sel || sel.state !== 'dragging') return
+      const idx = getIndex(e)
+      sel.endIdx = idx
+      chart!.draw()
+    }
+
+    function onMouseUp(_e: MouseEvent) {
+      const sel = selectionDataMap.get(chart!)
+      if (!sel || sel.state !== 'dragging') return
+      if (sel.startIdx != null && sel.endIdx != null && Math.abs(sel.endIdx - sel.startIdx) > 2) {
+        sel.state = 'locked'
+        const lo = Math.min(sel.startIdx, sel.endIdx)
+        const hi = Math.max(sel.startIdx, sel.endIdx)
+        computeSelectionStats(lo, hi)
+      } else {
+        // Too small, clear
+        selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null })
+        setSelectionStats(null)
+      }
+      chart!.draw()
+    }
+
+    function onMouseLeave(_e: MouseEvent) {
+      const sel = selectionDataMap.get(chart!)
+      if (!sel || sel.state !== 'dragging') return
+      selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null })
+      setSelectionStats(null)
+      chart!.draw()
+    }
+
+    canvas.addEventListener('mousedown', onMouseDown)
+    canvas.addEventListener('mousemove', onMouseMove)
+    canvas.addEventListener('mouseup', onMouseUp)
+    canvas.addEventListener('mouseleave', onMouseLeave)
+
+    return () => {
+      canvas.removeEventListener('mousedown', onMouseDown)
+      canvas.removeEventListener('mousemove', onMouseMove)
+      canvas.removeEventListener('mouseup', onMouseUp)
+      canvas.removeEventListener('mouseleave', onMouseLeave)
+      canvas.style.cursor = ''
+      selectionDataMap.delete(chart!)
+    }
+  }, [records, workout, chartData.labels?.length, computeSelectionStats])
 
   const options = useMemo(() => ({
     responsive: true,
@@ -827,6 +967,38 @@ function RideTimelineChart({ records, workout, highlightedStep }: {
       <div className="h-64 sm:h-80">
         <Line ref={chartRef} data={chartData} options={options} />
       </div>
+      {selectionStats && (
+        <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-border text-sm">
+          <div>
+            <span className="text-text-muted">Duration: </span>
+            <span className="font-semibold text-text">{fmtTime(selectionStats.duration)}</span>
+          </div>
+          {selectionStats.avgPower != null && (
+            <div>
+              <span className="text-text-muted">Avg Power: </span>
+              <span className="font-semibold" style={{ color: 'rgba(245, 197, 24, 0.9)' }}>
+                {selectionStats.avgPower}w
+              </span>
+            </div>
+          )}
+          {selectionStats.avgHR != null && (
+            <div>
+              <span className="text-text-muted">Avg HR: </span>
+              <span className="font-semibold" style={{ color: 'rgba(233, 69, 96, 0.9)' }}>
+                {selectionStats.avgHR} bpm
+              </span>
+            </div>
+          )}
+          {selectionStats.avgCadence != null && (
+            <div>
+              <span className="text-text-muted">Avg Cadence: </span>
+              <span className="font-semibold" style={{ color: 'rgba(126, 200, 227, 0.9)' }}>
+                {selectionStats.avgCadence} rpm
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
