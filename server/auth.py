@@ -44,6 +44,21 @@ def create_app_token(email: str, display_name: str, avatar_url: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 
+def create_api_token(email: str, name: str = "", expiry_days: int = 365) -> str:
+    """Create a long-lived API token for automated/cron use."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    payload = {
+        "email": email,
+        "name": name,
+        "picture": "",
+        "type": "api",
+        "exp": now + datetime.timedelta(days=expiry_days),
+        "iat": now,
+        "iss": "cycling-coach",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
 def verify_app_token(token: str) -> dict:
     """Verify an app-issued JWT and return its claims."""
     try:
