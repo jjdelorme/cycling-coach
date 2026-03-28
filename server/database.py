@@ -243,11 +243,10 @@ class _DbConnection:
             logger.warning("Slow query (%.1fms): %s", elapsed_ms, sql_preview)
         return self._cursor
 
-    def executemany(self, sql, params_list):
+    def executemany(self, sql, params_list, page_size=1000):
         adapted = self._adapt_sql(sql)
         t0 = time.monotonic()
-        for params in params_list:
-            self._cursor.execute(adapted, params)
+        psycopg2.extras.execute_batch(self._cursor, adapted, params_list, page_size=page_size)
         elapsed_ms = (time.monotonic() - t0) * 1000
         if elapsed_ms >= SLOW_QUERY_MS:
             sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")

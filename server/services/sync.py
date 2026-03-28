@@ -43,47 +43,66 @@ def _tlog(msg: str) -> str:
 # Watermark helpers
 # ---------------------------------------------------------------------------
 
-def get_watermark(key: str) -> str | None:
-    with get_db() as conn:
-        row = conn.execute(
+def get_watermark(key: str, conn=None) -> str | None:
+    def _query(c):
+        row = c.execute(
             "SELECT value FROM sync_watermarks WHERE key = ?", (key,)
         ).fetchone()
-    if row:
-        return row["value"] if isinstance(row, dict) else row[0]
-    return None
+        if row:
+            return row["value"] if isinstance(row, dict) else row[0]
+        return None
+    if conn:
+        return _query(conn)
+    with get_db() as c:
+        return _query(c)
 
 
-def set_watermark(key: str, value: str):
-    with get_db() as conn:
-        conn.execute(
+def set_watermark(key: str, value: str, conn=None):
+    def _update(c):
+        c.execute(
             "INSERT INTO sync_watermarks (key, value, updated_at) VALUES (?, ?, ?)"
             " ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
             (key, value, _now_iso()),
         )
+    if conn:
+        _update(conn)
+    else:
+        with get_db() as c:
+            _update(c)
 
 
 # ---------------------------------------------------------------------------
 # Sync run persistence
 # ---------------------------------------------------------------------------
 
-def _create_sync_run(sync_id: str):
-    with get_db() as conn:
-        conn.execute(
+def _create_sync_run(sync_id: str, conn=None):
+    def _insert(c):
+        c.execute(
             "INSERT INTO sync_runs (id, status, started_at) VALUES (?, ?, ?)",
             (sync_id, "running", _now_iso()),
         )
+    if conn:
+        _insert(conn)
+    else:
+        with get_db() as c:
+            _insert(c)
 
 
-def _update_sync_run(sync_id: str, **kwargs):
+def _update_sync_run(sync_id: str, conn=None, **kwargs):
     if not kwargs:
         return
     set_clauses = ", ".join(f"{k} = ?" for k in kwargs)
     values = list(kwargs.values()) + [sync_id]
-    with get_db() as conn:
-        conn.execute(
+    def _update(c):
+        c.execute(
             f"UPDATE sync_runs SET {set_clauses} WHERE id = ?",
             values,
         )
+    if conn:
+        _update(conn)
+    else:
+        with get_db() as c:
+            _update(c)
 
 
 def get_sync_run(sync_id: str) -> dict | None:
@@ -142,7 +161,7 @@ async def _broadcast(sync_id: str, message: dict):
 # Core sync logic
 # ---------------------------------------------------------------------------
 
-def _store_streams(ride_id: int, streams: dict):
+def _store_streams(ride_id: int, streams: dict, conn=None):
     """Store intervals.icu stream data as ride_records."""
     # streams is a dict like: [{"type":"time","data":[0,1,2,...]}, {"type":"watts","data":[...]}]
     # or a dict with keys: {"time": [...], "watts": [...], ...}
@@ -192,16 +211,21 @@ def _store_streams(ride_id: int, streams: dict):
             None,  # temperature
         ))
 
-    with get_db() as conn:
-        conn.executemany(
+    def _insert(c):
+        c.executemany(
             "INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
+    if conn:
+        _insert(conn)
+    else:
+        with get_db() as c:
+            _insert(c)
     logger.info("Stored %d stream records for ride %d", len(rows), ride_id)
 
 
-def _backfill_start_location(ride_id: int, streams):
+def _backfill_start_location(ride_id: int, streams, conn=None):
     """Update start_lat/start_lon on ride from stream GPS data."""
     stream_map = {}
     if isinstance(streams, list):
@@ -219,22 +243,31 @@ def _backfill_start_location(ride_id: int, streams):
         if point and isinstance(point, (list, tuple)) and len(point) >= 2:
             lat, lon = point[0], point[1]
             if lat and lon:
-                with get_db() as conn:
-                    conn.execute(
+                def _update(c):
+                    c.execute(
                         "UPDATE rides SET start_lat = ?, start_lon = ? WHERE id = ? AND start_lat IS NULL",
                         (lat, lon, ride_id),
                     )
+                if conn:
+                    _update(conn)
+                else:
+                    with get_db() as c:
+                        _update(c)
                 break
 
 
-async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]:
-    """Download rides from intervals.icu that we don't already have."""
+async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int, int, str | None]:
+    """Download rides from intervals.icu that we don't already have.
+
+    Returns (downloaded, skipped, earliest_new_ride_date).
+    """
     t0 = time.monotonic()
     downloaded = 0
     skipped = 0
+    earliest_date: str | None = None
 
     # Determine date range from watermark
-    watermark = get_watermark("rides_newest")
+    watermark = get_watermark("rides_newest", conn=conn)
     if watermark:
         # Re-fetch from watermark date (not day after) — a ride may have been
         # uploaded to intervals.icu after the sync that set the watermark.
@@ -250,7 +283,7 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
         logger.info(msg)
         log_lines.append(_tlog(msg))
         await _broadcast(sync_id, {"phase": "rides", "detail": msg})
-        return 0, 0
+        return 0, 0, None
 
     msg = f"Fetching rides from {oldest} to {newest}"
     logger.info(msg)
@@ -258,6 +291,13 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
     await _broadcast(sync_id, {"phase": "rides", "detail": msg})
 
     activities = await asyncio.to_thread(fetch_activities, oldest, newest)
+
+    if not activities:
+        msg = "No activities found from intervals.icu"
+        logger.info(msg)
+        log_lines.append(_tlog(msg))
+        await _broadcast(sync_id, {"phase": "rides", "detail": msg})
+        return 0, 0, None
 
     msg = f"Found {len(activities)} activities from intervals.icu"
     logger.info(msg)
@@ -267,16 +307,38 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
     # Get existing rides for dedup: by filename AND by (date, distance) fingerprint.
     # Distance is more reliable than duration because moving-time vs elapsed-time
     # differs between sources (Garmin auto-pause, Strava, intervals.icu).
-    with get_db() as conn:
-        existing_filenames = set()
-        existing_fingerprints = set()
-        rows = conn.execute("SELECT filename, date, distance_m FROM rides").fetchall()
-        for r in rows:
-            row = dict(r)
-            existing_filenames.add(row["filename"])
-            # Fingerprint: (date, distance rounded to nearest 100m)
-            dist = round((row["distance_m"] or 0) / 100) * 100
-            existing_fingerprints.add((row["date"], dist))
+    existing_filenames = set()
+    existing_fingerprints = set()
+    rows = conn.execute("SELECT filename, date, distance_m FROM rides").fetchall()
+    for r in rows:
+        row = dict(r)
+        existing_filenames.add(row["filename"])
+        # Fingerprint: (date, distance rounded to nearest 100m)
+        dist = round((row["distance_m"] or 0) / 100) * 100
+        existing_fingerprints.add((row["date"], dist))
+
+    # Early exit: check if all activities already exist locally
+    has_new = False
+    for activity in activities:
+        ride = map_activity_to_ride(activity)
+        if ride is None:
+            continue
+        if ride["filename"] in existing_filenames:
+            continue
+        dist = round((ride["distance_m"] or 0) / 100) * 100
+        if (ride["date"], dist) in existing_fingerprints:
+            continue
+        has_new = True
+        break
+    if not has_new:
+        msg = f"All {len(activities)} activities already synced"
+        logger.info(msg)
+        log_lines.append(_tlog(msg))
+        await _broadcast(sync_id, {"phase": "rides", "detail": msg})
+        set_watermark("rides_newest", newest, conn=conn)
+        logger.info("Ride download completed in %.1fs: %d downloaded, %d skipped",
+                    time.monotonic() - t0, 0, len(activities))
+        return 0, len(activities), None
 
     for i, activity in enumerate(activities):
         ride = map_activity_to_ride(activity)
@@ -304,20 +366,21 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
         values = [ride[k] for k in columns]
 
         try:
-            with get_db() as conn:
-                conn.execute(
-                    f"INSERT INTO rides ({col_names}) VALUES ({placeholders})",
-                    values,
-                )
-                # Get the inserted ride's ID for stream data
-                ride_row = conn.execute(
-                    "SELECT id FROM rides WHERE filename = ?", (ride["filename"],)
-                ).fetchone()
-                ride_db_id = ride_row["id"] if ride_row else None
+            conn.execute(
+                f"INSERT INTO rides ({col_names}) VALUES ({placeholders})",
+                values,
+            )
+            # Get the inserted ride's ID for stream data
+            ride_row = conn.execute(
+                "SELECT id FROM rides WHERE filename = ?", (ride["filename"],)
+            ).fetchone()
+            ride_db_id = ride_row["id"] if ride_row else None
 
             downloaded += 1
             existing_filenames.add(ride["filename"])
             existing_fingerprints.add(fingerprint)
+            if earliest_date is None or ride["date"] < earliest_date:
+                earliest_date = ride["date"]
             detail = f"Downloaded ride: {ride['date']} ({ride.get('sport', 'ride')})"
             logger.info(detail)
             log_lines.append(_tlog(detail))
@@ -329,9 +392,9 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
                     t_stream = time.monotonic()
                     streams = await asyncio.to_thread(fetch_activity_streams, icu_id)
                     if streams:
-                        _store_streams(ride_db_id, streams)
+                        _store_streams(ride_db_id, streams, conn=conn)
                         # Backfill start_lat/start_lon from stream GPS data
-                        _backfill_start_location(ride_db_id, streams)
+                        _backfill_start_location(ride_db_id, streams, conn=conn)
                         log_lines.append(_tlog(f"  + stored stream data for {ride['date']} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
                 except Exception as se:
                     logger.warning("Could not fetch streams for %s: %s", icu_id, se)
@@ -351,21 +414,21 @@ async def _download_rides(sync_id: str, log_lines: list[str]) -> tuple[int, int]
 
     # Update watermark to newest date we processed
     if activities:
-        set_watermark("rides_newest", newest)
+        set_watermark("rides_newest", newest, conn=conn)
 
     logger.info("Ride download completed in %.1fs: %d downloaded, %d skipped",
                 time.monotonic() - t0, downloaded, skipped)
-    return downloaded, skipped
+    return downloaded, skipped, earliest_date
 
 
-async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int]:
+async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[int, int]:
     """Upload planned workouts to intervals.icu that haven't been synced yet."""
     t0 = time.monotonic()
     uploaded = 0
     skipped = 0
 
     # Get watermark - tracks the newest date we've synced workouts for
-    watermark = get_watermark("workouts_synced_through")
+    watermark = get_watermark("workouts_synced_through", conn=conn)
     today = datetime.now().strftime("%Y-%m-%d")
 
     # Only sync workouts from today onward (no point syncing past workouts)
@@ -379,12 +442,11 @@ async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int
     await _broadcast(sync_id, {"phase": "workouts", "detail": msg})
 
     # Get our planned workouts with XML
-    with get_db() as conn:
-        local_workouts = conn.execute(
-            "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts "
-            "WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL ORDER BY date",
-            (start_date, end_date),
-        ).fetchall()
+    local_workouts = conn.execute(
+        "SELECT id, date, name, workout_xml, total_duration_s FROM planned_workouts "
+        "WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL ORDER BY date",
+        (start_date, end_date),
+    ).fetchall()
 
     if not local_workouts:
         msg = "No upcoming workouts to sync"
@@ -456,7 +518,7 @@ async def _upload_workouts(sync_id: str, log_lines: list[str]) -> tuple[int, int
             })
 
     if uploaded > 0:
-        set_watermark("workouts_synced_through", end_date)
+        set_watermark("workouts_synced_through", end_date, conn=conn)
 
     logger.info("Workout upload completed in %.1fs: %d uploaded, %d skipped",
                 time.monotonic() - t0, uploaded, skipped)
@@ -477,49 +539,66 @@ async def run_sync(sync_id: str | None = None) -> str:
             raise RuntimeError(f"Sync already in progress: {sid}")
 
     _active_syncs[sync_id] = {"status": "running", "started_at": _now_iso()}
-    _create_sync_run(sync_id)
     t_sync = time.monotonic()
 
     log_lines: list[str] = []
     errors: list[str] = []
 
     try:
-        await _broadcast(sync_id, {"status": "running", "phase": "rides", "detail": "Starting ride download..."})
+        with get_db() as conn:
+            _create_sync_run(sync_id, conn=conn)
+            conn.commit()
 
-        # Phase 1: Download rides
-        rides_dl, rides_skip = await _download_rides(sync_id, log_lines)
+            await _broadcast(sync_id, {"status": "running", "phase": "rides", "detail": "Starting ride download..."})
 
-        await _broadcast(sync_id, {"status": "running", "phase": "workouts", "detail": "Starting workout upload..."})
+            # Phase 1: Download rides
+            rides_dl, rides_skip, earliest = await _download_rides(sync_id, log_lines, conn)
+            conn.commit()
 
-        # Phase 2: Upload workouts
-        wo_up, wo_skip = await _upload_workouts(sync_id, log_lines)
+            await _broadcast(sync_id, {"status": "running", "phase": "workouts", "detail": "Starting workout upload..."})
 
-        # Phase 3: Recompute PMC if we downloaded new rides
-        if rides_dl > 0:
-            msg = "Recomputing daily metrics (PMC)..."
-            log_lines.append(_tlog(msg))
-            await _broadcast(sync_id, {"phase": "pmc", "detail": msg})
-            try:
-                from server.ingest import compute_daily_pmc
-                def _recompute_pmc():
-                    with get_db() as conn:
-                        compute_daily_pmc(conn)
-                await asyncio.to_thread(_recompute_pmc)
-                log_lines.append(_tlog("PMC recomputed successfully"))
-            except Exception as e:
-                err = f"PMC recomputation failed: {e}"
-                logger.error(err)
-                log_lines.append(_tlog(err))
-                errors.append(err)
+            # Phase 2: Upload workouts
+            wo_up, wo_skip = await _upload_workouts(sync_id, log_lines, conn)
+            conn.commit()
 
-        status = "completed"
-        total_elapsed = time.monotonic() - t_sync
-        summary = (
-            f"Sync complete in {total_elapsed:.1f}s: {rides_dl} rides downloaded, {rides_skip} skipped, "
-            f"{wo_up} workouts uploaded, {wo_skip} skipped"
-        )
-        logger.info(summary)
-        log_lines.append(_tlog(summary))
+            # Phase 3: Recompute PMC if we downloaded new rides
+            if rides_dl > 0:
+                msg = "Recomputing daily metrics (PMC)..."
+                log_lines.append(_tlog(msg))
+                await _broadcast(sync_id, {"phase": "pmc", "detail": msg})
+                try:
+                    from server.ingest import compute_daily_pmc
+                    compute_daily_pmc(conn, since_date=earliest)
+                    conn.commit()
+                    log_lines.append(_tlog("PMC recomputed successfully"))
+                except Exception as e:
+                    err = f"PMC recomputation failed: {e}"
+                    logger.error(err)
+                    log_lines.append(_tlog(err))
+                    errors.append(err)
+
+            status = "completed"
+            total_elapsed = time.monotonic() - t_sync
+            summary = (
+                f"Sync complete in {total_elapsed:.1f}s: {rides_dl} rides downloaded, {rides_skip} skipped, "
+                f"{wo_up} workouts uploaded, {wo_skip} skipped"
+            )
+            logger.info(summary)
+            log_lines.append(_tlog(summary))
+
+            # Persist final state
+            _update_sync_run(
+                sync_id,
+                conn=conn,
+                status=status,
+                completed_at=_now_iso(),
+                rides_downloaded=rides_dl,
+                rides_skipped=rides_skip,
+                workouts_uploaded=wo_up,
+                workouts_skipped=wo_skip,
+                errors="\n".join(errors) if errors else None,
+                log="\n".join(log_lines),
+            )
 
     except Exception as e:
         status = "failed"
@@ -529,18 +608,18 @@ async def run_sync(sync_id: str | None = None) -> str:
         errors.append(str(e))
         rides_dl = rides_skip = wo_up = wo_skip = 0
 
-    # Persist final state
-    _update_sync_run(
-        sync_id,
-        status=status,
-        completed_at=_now_iso(),
-        rides_downloaded=rides_dl,
-        rides_skipped=rides_skip,
-        workouts_uploaded=wo_up,
-        workouts_skipped=wo_skip,
-        errors="\n".join(errors) if errors else None,
-        log="\n".join(log_lines),
-    )
+        # Persist failure state with a fresh connection
+        _update_sync_run(
+            sync_id,
+            status=status,
+            completed_at=_now_iso(),
+            rides_downloaded=rides_dl,
+            rides_skipped=rides_skip,
+            workouts_uploaded=wo_up,
+            workouts_skipped=wo_skip,
+            errors="\n".join(errors) if errors else None,
+            log="\n".join(log_lines),
+        )
 
     final_msg = {
         "status": status,

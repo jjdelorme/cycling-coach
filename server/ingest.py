@@ -1,5 +1,6 @@
 """Data ingestion: reads ride JSON files and ZWO workouts into PostgreSQL."""
 
+import bisect
 import json
 import logging
 import os
@@ -254,8 +255,15 @@ def backfill_hr_tss(conn):
     return updated
 
 
-def compute_daily_pmc(conn):
-    """Compute CTL/ATL/TSB for every day from first ride to today."""
+def compute_daily_pmc(conn, since_date: str | None = None):
+    """Compute CTL/ATL/TSB for every day from first ride (or since_date) to today.
+
+    Args:
+        conn: Database connection.
+        since_date: Optional YYYY-MM-DD string. If provided, carry forward
+            CTL/ATL from the previous day and only recompute from this date.
+            Falls back to full recompute if no previous day data exists.
+    """
     cursor = conn.execute(
         "SELECT date, SUM(tss) as total_tss FROM rides WHERE tss > 0 GROUP BY date ORDER BY date"
     )
@@ -264,16 +272,44 @@ def compute_daily_pmc(conn):
     if not daily_tss:
         return
 
-    # Also include dates with zero TSS
+    # Prefetch all weight data (eliminates N+1 queries)
+    weight_rows = conn.execute(
+        "SELECT date, weight FROM rides WHERE weight IS NOT NULL ORDER BY date"
+    ).fetchall()
+    weight_dates = [r["date"] for r in weight_rows]
+    weight_values = [r["weight"] for r in weight_rows]
+
+    def _lookup_weight(ds: str):
+        """O(log n) weight lookup using bisect."""
+        if not weight_dates:
+            return None
+        idx = bisect.bisect_right(weight_dates, ds) - 1
+        return weight_values[idx] if idx >= 0 else None
+
     all_ride_dates = list(daily_tss.keys())
-    start = datetime.fromisoformat(min(all_ride_dates))
     end = datetime.today()
 
     ctl = 0.0
     atl = 0.0
-    day = start
 
-    conn.execute("DELETE FROM daily_metrics")
+    # Determine start point
+    if since_date:
+        prev_day = (datetime.fromisoformat(since_date) - timedelta(days=1)).strftime("%Y-%m-%d")
+        prev = conn.execute(
+            "SELECT ctl, atl FROM daily_metrics WHERE date = ?", (prev_day,)
+        ).fetchone()
+        if prev:
+            ctl = prev["ctl"]
+            atl = prev["atl"]
+            start = datetime.fromisoformat(since_date)
+        else:
+            # No previous data — fall back to full recompute
+            start = datetime.fromisoformat(min(all_ride_dates))
+    else:
+        start = datetime.fromisoformat(min(all_ride_dates))
+
+    day = start
+    pmc_rows = []
 
     while day <= end:
         ds = day.strftime("%Y-%m-%d")
@@ -281,19 +317,19 @@ def compute_daily_pmc(conn):
         ctl = ctl + (tss - ctl) / 42
         atl = atl + (tss - atl) / 7
         tsb = ctl - atl
+        weight = _lookup_weight(ds)
 
-        # Get weight from nearest ride
-        weight_row = conn.execute(
-            "SELECT weight FROM rides WHERE date <= ? AND weight IS NOT NULL ORDER BY date DESC LIMIT 1",
-            (ds,),
-        ).fetchone()
-        weight = weight_row["weight"] if weight_row else None
-
-        conn.execute(
-            "INSERT INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (date) DO UPDATE SET total_tss = EXCLUDED.total_tss, ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb, weight = EXCLUDED.weight",
-            (ds, round(tss, 1), round(ctl, 1), round(atl, 1), round(tsb, 1), weight),
-        )
+        pmc_rows.append((ds, round(tss, 1), round(ctl, 1), round(atl, 1), round(tsb, 1), weight))
         day += timedelta(days=1)
+
+    # Batch upsert all rows
+    conn.executemany(
+        "INSERT INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (date) DO UPDATE SET "
+        "total_tss = EXCLUDED.total_tss, ctl = EXCLUDED.ctl, "
+        "atl = EXCLUDED.atl, tsb = EXCLUDED.tsb, weight = EXCLUDED.weight",
+        pmc_rows,
+    )
 
 
 def seed_periodization(conn):
