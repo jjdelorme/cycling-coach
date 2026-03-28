@@ -351,8 +351,10 @@ DEFAULT_PLAN_MANAGEMENT = """- CRITICAL: When you recommend changing, swapping, 
 - After any plan changes, summarize what you did and show the updated schedule
 - You can sync planned workouts to Garmin via intervals.icu using sync_workouts_to_garmin
 - When asked to sync, you can sync by date, by workout name, or sync all remaining workouts this week
+- After generating or replacing workouts, ALWAYS call set_workout_coach_notes for each workout with personalized pre-ride coaching notes. Think like a real coach: terrain advice (e.g. "find a 15-20 min climb for these intervals"), indoor/outdoor guidance, RPE cues, cadence targets, what to focus on mentally, how the workout fits the week's goals, recovery reminders. Make notes specific and actionable, not generic.
 - After generating a weekly plan, offer to sync the workouts to Garmin
-- You can update the athlete profile and coaching settings using update_coach_settings when the athlete tells you about changes (new FTP, new goals, weight changes, etc.)"""
+- You can update the athlete profile and coaching settings using update_coach_settings when the athlete tells you about changes (new FTP, new goals, weight changes, etc.)
+- IMPORTANT: When the athlete reports a new FTP, weight, or heart rate value, ALWAYS call update_athlete_setting to persist the numeric value. This ensures workout power targets, zone calculations, and FTP history are updated correctly. Call both update_coach_settings (for the text profile) AND update_athlete_setting (for the structured value)."""
 
 SETTINGS_DEFAULTS = {
     "athlete_profile": DEFAULT_ATHLETE_PROFILE,

@@ -1,9 +1,23 @@
 """ADK tools for the coaching agent to manage the training plan."""
 
 from datetime import datetime, timedelta
-from server.database import get_db, get_setting, set_setting, get_all_settings
+from server.database import get_db, get_setting, set_setting, get_all_settings, get_athlete_setting, set_athlete_setting
 from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates, calculate_planned_tss
 from server.services.intervals_icu import push_workout, delete_event, compute_sync_hash, is_configured as icu_is_configured
+
+
+def _get_current_ftp(conn) -> int:
+    """Get current FTP: prefer athlete_settings, fall back to latest ride."""
+    try:
+        val = int(get_athlete_setting("ftp") or 0)
+        if val > 0:
+            return val
+    except (ValueError, TypeError):
+        pass
+    row = conn.execute(
+        "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+    ).fetchone()
+    return row["ftp"] if row else 261
 
 
 def replan_missed_day(missed_date: str, new_target_date: str) -> dict:
@@ -119,11 +133,7 @@ def generate_weekly_plan(start_date: str, focus: str = "base", hours: float = 12
     workouts_created = []
 
     with get_db() as conn:
-        # Get current FTP
-        ftp_row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-        ftp = ftp_row["ftp"] if ftp_row else 261
+        ftp = _get_current_ftp(conn)
 
         for day_offset, template in enumerate(week_template):
             if template is None:
@@ -309,11 +319,7 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
         if not end_date:
             end_date = phases[-1]["end_date"]
 
-        # Get current FTP
-        ftp_row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-        ftp = ftp_row["ftp"] if ftp_row else 261
+        ftp = _get_current_ftp(conn)
 
         def get_phase_for_date(d_str):
             for p in phases:
@@ -489,10 +495,7 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
         }
 
     with get_db() as conn:
-        ftp_row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-        ftp = ftp_row["ftp"] if ftp_row else 261
+        ftp = _get_current_ftp(conn)
 
         previous = conn.execute(
             "SELECT name, icu_event_id FROM planned_workouts WHERE date = ?", (date,)
@@ -638,11 +641,7 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
     now_iso = datetime.now().isoformat(timespec="seconds")
 
     with get_db() as conn:
-        # Get FTP for the workout
-        ftp_row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-        ftp = ftp_row["ftp"] if ftp_row else 261
+        ftp = _get_current_ftp(conn)
 
         if date:
             # Sync workout(s) for a specific date
@@ -938,6 +937,10 @@ def update_coach_settings(section: str, new_value: str) -> dict:
     Use this when the athlete tells you about changes to their profile (new FTP, weight, goals, target events),
     or when they want to adjust coaching style or principles.
 
+    IMPORTANT: When the athlete reports a new FTP, weight, or other numeric value, you MUST ALSO call
+    update_athlete_setting to persist the structured value. This function only updates the text profile;
+    structured values (used by workout generation and analysis) are stored separately.
+
     Args:
         section: Which setting to update. One of: 'athlete_profile', 'coaching_principles', 'coach_role', 'plan_management'.
         new_value: The full new value for that section. For athlete_profile and coaching_principles, use bullet points starting with '- '.
@@ -951,8 +954,61 @@ def update_coach_settings(section: str, new_value: str) -> dict:
 
     set_setting(section, new_value)
 
+    # Auto-sync numeric athlete values when athlete_profile is updated
+    synced = []
+    if section == "athlete_profile":
+        import re
+        # Extract FTP value (e.g., "FTP 275w", "FTP: 275", "FTP ~275")
+        ftp_match = re.search(r'FTP[:\s~]*(\d{2,4})\s*w?\b', new_value, re.IGNORECASE)
+        if ftp_match:
+            set_athlete_setting("ftp", ftp_match.group(1))
+            synced.append(f"ftp={ftp_match.group(1)}")
+        # Extract weight (e.g., "74kg", "74 kg", "Weight: 74")
+        weight_match = re.search(r'(?:weight|wt)[:\s~]*(\d{2,3})\s*kg\b|(\d{2,3})\s*kg\b', new_value, re.IGNORECASE)
+        if weight_match:
+            val = weight_match.group(1) or weight_match.group(2)
+            set_athlete_setting("weight_kg", val)
+            synced.append(f"weight_kg={val}")
+
+    msg = f"Updated {section.replace('_', ' ')}. Changes take effect immediately."
+    if synced:
+        msg += f" Also synced athlete settings: {', '.join(synced)}."
+
     return {
         "status": "success",
         "section": section,
-        "message": f"Updated {section.replace('_', ' ')}. Changes take effect immediately.",
+        "synced_athlete_settings": synced,
+        "message": msg,
+    }
+
+
+def update_athlete_setting(key: str, value: str) -> dict:
+    """Update a structured athlete setting like FTP, weight, heart rate thresholds, etc.
+
+    Use this when the athlete reports changes to measurable values. These settings are used
+    by workout generation (power targets), ride analysis (zone calculations), and the FTP
+    history display.
+
+    IMPORTANT: Always call this when the athlete reports a new FTP, weight, or HR value,
+    in addition to updating the athlete_profile text via update_coach_settings.
+
+    Args:
+        key: Setting to update. One of: 'ftp', 'weight_kg', 'lthr', 'max_hr', 'resting_hr', 'age', 'gender'.
+        value: The new value as a string (e.g., '275' for FTP, '74' for weight).
+
+    Returns:
+        Status of the update.
+    """
+    from server.database import ATHLETE_SETTINGS_DEFAULTS
+    valid_keys = set(ATHLETE_SETTINGS_DEFAULTS.keys())
+    if key not in valid_keys:
+        return {"status": "error", "message": f"Invalid key '{key}'. Must be one of: {', '.join(sorted(valid_keys))}"}
+
+    set_athlete_setting(key, value)
+
+    return {
+        "status": "success",
+        "key": key,
+        "value": value,
+        "message": f"Updated {key} to {value}. This will be used for future workout generation and analysis.",
     }

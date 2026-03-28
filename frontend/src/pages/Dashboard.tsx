@@ -84,12 +84,6 @@ export default function Dashboard({ onRideSelect }: Props) {
     return map
   }, [plannedWeeks])
 
-  if (pmcLoading || ridesLoading || weeklyLoading || plannedLoading) {
-    return <div className="p-6 text-text-muted">Loading...</div>
-  }
-
-  const lastPMC = pmcData && pmcData.length > 0 ? pmcData[pmcData.length - 1] : null
-
   // Find next upcoming workout (today or later)
   const today = new Date().toISOString().slice(0, 10)
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
@@ -123,6 +117,12 @@ export default function Dashboard({ onRideSelect }: Props) {
     if (yesterdayRide) return { ...yesterdayRide, isToday: false }
     return { ...rides[0], isToday: false }
   }, [rides, today, yesterday])
+
+  if (pmcLoading || ridesLoading || weeklyLoading || plannedLoading) {
+    return <div className="p-6 text-text-muted">Loading...</div>
+  }
+
+  const lastPMC = pmcData && pmcData.length > 0 ? pmcData[pmcData.length - 1] : null
 
   // Last 90 days of PMC data for chart
   const pmc90 = pmcData ? pmcData.slice(-90) : []

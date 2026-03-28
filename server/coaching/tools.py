@@ -334,7 +334,7 @@ def get_training_summary(period: str = "month") -> dict:
 
 
 def get_ftp_history() -> list[dict]:
-    """Get FTP progression over time by month.
+    """Get FTP progression over time by month, including current athlete setting.
 
     Returns:
         List of monthly FTP values with W/kg.
@@ -347,7 +347,7 @@ def get_ftp_history() -> list[dict]:
                ORDER BY m.month"""
         ).fetchall()
 
-    return [
+    result = [
         {
             "month": r["month"],
             "ftp": r["ftp"],
@@ -356,6 +356,34 @@ def get_ftp_history() -> list[dict]:
         }
         for r in rows
     ]
+
+    # Append current athlete_settings FTP if it differs from the latest ride-based entry
+    try:
+        current_ftp = int(get_athlete_setting("ftp") or 0)
+    except (ValueError, TypeError):
+        current_ftp = 0
+    if current_ftp > 0:
+        current_month = datetime.now().strftime("%Y-%m")
+        last_ftp = result[-1]["ftp"] if result else 0
+        last_month = result[-1]["month"] if result else ""
+        if current_ftp != last_ftp or current_month != last_month:
+            try:
+                weight = float(get_athlete_setting("weight_kg") or 0)
+            except (ValueError, TypeError):
+                weight = 0
+            entry = {
+                "month": current_month,
+                "ftp": current_ftp,
+                "weight_kg": weight if weight > 0 else None,
+                "w_per_kg": round(current_ftp / weight, 2) if weight > 0 else None,
+                "source": "athlete_setting",
+            }
+            if result and last_month == current_month:
+                result[-1] = entry
+            else:
+                result.append(entry)
+
+    return result
 
 
 def get_periodization_status() -> dict:

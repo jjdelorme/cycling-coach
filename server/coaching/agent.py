@@ -35,6 +35,7 @@ from server.coaching.planning_tools import (
     get_week_summary,
     sync_workouts_to_garmin,
     update_coach_settings,
+    update_athlete_setting,
     set_workout_coach_notes,
     set_ride_coach_comments,
 )
@@ -56,6 +57,7 @@ _WRITE_TOOLS = {
     save_workout_template,
     sync_workouts_to_garmin,
     update_coach_settings,
+    update_athlete_setting,
     set_workout_coach_notes,
     set_ride_coach_comments,
 }
