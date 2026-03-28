@@ -15,7 +15,7 @@ import {
   Legend,
   Filler,
 } from 'chart.js'
-import type { WorkoutDetail, WorkoutStep } from '../types/api'
+import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler)
 
@@ -320,6 +320,11 @@ export default function Rides({ initialRideId, initialDate }: Props) {
             {/* Timeline chart with workout overlay */}
             {ride.records && ride.records.length > 0 && (
               <RideTimelineChart records={ride.records} workout={plannedWorkout ?? undefined} highlightedStep={highlightedStep} />
+            )}
+
+            {/* Laps table (only for multi-lap rides) */}
+            {ride.laps && ride.laps.length > 1 && (
+              <LapsTable laps={ride.laps} />
             )}
 
             {/* Notes section */}
@@ -999,6 +1004,67 @@ function RideTimelineChart({ records, workout, highlightedStep }: {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Laps table for multi-lap rides */
+function LapsTable({ laps }: { laps: RideLap[] }) {
+  const { fmtDist, fmtElev } = useUnits()
+
+  const formatLapDuration = (s?: number) => {
+    if (!s) return '-'
+    const m = Math.floor(s / 60)
+    const sec = Math.round(s % 60)
+    return `${m}:${sec.toString().padStart(2, '0')}`
+  }
+
+  return (
+    <div>
+      <h3 className="text-sm font-medium text-text-muted mb-2">Laps ({laps.length})</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs text-left">
+          <thead>
+            <tr className="border-b border-border text-text-muted">
+              <th className="py-1.5 px-2">#</th>
+              <th className="py-1.5 px-2">Duration</th>
+              <th className="py-1.5 px-2">Distance</th>
+              <th className="py-1.5 px-2">Avg Power</th>
+              <th className="py-1.5 px-2">NP</th>
+              <th className="py-1.5 px-2">Avg HR</th>
+              <th className="py-1.5 px-2">Cadence</th>
+              <th className="py-1.5 px-2">Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            {laps.map((lap) => {
+              const isRest = lap.intensity === 'rest' || (lap.lap_trigger === 'session_end' && laps.length > 1)
+              return (
+                <tr
+                  key={lap.lap_index}
+                  className={`border-b border-border/50 ${isRest ? 'opacity-60' : ''}`}
+                >
+                  <td className="py-1.5 px-2 text-text-muted">{lap.lap_index + 1}</td>
+                  <td className="py-1.5 px-2 text-text">{formatLapDuration(lap.total_timer_time)}</td>
+                  <td className="py-1.5 px-2 text-text">{lap.total_distance ? fmtDist(lap.total_distance) : '-'}</td>
+                  <td className="py-1.5 px-2 text-text">{lap.avg_power ?? '-'}{lap.avg_power ? 'w' : ''}</td>
+                  <td className="py-1.5 px-2 text-text">{lap.normalized_power ?? '-'}{lap.normalized_power ? 'w' : ''}</td>
+                  <td className="py-1.5 px-2 text-text">{lap.avg_hr ?? '-'}{lap.avg_hr ? 'bpm' : ''}</td>
+                  <td className="py-1.5 px-2 text-text">{lap.avg_cadence ?? '-'}</td>
+                  <td className="py-1.5 px-2">
+                    {lap.intensity === 'active' && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green/20 text-green">Active</span>
+                    )}
+                    {isRest && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue/20 text-blue">Rest</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

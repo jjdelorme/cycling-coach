@@ -51,7 +51,7 @@ def test_parse_ride_json(tmp_path):
     filepath = tmp_path / "test_ride.json"
     filepath.write_text(json.dumps(ride_data))
 
-    ride, records, power_bests = parse_ride_json(str(filepath))
+    ride, records, power_bests, laps = parse_ride_json(str(filepath))
 
     assert ride is not None
     assert ride["date"] == "2025-06-01"
@@ -60,6 +60,7 @@ def test_parse_ride_json(tmp_path):
     assert ride["weight"] == 75.0
     assert len(records) == 120
     assert ride["best_1min_power"] is not None
+    assert laps == []
 
 
 def test_parse_zwo(tmp_path):

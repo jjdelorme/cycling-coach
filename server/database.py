@@ -75,6 +75,39 @@ CREATE TABLE IF NOT EXISTS ride_records (
     temperature REAL
 );
 
+CREATE TABLE IF NOT EXISTS ride_laps (
+    id SERIAL PRIMARY KEY,
+    ride_id INTEGER NOT NULL REFERENCES rides(id),
+    lap_index INTEGER NOT NULL,
+    start_time TEXT,
+    total_timer_time REAL,
+    total_elapsed_time REAL,
+    total_distance REAL,
+    avg_power INTEGER,
+    normalized_power INTEGER,
+    max_power INTEGER,
+    avg_hr INTEGER,
+    max_hr INTEGER,
+    avg_cadence INTEGER,
+    max_cadence INTEGER,
+    avg_speed REAL,
+    max_speed REAL,
+    total_ascent INTEGER,
+    total_descent INTEGER,
+    total_calories INTEGER,
+    total_work INTEGER,
+    intensity TEXT,
+    lap_trigger TEXT,
+    wkt_step_index INTEGER,
+    start_lat REAL,
+    start_lon REAL,
+    end_lat REAL,
+    end_lon REAL,
+    avg_temperature REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ride_laps_ride_id ON ride_laps(ride_id);
+
 CREATE TABLE IF NOT EXISTS planned_workouts (
     id SERIAL PRIMARY KEY,
     date TEXT,

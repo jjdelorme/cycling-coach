@@ -20,6 +20,15 @@ WORKOUTS_DIR = os.path.join(DATA_DIR, "planned_workouts")
 POWER_BEST_DURATIONS = [5, 30, 60, 300, 1200, 3600]  # seconds
 
 
+def _semicircles_to_degrees(val):
+    """Convert Garmin semicircle coordinates to decimal degrees, or return None."""
+    if val is None:
+        return None
+    if abs(val) > 180:
+        return val * (180 / 2**31)
+    return val
+
+
 def file_hash(filepath):
     return hashlib.md5(open(filepath, "rb").read()).hexdigest()
 
@@ -48,7 +57,7 @@ def parse_ride_json(filepath):
 
     start_time = session.get("start_time", session.get("timestamp", ""))
     if not start_time or not session.get("total_timer_time"):
-        return None, None, None
+        return None, None, None, None
 
     ftp = session.get("threshold_power", 0) or 0
     avg_power = session.get("avg_power", 0) or 0
@@ -69,13 +78,8 @@ def parse_ride_json(filepath):
     best_60min = compute_rolling_best(powers, 3600) if powers else None
 
     # GPS start position
-    start_lat = session.get("start_position_lat")
-    start_lon = session.get("start_position_long")
-    # Garmin stores lat/lon as semicircles, convert if very large
-    if start_lat and abs(start_lat) > 180:
-        start_lat = start_lat * (180 / 2**31)
-    if start_lon and abs(start_lon) > 180:
-        start_lon = start_lon * (180 / 2**31)
+    start_lat = _semicircles_to_degrees(session.get("start_position_lat"))
+    start_lon = _semicircles_to_degrees(session.get("start_position_long"))
 
     ride = {
         "date": start_time[:10] if len(start_time) >= 10 else start_time,
@@ -125,12 +129,8 @@ def parse_ride_json(filepath):
     # Build record rows
     record_rows = []
     for r in records:
-        lat = r.get("position_lat")
-        lon = r.get("position_long")
-        if lat and abs(lat) > 180:
-            lat = lat * (180 / 2**31)
-        if lon and abs(lon) > 180:
-            lon = lon * (180 / 2**31)
+        lat = _semicircles_to_degrees(r.get("position_lat"))
+        lon = _semicircles_to_degrees(r.get("position_long"))
         record_rows.append({
             "timestamp": r.get("timestamp", ""),
             "power": r.get("power"),
@@ -151,7 +151,46 @@ def parse_ride_json(filepath):
         if best and best > 0:
             power_bests.append({"duration_s": dur, "power": best})
 
-    return ride, record_rows, power_bests
+    # Extract lap data
+    laps = data.get("lap", [])
+    lap_rows = []
+    for lap in laps:
+        intensity = lap.get("intensity")
+        if not isinstance(intensity, str):
+            intensity = None
+        lap_trigger = lap.get("lap_trigger")
+        if not isinstance(lap_trigger, str):
+            lap_trigger = None
+        lap_rows.append({
+            "lap_index": lap.get("message_index", len(lap_rows)),
+            "start_time": lap.get("start_time", ""),
+            "total_timer_time": lap.get("total_timer_time"),
+            "total_elapsed_time": lap.get("total_elapsed_time"),
+            "total_distance": lap.get("total_distance"),
+            "avg_power": lap.get("avg_power"),
+            "normalized_power": lap.get("normalized_power"),
+            "max_power": lap.get("max_power"),
+            "avg_hr": lap.get("avg_heart_rate"),
+            "max_hr": lap.get("max_heart_rate"),
+            "avg_cadence": lap.get("avg_cadence"),
+            "max_cadence": lap.get("max_cadence"),
+            "avg_speed": lap.get("enhanced_avg_speed"),
+            "max_speed": lap.get("enhanced_max_speed"),
+            "total_ascent": lap.get("total_ascent"),
+            "total_descent": lap.get("total_descent"),
+            "total_calories": lap.get("total_calories"),
+            "total_work": lap.get("total_work"),
+            "intensity": intensity,
+            "lap_trigger": lap_trigger,
+            "wkt_step_index": lap.get("wkt_step_index"),
+            "start_lat": _semicircles_to_degrees(lap.get("start_position_lat")),
+            "start_lon": _semicircles_to_degrees(lap.get("start_position_long")),
+            "end_lat": _semicircles_to_degrees(lap.get("end_position_lat")),
+            "end_lon": _semicircles_to_degrees(lap.get("end_position_long")),
+            "avg_temperature": lap.get("avg_temperature"),
+        })
+
+    return ride, record_rows, power_bests, lap_rows
 
 
 def parse_zwo(filepath):
@@ -372,7 +411,7 @@ def ingest_rides(conn, rides_dir=None):
             continue
 
         filepath = os.path.join(rides_dir, fname)
-        ride, records, power_bests = parse_ride_json(filepath)
+        ride, records, power_bests, laps = parse_ride_json(filepath)
 
         if ride is None:
             continue
@@ -417,9 +456,66 @@ def ingest_rides(conn, rides_dir=None):
                 [(ride_id, ride["date"], pb["duration_s"], pb["power"]) for pb in power_bests],
             )
 
+        # Insert laps
+        if laps:
+            conn.executemany(
+                """INSERT INTO ride_laps (ride_id, lap_index, start_time, total_timer_time,
+                   total_elapsed_time, total_distance, avg_power, normalized_power, max_power,
+                   avg_hr, max_hr, avg_cadence, max_cadence, avg_speed, max_speed,
+                   total_ascent, total_descent, total_calories, total_work,
+                   intensity, lap_trigger, wkt_step_index,
+                   start_lat, start_lon, end_lat, end_lon, avg_temperature)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [(ride_id, l["lap_index"], l["start_time"], l["total_timer_time"],
+                  l["total_elapsed_time"], l["total_distance"], l["avg_power"], l["normalized_power"], l["max_power"],
+                  l["avg_hr"], l["max_hr"], l["avg_cadence"], l["max_cadence"], l["avg_speed"], l["max_speed"],
+                  l["total_ascent"], l["total_descent"], l["total_calories"], l["total_work"],
+                  l["intensity"], l["lap_trigger"], l["wkt_step_index"],
+                  l["start_lat"], l["start_lon"], l["end_lat"], l["end_lon"], l["avg_temperature"])
+                 for l in laps],
+            )
+
         ingested += 1
 
     return ingested
+
+
+def backfill_laps(conn, rides_dir=None):
+    """Backfill lap data for rides ingested before lap support."""
+    rides_dir = rides_dir or RIDES_DIR
+    rides_with_laps = set(
+        r["ride_id"] for r in conn.execute("SELECT DISTINCT ride_id FROM ride_laps").fetchall()
+    )
+    all_rides = conn.execute("SELECT id, filename FROM rides").fetchall()
+    backfilled = 0
+    for ride_row in all_rides:
+        if ride_row["id"] in rides_with_laps:
+            continue
+        filepath = os.path.join(rides_dir, ride_row["filename"])
+        if not os.path.exists(filepath):
+            continue
+        _ride, _records, _power_bests, laps = parse_ride_json(filepath)
+        if not laps:
+            continue
+        conn.executemany(
+            """INSERT INTO ride_laps (ride_id, lap_index, start_time, total_timer_time,
+               total_elapsed_time, total_distance, avg_power, normalized_power, max_power,
+               avg_hr, max_hr, avg_cadence, max_cadence, avg_speed, max_speed,
+               total_ascent, total_descent, total_calories, total_work,
+               intensity, lap_trigger, wkt_step_index,
+               start_lat, start_lon, end_lat, end_lon, avg_temperature)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [(ride_row["id"], l["lap_index"], l["start_time"], l["total_timer_time"],
+              l["total_elapsed_time"], l["total_distance"], l["avg_power"], l["normalized_power"], l["max_power"],
+              l["avg_hr"], l["max_hr"], l["avg_cadence"], l["max_cadence"], l["avg_speed"], l["max_speed"],
+              l["total_ascent"], l["total_descent"], l["total_calories"], l["total_work"],
+              l["intensity"], l["lap_trigger"], l["wkt_step_index"],
+              l["start_lat"], l["start_lon"], l["end_lat"], l["end_lon"], l["avg_temperature"])
+             for l in laps],
+        )
+        backfilled += 1
+    logger.info("Backfilled laps for %d rides", backfilled)
+    return backfilled
 
 
 def ingest_workouts(conn, workouts_dir=None):
@@ -466,6 +562,9 @@ def run_ingestion():
         logger.info("Ingesting planned workouts...")
         workout_count = ingest_workouts(conn)
         logger.info("Ingested %d planned workouts", workout_count)
+
+        logger.info("Backfilling laps...")
+        backfill_laps(conn)
 
         logger.info("Backfilling hrTSS for rides without power...")
         backfill_hr_tss(conn)
