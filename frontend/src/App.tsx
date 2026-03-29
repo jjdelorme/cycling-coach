@@ -55,7 +55,7 @@ export default function App() {
       )}
       {tab === 'analysis' && <Analysis />}
       {tab === 'settings' && <Settings />}
-      {tab === 'admin' && <Admin />}
+      {tab === 'admin' && user?.role === 'admin' && <Admin />}
     </Layout>
   )
 }
