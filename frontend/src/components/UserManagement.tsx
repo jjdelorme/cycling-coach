@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { fetchUsers, createUser, updateUserRole, deleteUser, type UserRecord } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { Users, UserPlus, Trash2, Shield, Mail, Calendar, RefreshCw } from 'lucide-react'
 
 const ROLE_OPTIONS = [
   { value: 'none', label: 'None' },
@@ -16,6 +17,7 @@ export default function UserManagement() {
   const [newEmail, setNewEmail] = useState('')
   const [newRole, setNewRole] = useState('read')
   const [error, setError] = useState('')
+  const [processing, setProcessing] = useState(false)
 
   const load = async () => {
     try {
@@ -33,6 +35,7 @@ export default function UserManagement() {
   const handleAdd = async () => {
     if (!newEmail.trim()) return
     setError('')
+    setProcessing(true)
     try {
       await createUser(newEmail.trim(), newRole)
       setNewEmail('')
@@ -40,6 +43,8 @@ export default function UserManagement() {
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to add user')
+    } finally {
+      setProcessing(false)
     }
   }
 
@@ -54,6 +59,7 @@ export default function UserManagement() {
   }
 
   const handleDelete = async (email: string) => {
+    if (!confirm(`Are you sure you want to remove access for ${email}?`)) return
     setError('')
     try {
       await deleteUser(email)
@@ -64,114 +70,146 @@ export default function UserManagement() {
   }
 
   if (loading) {
-    return <div className="text-text-muted text-sm">Loading users...</div>
+    return <div className="py-12 text-center text-text-muted animate-pulse font-bold uppercase tracking-widest text-xs">Loading authorized users...</div>
   }
 
   return (
-    <section>
-      <h3 className="text-xl font-semibold text-text mb-1">User Management</h3>
-      <p className="text-text-muted text-sm mb-4">
-        Manage who can access the app and their permissions.
-      </p>
-
-      {error && (
-        <div className="text-red-400 text-sm mb-3">{error}</div>
-      )}
-
-      <div className="bg-surface rounded-lg border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="text-left px-4 py-2 text-text-muted font-medium">Email</th>
-              <th className="text-left px-4 py-2 text-text-muted font-medium">Role</th>
-              <th className="text-left px-4 py-2 text-text-muted font-medium">Last Login</th>
-              <th className="px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => {
-              const isSelf = u.email === currentUser?.email
-              return (
-                <tr key={u.email} className="border-b border-border last:border-0">
-                  <td className="px-4 py-2 text-text">
-                    <div className="flex items-center gap-2">
-                      {u.avatar_url ? (
-                        <img src={u.avatar_url} className="w-6 h-6 rounded-full" alt="" />
-                      ) : (
-                        <div className="w-6 h-6 rounded-full bg-surface2 flex items-center justify-center text-xs text-text-muted">
-                          {(u.display_name || u.email).charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div>
-                        <div>{u.display_name || u.email}</div>
-                        {u.display_name && (
-                          <div className="text-text-muted text-xs">{u.email}</div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2">
-                    {isSelf ? (
-                      <span className="text-accent text-sm">{u.role}</span>
-                    ) : (
-                      <select
-                        value={u.role}
-                        onChange={(e) => handleRoleChange(u.email, e.target.value)}
-                        className="bg-surface2 text-text border border-border rounded px-2 py-1 text-sm"
-                      >
-                        {ROLE_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-text-muted text-xs">
-                    {u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never'}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {!isSelf && (
-                      <button
-                        onClick={() => handleDelete(u.email)}
-                        className="text-red-400 hover:text-red-300 text-sm"
-                        title="Remove user"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-
-        {/* Add user form */}
-        <div className="border-t border-border p-4 flex items-center gap-3">
-          <input
-            type="email"
-            placeholder="email@gmail.com"
-            value={newEmail}
-            onChange={(e) => setNewEmail(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-            className="flex-1 bg-surface2 text-text border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
-          />
-          <select
-            value={newRole}
-            onChange={(e) => setNewRole(e.target.value)}
-            className="bg-surface2 text-text border border-border rounded px-3 py-2 text-sm"
-          >
-            {ROLE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleAdd}
-            className="px-4 py-2 bg-accent text-white rounded text-sm font-medium hover:opacity-90"
-          >
-            Add
-          </button>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-text flex items-center gap-3">
+            <Users size={24} className="text-accent" />
+            User Management
+          </h1>
+          <p className="text-text-muted text-xs font-medium mt-1">Control access and permission levels for the coaching platform.</p>
         </div>
       </div>
-    </section>
+
+      {error && (
+        <div className="bg-red/10 border border-red/20 text-red text-xs font-bold px-4 py-3 rounded-lg animate-in shake duration-300">
+          {error.toUpperCase()}
+        </div>
+      )}
+
+      <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-md">
+        <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-2">
+          <Shield size={18} className="text-accent" />
+          <h3 className="text-sm font-bold text-text uppercase tracking-wider">Authorized Access List</h3>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] font-bold text-text-muted uppercase tracking-widest bg-surface-low/50 border-b border-border">
+                <th className="py-3 px-5 text-left">Identity</th>
+                <th className="py-3 px-5 text-left">Permission Role</th>
+                <th className="py-3 px-5 text-left">Activity</th>
+                <th className="py-3 px-5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {users.map((u) => {
+                const isSelf = u.email === currentUser?.email
+                return (
+                  <tr key={u.email} className="text-text hover:bg-surface2/30 transition-colors">
+                    <td className="py-4 px-5">
+                      <div className="flex items-center gap-3">
+                        {u.avatar_url ? (
+                          <img src={u.avatar_url} className="w-8 h-8 rounded-full border border-border" alt="" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center text-xs font-bold text-accent">
+                            {(u.display_name || u.email).charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <div className="font-bold text-sm">{u.display_name || u.email.split('@')[0]}</div>
+                          <div className="text-[10px] font-mono text-text-muted flex items-center gap-1 opacity-60">
+                            <Mail size={10} /> {u.email}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-4 px-5">
+                      {isSelf ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-accent/10 text-accent text-[10px] font-black uppercase tracking-widest rounded-full border border-accent/20">
+                          {u.role} (YOU)
+                        </span>
+                      ) : (
+                        <select
+                          value={u.role}
+                          onChange={(e) => handleRoleChange(u.email, e.target.value)}
+                          className="bg-surface-low text-text border border-border rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-tighter focus:outline-none focus:border-accent appearance-none cursor-pointer"
+                        >
+                          {ROLE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                    <td className="py-4 px-5">
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-text-muted uppercase tracking-tighter">
+                        <Calendar size={12} />
+                        {u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never Active'}
+                      </div>
+                    </td>
+                    <td className="py-4 px-5 text-right">
+                      {!isSelf && (
+                        <button
+                          onClick={() => handleDelete(u.email)}
+                          className="p-2 text-text-muted hover:text-red hover:bg-red/5 rounded-lg transition-all"
+                          title="Revoke Access"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Add user form */}
+        <div className="p-6 bg-surface-low/50 border-t border-border">
+          <div className="flex flex-col md:flex-row items-end gap-4">
+            <div className="flex-1 w-full space-y-1.5">
+              <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest ml-1">Authorize New User</label>
+              <div className="relative">
+                <input
+                  type="email"
+                  placeholder="name@gmail.com"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                  className="w-full bg-surface-low text-text border border-border rounded-lg px-10 py-2.5 text-sm focus:outline-none focus:border-accent transition-all"
+                />
+                <UserPlus size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted opacity-40" />
+              </div>
+            </div>
+            <div className="w-full md:w-48 space-y-1.5">
+              <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest ml-1">Access Level</label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                className="w-full bg-surface-low text-text border border-border rounded-lg px-3 py-2.5 text-sm font-bold uppercase tracking-tighter focus:outline-none focus:border-accent appearance-none cursor-pointer"
+              >
+                {ROLE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={handleAdd}
+              disabled={processing || !newEmail.trim()}
+              className="w-full md:w-auto px-8 py-2.5 bg-accent text-white rounded-lg text-xs font-bold uppercase tracking-widest hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-accent/20 flex items-center justify-center gap-2"
+            >
+              {processing ? <RefreshCw size={14} className="animate-spin" /> : <UserPlus size={14} />}
+              Grant Access
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

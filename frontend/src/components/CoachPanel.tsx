@@ -3,6 +3,17 @@ import ReactMarkdown from 'react-markdown'
 import { useSendChat, useSessions } from '../hooks/useApi'
 import { fetchSession } from '../lib/api'
 import type { ViewContext } from './Layout'
+import { 
+  Bot, 
+  X, 
+  Plus, 
+  Send, 
+  History, 
+  MessageSquare, 
+  RefreshCw,
+  User as UserIcon,
+  ChevronRight
+} from 'lucide-react'
 
 interface Props {
   onClose: () => void
@@ -18,23 +29,15 @@ function buildViewHint(ctx?: ViewContext): string {
   if (!ctx) return ''
   const parts: string[] = []
   switch (ctx.tab) {
-    case 'dashboard':
-      parts.push('Viewing: Dashboard')
-      break
+    case 'dashboard': parts.push('Viewing: Dashboard'); break
     case 'rides':
       if (ctx.rideId) parts.push(`Viewing: Ride #${ctx.rideId}`)
       else if (ctx.rideDate) parts.push(`Viewing: Workout on ${ctx.rideDate}`)
       else parts.push('Viewing: Rides list')
       break
-    case 'calendar':
-      parts.push('Viewing: Calendar')
-      break
-    case 'analysis':
-      parts.push('Viewing: Analysis')
-      break
-    case 'settings':
-      parts.push('Viewing: Settings')
-      break
+    case 'calendar': parts.push('Viewing: Calendar'); break
+    case 'analysis': parts.push('Viewing: Analysis'); break
+    case 'settings': parts.push('Viewing: Settings'); break
   }
   return parts.length > 0 ? `[${parts.join(', ')}]\n` : ''
 }
@@ -76,91 +79,137 @@ export default function CoachPanel({ onClose, viewContext }: Props) {
   }
 
   return (
-    <aside className="w-full md:w-[400px] border-l border-border bg-surface flex flex-col h-full">
+    <aside className="w-full md:w-[400px] border-l border-border bg-surface flex flex-col h-full shadow-2xl z-20 animate-in slide-in-from-right duration-300">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h3 className="font-semibold text-sm">AI Coach</h3>
-        <div className="flex items-center gap-2">
-          <button onClick={newSession} className="text-xs text-text-muted hover:text-text">
-            New Chat
+      <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-surface-low">
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 bg-accent/10 rounded-lg">
+            <Bot size={18} className="text-accent" />
+          </div>
+          <h3 className="font-bold text-sm tracking-tight text-text uppercase">AI Coach</h3>
+        </div>
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={newSession} 
+            className="p-2 text-text-muted hover:text-accent hover:bg-accent/5 rounded-md transition-all"
+            title="New Chat"
+          >
+            <Plus size={18} />
           </button>
-          <button onClick={onClose} className="text-text-muted hover:text-text text-lg leading-none">
-            &times;
+          <button 
+            onClick={onClose} 
+            className="p-2 text-text-muted hover:text-red hover:bg-red/5 rounded-md transition-all"
+          >
+            <X size={18} />
           </button>
         </div>
       </div>
 
-      {/* Sessions */}
+      {/* Recent Sessions */}
       {messages.length === 0 && sessions && sessions.length > 0 && (
-        <div className="border-b border-border px-4 py-2 max-h-32 overflow-y-auto">
-          <p className="text-xs text-text-muted mb-1">Recent sessions:</p>
-          {sessions.slice(0, 5).map(s => (
-            <button
-              key={s.session_id}
-              onClick={async () => {
-                setLoadingSession(true)
-                try {
-                  const detail = await fetchSession(s.session_id)
-                  setSessionId(s.session_id)
-                  const loaded: Message[] = []
-                  for (const m of detail.messages) {
-                    if (m.content_text) {
-                      loaded.push({
+        <div className="border-b border-border px-5 py-4 bg-surface-low/30">
+          <div className="flex items-center gap-2 mb-3 text-text-muted">
+            <History size={12} />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Recent Sessions</span>
+          </div>
+          <div className="space-y-2">
+            {sessions.slice(0, 4).map(s => (
+              <button
+                key={s.session_id}
+                onClick={async () => {
+                  setLoadingSession(true)
+                  try {
+                    const detail = await fetchSession(s.session_id)
+                    setSessionId(s.session_id)
+                    const loaded: Message[] = detail.messages
+                      .filter(m => m.content_text)
+                      .map(m => ({
                         role: m.role === 'user' ? 'user' : 'assistant',
-                        content: m.content_text,
-                      })
-                    }
+                        content: m.content_text!,
+                      }))
+                    setMessages(loaded)
+                  } finally {
+                    setLoadingSession(false)
                   }
-                  setMessages(loaded)
-                } finally {
-                  setLoadingSession(false)
-                }
-              }}
-              className="block text-xs text-blue hover:underline truncate w-full text-left py-0.5"
-            >
-              {s.title || s.session_id}
-            </button>
-          ))}
+                }}
+                className="group flex items-center justify-between w-full px-3 py-2 bg-surface border border-border rounded-lg text-xs text-text-muted hover:text-text hover:border-accent hover:bg-surface-high transition-all shadow-sm"
+              >
+                <span className="truncate pr-4 font-medium">{s.title || 'Untitled Session'}</span>
+                <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-accent" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+      <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6 bg-surface">
         {loadingSession && (
-          <div className="text-text-muted text-sm text-center mt-8 animate-pulse">Loading session...</div>
+          <div className="flex flex-col items-center justify-center py-12 space-y-3">
+            <RefreshCw size={24} className="animate-spin text-accent opacity-40" />
+            <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest italic">Restoring context...</p>
+          </div>
         )}
+        
         {messages.length === 0 && !loadingSession && (
-          <p className="text-text-muted text-sm text-center mt-8">
-            Ask your coach about training, ride analysis, or plan adjustments.
-          </p>
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-16 h-16 bg-surface-low rounded-full flex items-center justify-center mb-4 border border-border">
+              <MessageSquare size={24} className="text-accent opacity-20" />
+            </div>
+            <p className="text-sm font-bold text-text uppercase tracking-widest mb-1">Coach is ready</p>
+            <p className="text-xs text-text-muted font-medium px-8 leading-relaxed">
+              Ask about your recent performance, training load, or future objectives.
+            </p>
+          </div>
         )}
+
         {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`text-sm ${
-              m.role === 'user'
-                ? 'bg-surface2 rounded-lg px-3 py-2 ml-8'
-                : 'pr-8'
-            }`}
-          >
-            {m.role === 'assistant' ? (
-              <div className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0.5">
-                <ReactMarkdown>{m.content}</ReactMarkdown>
-              </div>
-            ) : (
-              m.content
-            )}
+          <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+            <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm ${
+              m.role === 'user' 
+                ? 'bg-accent/10 border-accent/20 text-accent' 
+                : 'bg-surface-high border-border text-text-muted'
+            }`}>
+              {m.role === 'user' ? <UserIcon size={14} /> : <Bot size={14} />}
+            </div>
+            <div
+              className={`max-w-[85%] text-sm leading-relaxed ${
+                m.role === 'user'
+                  ? 'bg-accent text-white rounded-2xl rounded-tr-none px-4 py-2.5 shadow-md shadow-accent/10'
+                  : 'text-text'
+              }`}
+            >
+              {m.role === 'assistant' ? (
+                <div className="prose prose-sm prose-invert max-w-none 
+                  [&_p]:my-1.5 [&_ul]:my-2 [&_li]:my-1 [&_strong]:text-accent [&_strong]:font-bold
+                  [&_code]:bg-surface-low [&_code]:px-1 [&_code]:rounded [&_code]:text-blue">
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap">{m.content}</p>
+              )}
+            </div>
           </div>
         ))}
+        
         {chat.isPending && (
-          <div className="text-text-muted text-sm animate-pulse">Thinking...</div>
+          <div className="flex gap-3 animate-pulse">
+            <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-surface-high border border-border text-text-muted">
+              <Bot size={14} />
+            </div>
+            <div className="flex items-center gap-1 px-4 py-2 text-text-muted italic text-xs bg-surface-low rounded-2xl rounded-tl-none">
+              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce"></span>
+            </div>
+          </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t border-border p-3">
-        <div className="flex gap-2 items-end">
+      {/* Input area */}
+      <div className="p-5 bg-surface-low border-t border-border">
+        <div className="relative group">
           <textarea
             ref={textareaRef}
             value={input}
@@ -172,17 +221,18 @@ export default function CoachPanel({ onClose, viewContext }: Props) {
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             placeholder="Ask your coach..."
             rows={1}
-            className="flex-1 bg-bg border border-border rounded-md px-3 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
+            className="w-full bg-surface text-text border border-border rounded-xl px-4 py-3.5 pr-12 text-sm placeholder:text-text-muted/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-all shadow-sm resize-none overflow-y-auto"
             style={{ maxHeight: 150 }}
           />
           <button
             onClick={send}
             disabled={chat.isPending || !input.trim()}
-            className="bg-accent text-white px-3 py-2 rounded-md text-sm font-medium disabled:opacity-50 hover:opacity-90 transition-opacity"
+            className="absolute right-2.5 bottom-2.5 p-2 bg-accent text-white rounded-lg disabled:opacity-30 disabled:grayscale hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-accent/20"
           >
-            Send
+            {chat.isPending ? <RefreshCw size={16} className="animate-spin" /> : <Send size={16} />}
           </button>
         </div>
+        <p className="text-[9px] font-bold text-text-muted uppercase tracking-widest mt-2 text-center opacity-30">Press Enter to send • Shift+Enter for new line</p>
       </div>
     </aside>
   )
