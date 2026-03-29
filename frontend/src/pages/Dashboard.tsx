@@ -41,20 +41,8 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
   const { data: weekly, isLoading: weeklyLoading } = useWeeklySummary()
   const cc = useChartColors()
 
-  // Convert ISO week string (YYYY-Www) to Monday date string (YYYY-MM-DD)
-  const isoWeekToMonday = (isoWeek: string): string => {
-    const match = isoWeek.match(/^(\d{4})-W(\d{2})$/)
-    if (!match) return ''
-    const year = parseInt(match[1])
-    const week = parseInt(match[2])
-    const jan4 = new Date(year, 0, 4)
-    const mon = new Date(jan4)
-    mon.setDate(jan4.getDate() - (jan4.getDay() || 7) + 1 + (week - 1) * 7)
-    return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`
-  }
-
   // Compute Monday dates for this week + next 3
-  const { thisMonday, planMondays } = useMemo(() => {
+  const { planMondays } = useMemo(() => {
     const now = new Date()
     const dow = now.getDay()
     const thisMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (dow === 0 ? 6 : dow - 1))
@@ -65,7 +53,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
       m.setDate(m.getDate() + i * 7)
       mondays.push(fmt(m))
     }
-    return { thisMonday: fmt(thisMon), planMondays: mondays }
+    return { planMondays: mondays }
   }, [])
 
   // Fetch planned workouts for this week + next 3 weeks
@@ -73,26 +61,6 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
     queryKey: ['planned-weeks', planMondays],
     queryFn: () => Promise.all(planMondays.map((m) => fetchWeekPlan(m))),
   })
-
-  // Aggregate planned workouts by Monday date key
-  const plannedByMonday = useMemo(() => {
-    if (!plannedWeeks) return new Map<string, { tss: number; hours: number }>()
-    const map = new Map<string, { tss: number; hours: number }>()
-    for (const wp of plannedWeeks) {
-      let totalSec = 0
-      let totalTss = 0
-      for (const w of wp.planned) {
-        totalSec += w.total_duration_s ?? 0
-        totalTss += Number(w.planned_tss ?? 0)
-      }
-      const hours = totalSec / 3600
-      map.set(wp.week_start, {
-        tss: Math.round(totalTss),
-        hours: Math.round(hours * 10) / 10,
-      })
-    }
-    return map
-  }, [plannedWeeks])
 
   // Find next upcoming workout (today if no ride yet, otherwise tomorrow+)
   const today = new Date().toISOString().slice(0, 10)

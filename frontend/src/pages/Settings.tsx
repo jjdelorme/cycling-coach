@@ -24,8 +24,9 @@ import {
   EyeOff,
   RefreshCw,
   Trash2,
-  ChevronRight,
-  Info
+  Info,
+  Sun,
+  Moon
 } from 'lucide-react'
 
 type Tab = 'athlete' | 'coach' | 'system'

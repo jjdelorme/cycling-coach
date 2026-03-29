@@ -17,7 +17,8 @@ import {
   TrendingUp,
   Heart,
   Info,
-  CalendarDays
+  CalendarDays,
+  Activity
 } from 'lucide-react'
 import type { PlannedWorkout, RideSummary } from '../types/api'
 

@@ -30,7 +30,6 @@ import {
   History, 
   Calendar, 
   TrendingUp,
-  Clock,
   Target,
   Trophy,
   ArrowUpRight,
@@ -498,7 +497,6 @@ function zoneWattRange(zone: string, ftp: number): string {
 function ZonesChart({ dateRange }: { dateRange: DateRange }) {
   const { data, isLoading, error } = useZones(dateRange)
   const { data: athleteSettings } = useAthleteSettings()
-  const cc = useChartColors()
 
   if (isLoading) return <div className="h-80 flex items-center justify-center text-text-muted animate-pulse italic">Aggregating time in zones...</div>
   if (error || !data || data.length === 0) return <div className="h-80 flex items-center justify-center text-text-muted">No zone data available</div>
@@ -575,6 +573,7 @@ function FTPHistoryChart({ dateRange }: { dateRange: DateRange }) {
 
   return (
     <div className="h-96">
+      {/* @ts-ignore mixed chart types */}
       <Bar 
         data={{
           labels: data.map((d) => d.month),
@@ -595,13 +594,12 @@ function FTPHistoryChart({ dateRange }: { dateRange: DateRange }) {
               data: data.map((d) => d.w_per_kg ?? null),
               borderColor: '#00d4aa',
               backgroundColor: 'transparent',
-              pointBackgroundColor: '#00d4aa',
               pointRadius: 4,
               pointHoverRadius: 6,
               tension: 0.3,
               yAxisID: 'y1',
             }] : []),
-          ],
+          ] as any[],
         }}
         options={{
           responsive: true,

@@ -9,7 +9,7 @@ import {
   useSendChat, 
   useActivityDates 
 } from '../hooks/useApi'
-import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, zoneLabel } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
 import { useQueryClient } from '@tanstack/react-query'
@@ -40,9 +40,12 @@ import {
   MapPin,
   Filter,
   ArrowUpRight,
+  ArrowDownRight,
   Info,
   Layers,
-  List
+  List,
+  RefreshCw,
+  Target
 } from 'lucide-react'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 
@@ -861,7 +864,36 @@ function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
   const cc = useChartColors(), updateNotes = useUpdateWorkoutNotes(), [athleteNotes, setAthleteNotes] = useState<string | null>(null), [saveStatus, setSaveStatus] = useState(''), [highlightedStep, setHighlightedStep] = useState<number | null>(null)
   const nVal = athleteNotes ?? workout.athlete_notes ?? '', wRef = useRef<ChartJS<'line'>>(null)
   const summary = useMemo(() => { const { steps, ftp, total_duration_s } = workout; let ws = 0, mt = 0; for (const s of steps) { ws += s.power_watts * s.duration_s; if (s.power_watts > mt) mt = s.power_watts } const ap = total_duration_s > 0 ? Math.round(ws / total_duration_s) : 0, ifac = ftp > 0 ? ap / ftp : 0; return { duration: total_duration_s, ftp, ap, mt: Math.round(mt), ifac: ifac.toFixed(2), tss: total_duration_s > 0 ? Math.round((total_duration_s * ap * ifac) / (ftp * 3600) * 100) : 0 } }, [workout])
-  const { chartData, stepIndexMap: woMap } = useMemo(() => { const ls: string[] = [], sm = []; const S = 5; for (let si = 0; si < workout.steps.length; si++) { const s = workout.steps[si]; for (let t = s.start_s; t < s.start_s + s.duration_s; t += S) { ls.push(fmtTime(t)); sm.push(si) } } return { chartData: { labels: ls, datasets: workout.steps.map((s, si) => ({ label: si === 0 ? 'Target' : '', data: sm.map((m, _i) => m === si ? s.power_watts : null), borderColor: zoneColor(s.power_pct, 0.8), backgroundColor: zoneColor(s.power_pct, 0.25), fill: true, stepped: 'before', pointRadius: 0, borderWidth: 1.5, tension: 0, spanGaps: false })) }, stepIndexMap: sm } }, [workout])
+  const { chartData, stepIndexMap: woMap } = useMemo(() => { 
+    const ls: string[] = []
+    const sm: number[] = []
+    const S = 5
+    for (let si = 0; si < workout.steps.length; si++) { 
+      const s = workout.steps[si]
+      for (let t = s.start_s; t < s.start_s + s.duration_s; t += S) { 
+        ls.push(fmtTime(t))
+        sm.push(si) 
+      } 
+    } 
+    return { 
+      chartData: { 
+        labels: ls, 
+        datasets: workout.steps.map((s, si) => ({ 
+          label: si === 0 ? 'Target' : '', 
+          data: sm.map((m, _i) => m === si ? s.power_watts : null), 
+          borderColor: zoneColor(s.power_pct, 0.8), 
+          backgroundColor: zoneColor(s.power_pct, 0.25), 
+          fill: true, 
+          stepped: 'before' as const, 
+          pointRadius: 0, 
+          borderWidth: 1.5, 
+          tension: 0, 
+          spanGaps: false 
+        })) 
+      }, 
+      stepIndexMap: sm 
+    } 
+  }, [workout])
   useEffect(() => { const c = wRef.current; if (c) { highlightDataMap.set(c, { activeStep: highlightedStep ?? null, stepIndexMap: woMap, steps: workout.steps }); c.update('none') } }, [highlightedStep, woMap, workout.steps])
   const hS = async () => { setSaveStatus(''); try { await updateNotes.mutateAsync({ id: workout.id, body: { athlete_notes: nVal || null } }); setSaveStatus('SAVED'); setTimeout(() => setSaveStatus(''), 2000) } catch { setSaveStatus('ERROR') } }
 
