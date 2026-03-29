@@ -40,9 +40,36 @@ Cycling coaching platform. Currently single-athlete, but designed for multi-user
 
 ### Versioning
 The `VERSION` file is **not checked into git**. It is auto-generated from git tags:
-- **Production**: Cloud Build runs `git describe --tags` and passes the result into the Docker build
+- **Production**: Cloud Build reads `$TAG_NAME` and passes it as a Docker build-arg
 - **Local dev**: `./scripts/dev.sh` generates it before starting servers
 - **Without the script**: backend shows "dev", frontend shows "development"
+
+## Deployment
+
+Production deploys to Cloud Run via Cloud Build, triggered by **tag pushes** (not branch pushes).
+
+### Deploy workflow
+
+```bash
+# 1. Merge work to main
+# 2. Tag the release
+git tag -a v1.5.0 -m "Release 1.5.0"
+# 3. Push main and the tag — the tag push triggers Cloud Build
+git push origin main --tags
+```
+
+### What happens on deploy
+- Cloud Build reads the tag name (e.g. `v1.5.0`) and writes `1.5.0` to VERSION
+- Container image is tagged `cycling-coach:v1.5.0` in Artifact Registry
+- Cloud Run revision is named `cycling-coach-v1-5-0`
+- `/api/version` and the frontend Settings page show `1.5.0`
+
+### Infrastructure
+- **GCP project**: `jasondel-cloudrun10`
+- **Region**: `us-central1`
+- **Service account**: `cycling-coach-deployer@jasondel-cloudrun10.iam.gserviceaccount.com`
+- **Artifact Registry**: `us-central1-docker.pkg.dev/jasondel-cloudrun10/cloud-run-source-deploy/cycling-coach`
+- **Build config**: `cloudbuild.yaml` (in repo root)
 
 ## Authentication
 
