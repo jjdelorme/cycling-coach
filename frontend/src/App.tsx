@@ -48,7 +48,7 @@ export default function App() {
 
   return (
     <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined) }} viewContext={viewContext}>
-      {tab === 'dashboard' && <Dashboard onRideSelect={handleRideSelect} />}
+      {tab === 'dashboard' && <Dashboard onRideSelect={handleRideSelect} onWorkoutSelect={handleWorkoutSelect} />}
       {tab === 'rides' && <Rides initialRideId={rideId} initialDate={rideDate} />}
       {tab === 'calendar' && (
         <Calendar onRideSelect={handleRideSelect} onWorkoutSelect={handleWorkoutSelect} />

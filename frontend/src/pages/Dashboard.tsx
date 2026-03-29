@@ -22,9 +22,10 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarEleme
 
 interface Props {
   onRideSelect?: (id: number) => void
+  onWorkoutSelect?: (id: number, date: string) => void
 }
 
-export default function Dashboard({ onRideSelect }: Props) {
+export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
   const units = useUnits()
   const { data: pmcData, isLoading: pmcLoading } = usePMC()
   const { data: rides, isLoading: ridesLoading } = useRides({ limit: 7 })
@@ -91,11 +92,12 @@ export default function Dashboard({ onRideSelect }: Props) {
 
   const nextWorkout = useMemo(() => {
     if (!plannedWeeks) return null
-    const upcoming: { date: string; name: string; duration_s: number; tss: number; notes?: string }[] = []
+    const upcoming: { id?: number; date: string; name: string; duration_s: number; tss: number; notes?: string }[] = []
     for (const wp of plannedWeeks) {
       for (const w of wp.planned) {
         if (w.date && (rodeTodayAlready ? w.date > today : w.date >= today)) {
           upcoming.push({
+            id: w.id,
             date: w.date,
             name: w.name || 'Workout',
             duration_s: w.total_duration_s || 0,
@@ -234,7 +236,10 @@ export default function Dashboard({ onRideSelect }: Props) {
         <div className="bg-surface rounded-lg border border-border p-4">
           <h2 className="text-sm font-medium text-text-muted mb-2">Next Workout</h2>
           {nextWorkout ? (
-            <div>
+            <div
+              className={nextWorkout.id ? "cursor-pointer hover:bg-surface2 -m-4 p-4 rounded-lg transition-colors" : ""}
+              onClick={() => nextWorkout.id && onWorkoutSelect?.(nextWorkout.id, nextWorkout.date)}
+            >
               <div className="flex items-baseline justify-between">
                 <p className="text-lg font-semibold text-text">{nextWorkout.name}</p>
                 <span className="text-sm text-text-muted">
