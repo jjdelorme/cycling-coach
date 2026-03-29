@@ -6,6 +6,7 @@ import { UnitsProvider } from './lib/units'
 import { AuthProvider } from './lib/auth'
 import App from './App'
 import './index.css'
+import './lib/charts'
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { 
   useRides, 
   useRide, 
@@ -11,19 +11,7 @@ import {
 } from '../hooks/useApi'
 import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor } from '../lib/format'
 import { useUnits } from '../lib/units'
-import { useChartColors } from '../lib/theme'
 import { useQueryClient } from '@tanstack/react-query'
-import { Line } from 'react-chartjs-2'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Tooltip,
-  Legend,
-  Filler,
-} from 'chart.js'
 import { 
   Calendar, 
   Clock, 
@@ -48,8 +36,7 @@ import {
   Target
 } from 'lucide-react'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler)
+import RideTimelineChart from '../components/RideTimelineChart'
 
 interface Props {
   initialRideId?: number
@@ -66,6 +53,12 @@ export default function Rides({ initialRideId, initialDate }: Props) {
   const [postRideNotes, setPostRideNotes] = useState('')
   const [notesDirty, setNotesDirty] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+
+  // Highlighting states
+  const [hoveredStep, setHoveredStep] = useState<number | null>(null)
+  const [selectedStep, setSelectedStep] = useState<number | null>(null)
+  const [hoveredLap, setHoveredLap] = useState<number | null>(null)
+  const [selectedLap, setSelectedLap] = useState<number | null>(null)
 
   const queryClient = useQueryClient()
   const { data: rides, isLoading: ridesLoading } = useRides(filterParams)
@@ -131,7 +124,6 @@ export default function Rides({ initialRideId, initialDate }: Props) {
   }
 
   const showDetail = selectedRideId != null || selectedDate != null
-  const [highlightedStep, setHighlightedStep] = useState<number | null>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const updateTitle = useUpdateRideTitle()
@@ -326,21 +318,35 @@ export default function Rides({ initialRideId, initialDate }: Props) {
 
             {/* Main Timeline Card */}
             {ride.records && ride.records.length > 0 && (
-              <RideTimelineChart records={ride.records} workout={plannedWorkout ?? undefined} highlightedStep={highlightedStep} />
+              <RideTimelineChart 
+                records={ride.records} 
+                laps={ride.laps}
+                workout={plannedWorkout ?? undefined} 
+                highlightedStep={hoveredStep ?? selectedStep} 
+                highlightedLapIndex={hoveredLap ?? selectedLap} 
+              />
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Left Column: Laps & Steps */}
               <div className="lg:col-span-2 space-y-8">
                 {ride.laps && ride.laps.length > 1 && (
-                  <LapsTable laps={ride.laps} />
+                  <LapsTable 
+                    laps={ride.laps} 
+                    highlightedLap={hoveredLap ?? selectedLap} 
+                    selectedLap={selectedLap}
+                    onHover={setHoveredLap}
+                    onSelect={setSelectedLap}
+                  />
                 )}
                 
                 {plannedWorkout && plannedWorkout.steps && plannedWorkout.steps.length > 0 && (
                   <WorkoutStepsTable
                     steps={plannedWorkout.steps}
-                    highlightedStep={highlightedStep}
-                    onHighlight={setHighlightedStep}
+                    highlightedStep={hoveredStep ?? selectedStep}
+                    selectedStep={selectedStep}
+                    onHover={setHoveredStep}
+                    onSelect={setSelectedStep}
                   />
                 )}
               </div>
@@ -615,168 +621,13 @@ function MetricCard({ label, value, planned, higherIsBetter = true, icon: Icon, 
   )
 }
 
-function buildStepIndexMap(sampleCount: number, downsampleStep: number, steps: WorkoutStep[]): number[] {
-  const map: number[] = []
-  for (let i = 0; i < sampleCount; i++) {
-    const secs = i * downsampleStep
-    let found = -1
-    for (let si = 0; si < steps.length; si++) {
-      const s = steps[si]
-      if (secs >= s.start_s && secs < s.start_s + s.duration_s) { found = si; break }
-    }
-    map.push(found)
-  }
-  return map
-}
-
-const highlightDataMap = new WeakMap<ChartJS, { activeStep: number | null; stepIndexMap: number[]; steps: WorkoutStep[] }>()
-
-const stepHighlightPlugin = {
-  id: 'stepHighlight',
-  beforeDraw(chart: any) {
-    const meta = highlightDataMap.get(chart)
-    if (!meta || meta.activeStep == null || !meta.stepIndexMap) return
-    const { ctx, chartArea, scales } = chart
-    if (!chartArea || !scales?.x) return
-    const { activeStep, stepIndexMap, steps } = meta
-    if (!steps?.[activeStep]) return
-    const xScale = scales.x
-    let firstIdx = -1, lastIdx = -1
-    for (let i = 0; i < stepIndexMap.length; i++) { if (stepIndexMap[i] === activeStep) { if (firstIdx === -1) firstIdx = i; lastIdx = i } }
-    if (firstIdx === -1) return
-    const x1 = xScale.getPixelForValue(firstIdx), x2 = xScale.getPixelForValue(lastIdx)
-    ctx.save()
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
-    if (x1 > chartArea.left) ctx.fillRect(chartArea.left, chartArea.top, x1 - chartArea.left, chartArea.bottom - chartArea.top)
-    if (x2 < chartArea.right) ctx.fillRect(x2, chartArea.top, chartArea.right - x2, chartArea.bottom - chartArea.top)
-    ctx.strokeStyle = zoneColor(steps[activeStep].power_pct, 0.8)
-    ctx.lineWidth = 2
-    ctx.strokeRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top)
-    ctx.restore()
-  },
-}
-
-ChartJS.register(stepHighlightPlugin)
-
-const selectionDataMap = new WeakMap<ChartJS, { state: 'idle' | 'dragging' | 'locked'; startIdx: number | null; endIdx: number | null }>()
-
-const selectionPlugin = {
-  id: 'selectionHighlight',
-  afterDraw(chart: any) {
-    const sel = selectionDataMap.get(chart)
-    if (!sel || sel.startIdx == null || sel.endIdx == null || sel.state === 'idle') return
-    const { ctx, chartArea, scales } = chart
-    if (!chartArea || !scales?.x) return
-    const x1 = scales.x.getPixelForValue(Math.min(sel.startIdx, sel.endIdx)), x2 = scales.x.getPixelForValue(Math.max(sel.startIdx, sel.endIdx))
-    ctx.save()
-    ctx.fillStyle = 'rgba(0, 212, 170, 0.1)'
-    ctx.fillRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top)
-    ctx.strokeStyle = '#00d4aa'
-    ctx.lineWidth = 1
-    ctx.strokeRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top)
-    ctx.restore()
-  },
-}
-
-ChartJS.register(selectionPlugin)
-
-function RideTimelineChart({ records, workout, highlightedStep }: {
-  records: { timestamp_utc?: string; power?: number; heart_rate?: number; cadence?: number }[]
-  workout?: WorkoutDetail
-  highlightedStep?: number | null
+function LapsTable({ laps, highlightedLap, selectedLap, onHover, onSelect }: { 
+  laps: RideLap[]; 
+  highlightedLap: number | null; 
+  selectedLap: number | null;
+  onHover: (index: number | null) => void;
+  onSelect: (index: number | null) => void;
 }) {
-  const cc = useChartColors()
-  const chartRef = useRef<ChartJS<'line'>>(null)
-  const [selectionStats, setSelectionStats] = useState<{ duration: number; avgPower: number | null; avgHR: number | null; avgCadence: number | null } | null>(null)
-
-  const { chartData, stepIndexMap, downsampleStep } = useMemo(() => {
-    const maxPoints = 600
-    const step = Math.max(1, Math.floor(records.length / maxPoints))
-    const sampled = records.filter((_, i) => i % step === 0)
-    const labels = sampled.map((_, i) => { const s = i * step, m = Math.floor(s / 60), h = Math.floor(m / 60); return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` })
-    const datasets: any[] = []
-    let indexMap: number[] = []
-
-    if (workout?.steps) {
-      indexMap = buildStepIndexMap(sampled.length, step, workout.steps)
-      datasets.push({
-        label: 'Target Power', data: sampled.map((_, i) => indexMap[i] >= 0 ? workout.steps[indexMap[i]].power_watts : null),
-        borderColor: 'rgba(148, 163, 184, 0.3)', backgroundColor: sampled.map((_, i) => indexMap[i] < 0 ? 'transparent' : zoneColor(workout.steps[indexMap[i]].power_pct, 0.15)),
-        fill: true, stepped: 'before', borderWidth: 1.5, borderDash: [4, 4], pointRadius: 0, tension: 0, yAxisID: 'y', order: 2,
-      })
-    }
-
-    if (sampled.some(r => r.power != null)) datasets.push({ label: 'Power', data: sampled.map(r => r.power ?? null), borderColor: 'rgba(245, 197, 24, 0.8)', backgroundColor: 'rgba(245, 197, 24, 0.05)', fill: !workout, borderWidth: 1.5, pointRadius: 0, tension: 0.2, yAxisID: 'y', order: 1 })
-    if (sampled.some(r => r.heart_rate != null)) datasets.push({ label: 'Heart Rate', data: sampled.map(r => r.heart_rate ?? null), borderColor: 'rgba(233, 69, 96, 0.8)', backgroundColor: 'transparent', fill: false, borderWidth: 1.2, pointRadius: 0, tension: 0.2, yAxisID: 'y1', order: 1 })
-    if (sampled.some(r => r.cadence != null)) datasets.push({ label: 'Cadence', data: sampled.map(r => r.cadence ?? null), borderColor: 'rgba(126, 200, 227, 0.6)', backgroundColor: 'transparent', fill: false, borderWidth: 1, pointRadius: 0, tension: 0.2, yAxisID: 'y2', order: 1 })
-
-    return { chartData: { labels, datasets }, stepIndexMap: indexMap, downsampleStep: step }
-  }, [records, workout])
-
-  useEffect(() => {
-    const chart = chartRef.current
-    if (chart && workout?.steps) { highlightDataMap.set(chart, { activeStep: highlightedStep ?? null, stepIndexMap, steps: workout.steps }); chart.update('none') }
-  }, [highlightedStep, stepIndexMap, workout?.steps])
-
-  const computeSelectionStats = useCallback((lo: number, hi: number) => {
-    const slice = records.slice(lo * downsampleStep, Math.min(hi * downsampleStep, records.length - 1) + 1)
-    const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
-    setSelectionStats({ duration: slice.length, avgPower: avg(slice.map(r => r.power).filter((v): v is number => v != null && v > 0)), avgHR: avg(slice.map(r => r.heart_rate).filter((v): v is number => v != null && v > 0)), avgCadence: avg(slice.map(r => r.cadence).filter((v): v is number => v != null && v > 0)) })
-  }, [records, downsampleStep])
-
-  useEffect(() => {
-    const chart = chartRef.current
-    if (!chart || !chart.canvas) return
-    const canvas = chart.canvas
-    selectionDataMap.set(chart, { state: 'idle', startIdx: null, endIdx: null })
-    canvas.style.cursor = 'crosshair'
-    function getIdx(e: MouseEvent) { const r = canvas.getBoundingClientRect(), x = e.clientX - r.left; return Math.round(Math.max(0, Math.min(chart!.scales.x.getValueForPixel(x) ?? 0, (chartData.labels?.length ?? 1) - 1))) }
-    function onDown(e: MouseEvent) { const sel = selectionDataMap.get(chart!), r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, a = chart!.chartArea; if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return; if (sel?.state === 'locked') { selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null }); setSelectionStats(null); chart!.draw(); return }; const i = getIdx(e); selectionDataMap.set(chart!, { state: 'dragging', startIdx: i, endIdx: i }); chart!.draw() }
-    function onMove(e: MouseEvent) { const sel = selectionDataMap.get(chart!); if (sel?.state === 'dragging') { sel.endIdx = getIdx(e); chart!.draw() } }
-    function onUp() { const sel = selectionDataMap.get(chart!); if (sel?.state === 'dragging') { if (sel.startIdx != null && sel.endIdx != null && Math.abs(sel.endIdx - sel.startIdx) > 2) { sel.state = 'locked'; computeSelectionStats(Math.min(sel.startIdx, sel.endIdx), Math.max(sel.startIdx, sel.endIdx)) } else { selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null }); setSelectionStats(null) }; chart!.draw() } }
-    canvas.addEventListener('mousedown', onDown); canvas.addEventListener('mousemove', onMove); canvas.addEventListener('mouseup', onUp); canvas.addEventListener('mouseleave', onUp)
-    return () => { canvas.removeEventListener('mousedown', onDown); canvas.removeEventListener('mousemove', onMove); canvas.removeEventListener('mouseup', onUp); canvas.removeEventListener('mouseleave', onUp); selectionDataMap.delete(chart!) }
-  }, [records, workout, chartData.labels?.length, computeSelectionStats])
-
-  return (
-    <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
-      <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center justify-between">
-        <h2 className="text-sm font-bold text-text uppercase tracking-wider flex items-center gap-2">
-          <Activity size={16} className="text-accent" /> Ride Timeline
-        </h2>
-        <div className="flex items-center gap-4 text-[10px] font-bold text-text-muted uppercase tracking-widest">
-          <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow" /> Power</span>
-          <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red" /> HR</span>
-          {workout && <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full border border-dashed border-text-muted" /> Target</span>}
-        </div>
-      </div>
-      <div className="p-5">
-        <div className="h-64 sm:h-80">
-          <Line ref={chartRef} data={chartData} options={{
-            responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-            plugins: { legend: { display: false }, tooltip: { backgroundColor: cc.tooltipBg, titleColor: cc.tooltipTitle, bodyColor: cc.tooltipBody } },
-            scales: {
-              x: { ticks: { color: cc.tickColor, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
-              y: { type: 'linear', position: 'left', title: { display: true, text: 'POWER (W)', color: 'rgba(245, 197, 24, 0.8)', font: { size: 9, weight: 'bold' } }, ticks: { color: 'rgba(245, 197, 24, 0.7)', font: { size: 10 } }, grid: { color: 'rgba(148, 163, 184, 0.1)' }, min: 0 },
-              y1: { type: 'linear', position: 'right', title: { display: true, text: 'HR (BPM)', color: 'rgba(233, 69, 96, 0.8)', font: { size: 9, weight: 'bold' } }, ticks: { color: 'rgba(233, 69, 96, 0.7)', font: { size: 10 } }, grid: { display: false } },
-              y2: { type: 'linear', display: false, min: 0, max: 200 }
-            }
-          }} />
-        </div>
-        {selectionStats && (
-          <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-4 pt-4 border-t border-border animate-in fade-in zoom-in duration-300">
-            <div className="flex flex-col"><span className="text-[10px] font-bold text-text-muted uppercase tracking-tighter">Selection</span><span className="text-sm font-bold text-text font-mono">{fmtTime(selectionStats.duration)}</span></div>
-            {selectionStats.avgPower != null && <div className="flex flex-col"><span className="text-[10px] font-bold text-blue uppercase tracking-tighter">Avg Power</span><span className="text-sm font-bold text-blue font-mono">{selectionStats.avgPower}w</span></div>}
-            {selectionStats.avgHR != null && <div className="flex flex-col"><span className="text-[10px] font-bold text-red uppercase tracking-tighter">Avg HR</span><span className="text-sm font-bold text-red font-mono">{selectionStats.avgHR} bpm</span></div>}
-            {selectionStats.avgCadence != null && <div className="flex flex-col"><span className="text-[10px] font-bold text-text-muted uppercase tracking-tighter">Avg Cadence</span><span className="text-sm font-bold text-text font-mono">{selectionStats.avgCadence} rpm</span></div>}
-          </div>
-        )}
-      </div>
-    </section>
-  )
-}
-
-function LapsTable({ laps }: { laps: RideLap[] }) {
   const units = useUnits()
   const fmtLap = (s?: number) => { if (!s) return '-'; const m = Math.floor(s / 60); return `${m}:${Math.round(s % 60).toString().padStart(2, '0')}` }
   return (
@@ -798,11 +649,22 @@ function LapsTable({ laps }: { laps: RideLap[] }) {
               <th className="py-3 px-5 text-center">Type</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/50">
-            {laps.map((lap) => {
+          <tbody 
+            onMouseLeave={() => onHover(null)}
+            className="divide-y divide-border/50"
+          >
+            {laps.map((lap, i) => {
+              const isH = highlightedLap === i
+              const isS = selectedLap === i
+              const isD = highlightedLap !== null && highlightedLap !== i
               const isRest = lap.intensity === 'rest' || (lap.lap_trigger === 'session_end' && laps.length > 1)
               return (
-                <tr key={lap.lap_index} className={`text-text hover:bg-surface2/30 transition-colors ${isRest ? 'opacity-50' : ''}`}>
+                <tr 
+                  key={lap.lap_index} 
+                  onMouseEnter={() => onHover(i)}
+                  onClick={() => onSelect(isS ? null : i)}
+                  className={`text-text transition-all duration-200 cursor-pointer ${isS ? 'bg-accent/10' : isH ? 'bg-accent/5' : isD ? 'opacity-30 grayscale' : 'hover:bg-surface2/30'} ${isRest && !isH && !isS ? 'opacity-50' : ''}`}
+                >
                   <td className="py-2.5 px-5 font-mono text-text-muted">{lap.lap_index + 1}</td>
                   <td className="py-2.5 px-5 font-bold">{fmtLap(lap.total_timer_time)}</td>
                   <td className="py-2.5 px-5 text-text-muted">{lap.total_distance ? fmtDistance(lap.total_distance, units) : '-'}</td>
@@ -822,7 +684,13 @@ function LapsTable({ laps }: { laps: RideLap[] }) {
   )
 }
 
-function WorkoutStepsTable({ steps, highlightedStep, onHighlight }: { steps: WorkoutStep[]; highlightedStep?: number | null; onHighlight?: (index: number | null) => void }) {
+function WorkoutStepsTable({ steps, highlightedStep, selectedStep, onHover, onSelect }: { 
+  steps: WorkoutStep[]; 
+  highlightedStep: number | null; 
+  selectedStep: number | null;
+  onHover: (index: number | null) => void;
+  onSelect: (index: number | null) => void;
+}) {
   return (
     <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
       <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-2">
@@ -840,11 +708,13 @@ function WorkoutStepsTable({ steps, highlightedStep, onHighlight }: { steps: Wor
               <th className="py-3 px-5 text-right">Target Power</th>
             </tr>
           </thead>
-          <tbody onMouseLeave={() => onHighlight?.(null)} className="divide-y divide-border/50">
+          <tbody onMouseLeave={() => onHover(null)} className="divide-y divide-border/50">
             {steps.map((step, i) => {
-              const isH = highlightedStep === i, isD = highlightedStep != null && highlightedStep !== i
+              const isH = highlightedStep === i
+              const isS = selectedStep === i
+              const isD = highlightedStep != null && highlightedStep !== i
               return (
-                <tr key={i} onMouseEnter={() => onHighlight?.(i)} onClick={() => onHighlight?.(isH ? null : i)} className={`cursor-pointer transition-all duration-200 ${isH ? 'bg-accent/5' : isD ? 'opacity-30 grayscale' : 'hover:bg-surface2/30'}`}>
+                <tr key={i} onMouseEnter={() => onHover(i)} onClick={() => onSelect(isS ? null : i)} className={`cursor-pointer transition-all duration-200 ${isS ? 'bg-accent/10' : isH ? 'bg-accent/5' : isD ? 'opacity-30 grayscale' : 'hover:bg-surface2/30'}`}>
                   <td className="py-3 px-5"><div className="w-full h-1.5 rounded-full shadow-[0_0_8px] shadow-current" style={{ backgroundColor: zoneColor(step.power_pct), color: zoneColor(step.power_pct) }} /></td>
                   <td className="py-3 px-5 font-bold text-text uppercase text-[10px] tracking-widest">{step.type}</td>
                   <td className="py-3 px-5 font-mono text-xs text-text-muted">{fmtTime(step.start_s)} - {fmtTime(step.start_s + step.duration_s)}</td>
@@ -861,40 +731,13 @@ function WorkoutStepsTable({ steps, highlightedStep, onHighlight }: { steps: Wor
 }
 
 function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
-  const cc = useChartColors(), updateNotes = useUpdateWorkoutNotes(), [athleteNotes, setAthleteNotes] = useState<string | null>(null), [saveStatus, setSaveStatus] = useState(''), [highlightedStep, setHighlightedStep] = useState<number | null>(null)
-  const nVal = athleteNotes ?? workout.athlete_notes ?? '', wRef = useRef<ChartJS<'line'>>(null)
+  const updateNotes = useUpdateWorkoutNotes(), [athleteNotes, setAthleteNotes] = useState<string | null>(null), [saveStatus, setSaveStatus] = useState('')
+  const [hoveredStep, setHoveredStep] = useState<number | null>(null)
+  const [selectedStep, setSelectedStep] = useState<number | null>(null)
+  const nVal = athleteNotes ?? workout.athlete_notes ?? ''
+  
   const summary = useMemo(() => { const { steps, ftp, total_duration_s } = workout; let ws = 0, mt = 0; for (const s of steps) { ws += s.power_watts * s.duration_s; if (s.power_watts > mt) mt = s.power_watts } const ap = total_duration_s > 0 ? Math.round(ws / total_duration_s) : 0, ifac = ftp > 0 ? ap / ftp : 0; return { duration: total_duration_s, ftp, ap, mt: Math.round(mt), ifac: ifac.toFixed(2), tss: total_duration_s > 0 ? Math.round((total_duration_s * ap * ifac) / (ftp * 3600) * 100) : 0 } }, [workout])
-  const { chartData, stepIndexMap: woMap } = useMemo(() => { 
-    const ls: string[] = []
-    const sm: number[] = []
-    const S = 5
-    for (let si = 0; si < workout.steps.length; si++) { 
-      const s = workout.steps[si]
-      for (let t = s.start_s; t < s.start_s + s.duration_s; t += S) { 
-        ls.push(fmtTime(t))
-        sm.push(si) 
-      } 
-    } 
-    return { 
-      chartData: { 
-        labels: ls, 
-        datasets: workout.steps.map((s, si) => ({ 
-          label: si === 0 ? 'Target' : '', 
-          data: sm.map((m, _i) => m === si ? s.power_watts : null), 
-          borderColor: zoneColor(s.power_pct, 0.8), 
-          backgroundColor: zoneColor(s.power_pct, 0.25), 
-          fill: true, 
-          stepped: 'before' as const, 
-          pointRadius: 0, 
-          borderWidth: 1.5, 
-          tension: 0, 
-          spanGaps: false 
-        })) 
-      }, 
-      stepIndexMap: sm 
-    } 
-  }, [workout])
-  useEffect(() => { const c = wRef.current; if (c) { highlightDataMap.set(c, { activeStep: highlightedStep ?? null, stepIndexMap: woMap, steps: workout.steps }); c.update('none') } }, [highlightedStep, woMap, workout.steps])
+  
   const hS = async () => { setSaveStatus(''); try { await updateNotes.mutateAsync({ id: workout.id, body: { athlete_notes: nVal || null } }); setSaveStatus('SAVED'); setTimeout(() => setSaveStatus(''), 2000) } catch { setSaveStatus('ERROR') } }
 
   return (
@@ -923,19 +766,23 @@ function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
         <MetricCard label="Est. TSS" value={String(summary.tss)} icon={Zap} color="text-accent" />
       </div>
 
-      <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center justify-between">
-          <h2 className="text-sm font-bold text-text uppercase tracking-wider flex items-center gap-2">
-            <Layers size={16} className="text-accent" /> Interval Structure
-          </h2>
-        </div>
-        <div className="p-5">
-          <div className="h-72"><Line ref={wRef} data={chartData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { filter: (i: any) => i.parsed.y != null, callbacks: { label: (ctx: any) => `${ctx.parsed.y}w` } } }, scales: { x: { ticks: { color: cc.tickColor, maxTicksLimit: 10, font: { size: 10 } }, grid: { display: false } }, y: { title: { display: true, text: 'WATTS', color: cc.tickColor, font: { size: 9, weight: 'bold' } }, ticks: { color: cc.tickColor, font: { size: 10 } }, grid: { color: 'rgba(148, 163, 184, 0.1)' }, min: 0 } } }} /></div>
-        </div>
-      </section>
+      <RideTimelineChart 
+        records={[]} 
+        laps={[]} 
+        workout={workout} 
+        highlightedStep={hoveredStep ?? selectedStep} 
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2"><WorkoutStepsTable steps={workout.steps} highlightedStep={highlightedStep} onHighlight={setHighlightedStep} /></div>
+        <div className="lg:col-span-2">
+          <WorkoutStepsTable 
+            steps={workout.steps} 
+            highlightedStep={hoveredStep ?? selectedStep} 
+            selectedStep={selectedStep}
+            onHover={setHoveredStep}
+            onSelect={setSelectedStep}
+          />
+        </div>
         <div className="space-y-6">
           <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
             <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center justify-between">
