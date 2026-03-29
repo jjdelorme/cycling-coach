@@ -4,8 +4,9 @@ steps:
     args:
       - '-c'
       - |
-        echo "${TAG_NAME#v}" > VERSION
-        echo "VERSION: $(cat VERSION)"
+        TAG="${TAG_NAME}"
+        echo "$${TAG#v}" > /workspace/VERSION
+        echo "VERSION: $$(cat /workspace/VERSION)"
 
   # Build container image
   - name: 'gcr.io/cloud-builders/docker'
