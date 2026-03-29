@@ -3,6 +3,7 @@
 import math
 from datetime import datetime, timedelta
 from server.database import get_db, get_athlete_setting
+from server.queries import get_current_pmc_row, get_pmc_row_for_date, get_power_bests_rows, get_ftp_history_rows, get_periodization_phases
 
 
 # ---------------------------------------------------------------------------
@@ -178,15 +179,7 @@ def get_pmc_metrics(date: str = "") -> dict:
         Dictionary with ctl (fitness), atl (fatigue), tsb (form), weight.
     """
     with get_db() as conn:
-        if date:
-            row = conn.execute(
-                "SELECT * FROM daily_metrics WHERE date <= ? ORDER BY date DESC LIMIT 1",
-                (date,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT * FROM daily_metrics ORDER BY date DESC LIMIT 1"
-            ).fetchone()
+        row = get_pmc_row_for_date(conn, date) if date else get_current_pmc_row(conn)
 
     if not row:
         return {"error": "No PMC data found"}
@@ -280,13 +273,7 @@ def get_power_bests() -> dict:
     labels = {5: "5s", 30: "30s", 60: "1min", 300: "5min", 1200: "20min", 3600: "60min"}
 
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT pb.duration_s, pb.power, pb.date
-               FROM power_bests pb
-               JOIN (SELECT duration_s, MAX(power) as max_power FROM power_bests GROUP BY duration_s) m
-                 ON pb.duration_s = m.duration_s AND pb.power = m.max_power
-               ORDER BY pb.duration_s"""
-        ).fetchall()
+        rows = get_power_bests_rows(conn)
 
     return {
         labels.get(r["duration_s"], f"{r['duration_s']}s"): {"power": r["power"], "date": r["date"]}
@@ -340,50 +327,18 @@ def get_ftp_history() -> list[dict]:
         List of monthly FTP values with W/kg.
     """
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT m.month, m.max_ftp as ftp,
-                      (SELECT r.weight FROM rides r WHERE SUBSTR(r.date, 1, 7) = m.month AND r.ftp = m.max_ftp LIMIT 1) as weight
-               FROM (SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as max_ftp FROM rides WHERE ftp > 0 GROUP BY SUBSTR(date, 1, 7)) m
-               ORDER BY m.month"""
-        ).fetchall()
+        rows = get_ftp_history_rows(conn)
 
-    result = [
+    return [
         {
             "month": r["month"],
             "ftp": r["ftp"],
             "weight_kg": r["weight"],
-            "w_per_kg": round(r["ftp"] / r["weight"], 2) if r["weight"] and r["weight"] > 0 else None,
+            "w_per_kg": r["w_per_kg"],
+            **({"source": r["source"]} if "source" in r else {}),
         }
         for r in rows
     ]
-
-    # Append current athlete_settings FTP if it differs from the latest ride-based entry
-    try:
-        current_ftp = int(get_athlete_setting("ftp") or 0)
-    except (ValueError, TypeError):
-        current_ftp = 0
-    if current_ftp > 0:
-        current_month = datetime.now().strftime("%Y-%m")
-        last_ftp = result[-1]["ftp"] if result else 0
-        last_month = result[-1]["month"] if result else ""
-        if current_ftp != last_ftp or current_month != last_month:
-            try:
-                weight = float(get_athlete_setting("weight_kg") or 0)
-            except (ValueError, TypeError):
-                weight = 0
-            entry = {
-                "month": current_month,
-                "ftp": current_ftp,
-                "weight_kg": weight if weight > 0 else None,
-                "w_per_kg": round(current_ftp / weight, 2) if weight > 0 else None,
-                "source": "athlete_setting",
-            }
-            if result and last_month == current_month:
-                result[-1] = entry
-            else:
-                result.append(entry)
-
-    return result
 
 
 def get_periodization_status() -> dict:
@@ -395,9 +350,7 @@ def get_periodization_status() -> dict:
     today = datetime.now().strftime("%Y-%m-%d")
 
     with get_db() as conn:
-        phases = conn.execute(
-            "SELECT * FROM periodization_phases ORDER BY start_date"
-        ).fetchall()
+        phases = get_periodization_phases(conn)
 
     all_phases = []
     current = None
@@ -450,10 +403,8 @@ def get_ride_analysis(date: str) -> dict:
         ).fetchall()
 
         # All-time bests for comparison
-        alltime = conn.execute(
-            "SELECT duration_s, MAX(power) as max_power FROM power_bests GROUP BY duration_s"
-        ).fetchall()
-        alltime_map = {r["duration_s"]: r["max_power"] for r in alltime}
+        alltime = get_power_bests_rows(conn)
+        alltime_map = {r["duration_s"]: r["power"] for r in alltime}
 
     powers = [r["power"] for r in rows]
     heart_rates = [r["heart_rate"] for r in rows]
@@ -698,27 +649,16 @@ def get_power_curve(start_date: str = "", end_date: str = "", last_n_days: int =
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=last_n_days)).strftime("%Y-%m-%d")
     elif not start_date and not end_date:
-        # All-time
-        start_date = "2000-01-01"
-        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = None
+        end_date = None
     else:
         if not start_date:
-            start_date = "2000-01-01"
+            start_date = None
         if not end_date:
-            end_date = datetime.now().strftime("%Y-%m-%d")
+            end_date = None
 
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT pb.duration_s, pb.power, pb.date, pb.ride_id
-               FROM power_bests pb
-               JOIN (SELECT duration_s, MAX(power) as max_power
-                     FROM power_bests WHERE date >= ? AND date <= ?
-                     GROUP BY duration_s) m
-                 ON pb.duration_s = m.duration_s AND pb.power = m.max_power
-               WHERE pb.date >= ? AND pb.date <= ?
-               ORDER BY pb.duration_s""",
-            (start_date, end_date, start_date, end_date),
-        ).fetchall()
+        rows = get_power_bests_rows(conn, start_date, end_date)
 
     bests = []
     seen_durations = set()

@@ -6,6 +6,7 @@ from typing import Optional
 from server.auth import CurrentUser, require_read
 from server.database import get_db
 from server.models.schemas import PMCEntry
+from server.queries import get_current_pmc_row
 
 router = APIRouter(prefix="/api/pmc", tags=["pmc"])
 
@@ -34,9 +35,7 @@ def get_pmc(
 @router.get("/current", response_model=PMCEntry)
 def get_current_pmc(user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM daily_metrics ORDER BY date DESC LIMIT 1"
-        ).fetchone()
+        row = get_current_pmc_row(conn)
     if not row:
         return PMCEntry(date="unknown")
-    return PMCEntry(**dict(row))
+    return PMCEntry(**row)

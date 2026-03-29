@@ -9,22 +9,14 @@ from pydantic import BaseModel
 from server.auth import CurrentUser, require_read, require_write
 from server.database import get_db, get_athlete_setting
 from server.models.schemas import PlannedWorkout, PeriodizationPhase
+from server.queries import get_current_ftp as _get_current_ftp_with_conn, get_periodization_phases, get_week_planned_and_actual
 from server.services.workout_generator import generate_zwo, list_templates, get_template
 
 
 def _get_current_ftp() -> int:
-    """Get current FTP: prefer athlete_settings, fall back to latest ride."""
-    try:
-        val = int(get_athlete_setting("ftp") or 0)
-        if val > 0:
-            return val
-    except (ValueError, TypeError):
-        pass
+    """Get current FTP (convenience wrapper that manages its own connection)."""
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-    return row["ftp"] if row else 261
+        return _get_current_ftp_with_conn(conn)
 
 router = APIRouter(prefix="/api/plan", tags=["plan"])
 
@@ -47,8 +39,8 @@ def get_activity_dates(user: CurrentUser = Depends(require_read)):
 def get_macro_plan(user: CurrentUser = Depends(require_read)):
     """Get periodization phases."""
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM periodization_phases ORDER BY start_date").fetchall()
-    return [PeriodizationPhase(**dict(r)) for r in rows]
+        rows = get_periodization_phases(conn)
+    return [PeriodizationPhase(**r) for r in rows]
 
 
 @router.get("/week/{date}")
@@ -63,21 +55,13 @@ def get_week_plan(date: str, user: CurrentUser = Depends(require_read)):
     end_str = end.strftime("%Y-%m-%d")
 
     with get_db() as conn:
-        planned = conn.execute(
-            "SELECT * FROM planned_workouts WHERE date >= ? AND date <= ? ORDER BY date",
-            (start_str, end_str),
-        ).fetchall()
-
-        actual = conn.execute(
-            "SELECT id, date, sport, sub_sport, duration_s, tss, avg_power, normalized_power, avg_hr, distance_m, total_ascent FROM rides WHERE date >= ? AND date <= ? ORDER BY date",
-            (start_str, end_str),
-        ).fetchall()
+        planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
 
     return {
         "week_start": start_str,
         "week_end": end_str,
-        "planned": [dict(p) for p in planned],
-        "actual": [dict(a) for a in actual],
+        "planned": planned,
+        "actual": actual,
     }
 
 
@@ -92,9 +76,7 @@ def weekly_overview(user: CurrentUser = Depends(require_read)):
     from collections import defaultdict
 
     with get_db() as conn:
-        phases = conn.execute(
-            "SELECT * FROM periodization_phases ORDER BY start_date"
-        ).fetchall()
+        phases = get_periodization_phases(conn)
         if not phases:
             return []
 
@@ -107,7 +89,7 @@ def weekly_overview(user: CurrentUser = Depends(require_read)):
         last_sunday = plan_end + timedelta(days=(6 - plan_end.weekday()))
 
         # Build phase lookup
-        phase_list = [dict(p) for p in phases]
+        phase_list = phases
 
         def phase_for_monday(mon: dt_date):
             mid = mon + timedelta(days=3)  # use mid-week to assign phase

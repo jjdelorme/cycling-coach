@@ -2,22 +2,9 @@
 
 from datetime import datetime, timedelta
 from server.database import get_db, get_setting, set_setting, get_all_settings, get_athlete_setting, set_athlete_setting
+from server.queries import get_current_ftp, get_periodization_phases, get_week_planned_and_actual
 from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates, calculate_planned_tss
 from server.services.intervals_icu import push_workout, delete_event, compute_sync_hash, is_configured as icu_is_configured
-
-
-def _get_current_ftp(conn) -> int:
-    """Get current FTP: prefer athlete_settings, fall back to latest ride."""
-    try:
-        val = int(get_athlete_setting("ftp") or 0)
-        if val > 0:
-            return val
-    except (ValueError, TypeError):
-        pass
-    row = conn.execute(
-        "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
-    ).fetchone()
-    return row["ftp"] if row else 261
 
 
 def replan_missed_day(missed_date: str, new_target_date: str) -> dict:
@@ -133,7 +120,7 @@ def generate_weekly_plan(start_date: str, focus: str = "base", hours: float = 12
     workouts_created = []
 
     with get_db() as conn:
-        ftp = _get_current_ftp(conn)
+        ftp = get_current_ftp(conn)
 
         for day_offset, template in enumerate(week_template):
             if template is None:
@@ -309,9 +296,7 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
     }
 
     with get_db() as conn:
-        phases = conn.execute(
-            "SELECT * FROM periodization_phases ORDER BY start_date"
-        ).fetchall()
+        phases = get_periodization_phases(conn)
 
         if not phases:
             return {"status": "error", "message": "No periodization phases defined."}
@@ -319,7 +304,7 @@ def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
         if not end_date:
             end_date = phases[-1]["end_date"]
 
-        ftp = _get_current_ftp(conn)
+        ftp = get_current_ftp(conn)
 
         def get_phase_for_date(d_str):
             for p in phases:
@@ -495,7 +480,7 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
         }
 
     with get_db() as conn:
-        ftp = _get_current_ftp(conn)
+        ftp = get_current_ftp(conn)
 
         previous = conn.execute(
             "SELECT name, icu_event_id FROM planned_workouts WHERE date = ?", (date,)
@@ -582,16 +567,7 @@ def get_week_summary(date: str = "") -> dict:
     end_str = end.strftime("%Y-%m-%d")
 
     with get_db() as conn:
-        planned = conn.execute(
-            "SELECT date, name, total_duration_s FROM planned_workouts WHERE date >= ? AND date <= ? ORDER BY date",
-            (start_str, end_str),
-        ).fetchall()
-
-        actual = conn.execute(
-            """SELECT date, sub_sport, duration_s, tss, avg_power, normalized_power, avg_hr
-               FROM rides WHERE date >= ? AND date <= ? ORDER BY date""",
-            (start_str, end_str),
-        ).fetchall()
+        planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
 
         # Weekly totals
         total_tss = sum(r["tss"] or 0 for r in actual)
@@ -641,7 +617,7 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
     now_iso = datetime.now().isoformat(timespec="seconds")
 
     with get_db() as conn:
-        ftp = _get_current_ftp(conn)
+        ftp = get_current_ftp(conn)
 
         if date:
             # Sync workout(s) for a specific date

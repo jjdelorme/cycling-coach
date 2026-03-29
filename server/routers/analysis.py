@@ -6,6 +6,7 @@ from typing import Optional
 from server.auth import CurrentUser, require_read
 from server.database import get_db, get_athlete_setting
 from server.models.schemas import PowerBestEntry
+from server.queries import get_power_bests_rows, get_ftp_history_rows
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -17,24 +18,8 @@ def power_curve(
     user: CurrentUser = Depends(require_read),
 ):
     """Best power at standard durations."""
-    inner = "SELECT duration_s, MAX(power) as max_power FROM power_bests WHERE 1=1"
-    params = []
-    if start_date:
-        inner += " AND date >= ?"
-        params.append(start_date)
-    if end_date:
-        inner += " AND date <= ?"
-        params.append(end_date)
-    inner += " GROUP BY duration_s"
-    query = f"""
-        SELECT pb.duration_s, pb.power, pb.date, pb.ride_id
-        FROM power_bests pb
-        JOIN ({inner}) m ON pb.duration_s = m.duration_s AND pb.power = m.max_power
-        ORDER BY pb.duration_s
-    """
-
     with get_db() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows = get_power_bests_rows(conn, start_date, end_date)
 
     return [
         {"duration_s": r["duration_s"], "power": r["power"], "date": r["date"], "ride_id": r["ride_id"]}
@@ -162,54 +147,8 @@ def efficiency_factor(
 @router.get("/ftp-history")
 def ftp_history(user: CurrentUser = Depends(require_read)):
     """FTP progression over time, including current athlete setting."""
-    from datetime import datetime
-
     with get_db() as conn:
-        rows = conn.execute("""
-            SELECT m.month, m.max_ftp as ftp,
-                   (SELECT r.weight FROM rides r WHERE SUBSTR(r.date, 1, 7) = m.month AND r.ftp = m.max_ftp LIMIT 1) as weight
-            FROM (SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as max_ftp FROM rides WHERE ftp > 0 GROUP BY SUBSTR(date, 1, 7)) m
-            ORDER BY m.month
-        """).fetchall()
-
-    result = [
-        {
-            "month": r["month"],
-            "ftp": r["ftp"],
-            "weight": r["weight"],
-            "w_per_kg": round(r["ftp"] / r["weight"], 2) if r["weight"] and r["weight"] > 0 else None,
-        }
-        for r in rows
-    ]
-
-    # Append current athlete_settings FTP if it differs from the latest ride-based entry
-    try:
-        current_ftp = int(get_athlete_setting("ftp") or 0)
-    except (ValueError, TypeError):
-        current_ftp = 0
-    if current_ftp > 0:
-        current_month = datetime.now().strftime("%Y-%m")
-        last_entry_ftp = result[-1]["ftp"] if result else 0
-        last_entry_month = result[-1]["month"] if result else ""
-        if current_ftp != last_entry_ftp or current_month != last_entry_month:
-            try:
-                weight = float(get_athlete_setting("weight_kg") or 0)
-            except (ValueError, TypeError):
-                weight = 0
-            entry = {
-                "month": current_month,
-                "ftp": current_ftp,
-                "weight": weight if weight > 0 else None,
-                "w_per_kg": round(current_ftp / weight, 2) if weight > 0 else None,
-                "source": "athlete_setting",
-            }
-            # Replace existing entry for the same month, or append
-            if result and last_entry_month == current_month:
-                result[-1] = entry
-            else:
-                result.append(entry)
-
-    return result
+        return get_ftp_history_rows(conn)
 
 
 @router.get("/route-matches")
