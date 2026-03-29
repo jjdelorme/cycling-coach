@@ -31,11 +31,18 @@ Cycling coaching platform. Currently single-athlete, but designed for multi-user
 - `pip install -r requirements.txt` — install backend deps
 - `cd frontend && npm install` — install frontend deps
 - `python -m server.ingest` — ingest data from JSON files into Postgres
-- `uvicorn server.main:app --reload` — run backend dev server
-- `cd frontend && npm run dev` — run frontend dev server (Vite)
+- `./scripts/dev.sh` — start both backend and frontend dev servers (generates VERSION from git tags)
+- `uvicorn server.main:app --reload` — run backend dev server only
+- `cd frontend && npm run dev` — run frontend dev server only (Vite)
 - `cd frontend && npm run build` — production frontend build
 - `pytest` — run all tests
 - `pytest tests/test_database.py -v` — run specific test file
+
+### Versioning
+The `VERSION` file is **not checked into git**. It is auto-generated from git tags:
+- **Production**: Cloud Build runs `git describe --tags` and passes the result into the Docker build
+- **Local dev**: `./scripts/dev.sh` generates it before starting servers
+- **Without the script**: backend shows "dev", frontend shows "development"
 
 ## Authentication
 
