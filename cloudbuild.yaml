@@ -1,4 +1,16 @@
 steps:
+  # Generate VERSION from git tags (e.g. "1.4.0" or "1.4.0-3-ge616f61")
+  - name: 'gcr.io/cloud-builders/git'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        git fetch --tags origin 2>/dev/null || true
+        RAW=$(git describe --tags --always 2>/dev/null || echo "${SHORT_SHA}")
+        # Strip leading 'v' prefix if present
+        echo "$${RAW#v}" > VERSION
+        echo "VERSION: $$(cat VERSION)"
+
   # Build container image
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
@@ -6,6 +18,7 @@ steps:
       - '-c'
       - |
         docker build \
+          --build-arg "APP_VERSION=$$(cat VERSION)" \
           --build-arg "VITE_GOOGLE_CLIENT_ID=$$GOOGLE_CLIENT_ID" \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA} \
           .
@@ -28,9 +41,9 @@ steps:
           --region ${_REGION} \
           --format 'value(status.url)' 2>/dev/null || echo '')
 
-        # Build revision suffix from VERSION file: "v1.4.0" → "v1-4-0-abc1234"
-        APP_VERSION=$$(cat VERSION | tr '.' '-')
-        REVISION_SUFFIX="v$${APP_VERSION}-${SHORT_SHA}"
+        # Build revision suffix from VERSION file: "1.4.0" → "v1-4-0"
+        # VERSION already includes commit info when not on a tagged commit
+        REVISION_SUFFIX="v$$(cat VERSION | tr '.' '-')"
 
         gcloud run deploy ${_SERVICE_NAME} \
           --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA} \

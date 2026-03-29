@@ -31,7 +31,18 @@ def _read_version() -> str:
         with open(version_file) as f:
             return f.read().strip()
     except FileNotFoundError:
-        return "unknown"
+        pass
+    # Fall back to git describe for local dev (no VERSION file)
+    import subprocess
+    try:
+        raw = subprocess.check_output(
+            ["git", "describe", "--tags", "--always"],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return raw.lstrip("v")
+    except Exception:
+        return "dev"
 
 APP_VERSION = _read_version()
 
