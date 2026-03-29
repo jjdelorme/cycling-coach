@@ -1,0 +1,1287 @@
+{
+  "athlete": {
+    "weight_kg": 79.4,
+    "age": 48,
+    "ftp_start": 244,
+    "ftp_current": 261,
+    "weight_current": 79.4,
+    "w_per_kg": 3.29
+  },
+  "date_range": {
+    "start": "2025-03-31",
+    "end": "2026-03-22",
+    "total_rides": 291
+  },
+  "season_totals": {
+    "total_hours": 581.0,
+    "total_distance_km": 10575,
+    "total_ascent_m": 140051,
+    "total_tss": 24618,
+    "total_calories": 354784,
+    "total_work_kj": 265047,
+    "total_rides": 291
+  },
+  "monthly": {
+    "2025-03": {
+      "rides": 1,
+      "duration_h": 3.0,
+      "tss": 155,
+      "distance_km": 34,
+      "ascent_m": 693,
+      "calories": 1621,
+      "avg_power": 128,
+      "avg_hr": 116,
+      "best_20min": 178
+    },
+    "2025-04": {
+      "rides": 19,
+      "duration_h": 41.9,
+      "tss": 2348,
+      "distance_km": 608,
+      "ascent_m": 10226,
+      "calories": 24202,
+      "avg_power": 138,
+      "avg_hr": 118,
+      "best_20min": 265
+    },
+    "2025-05": {
+      "rides": 28,
+      "duration_h": 49.1,
+      "tss": 2909,
+      "distance_km": 1010,
+      "ascent_m": 9964,
+      "calories": 33226,
+      "avg_power": 161,
+      "avg_hr": 114,
+      "best_20min": 278
+    },
+    "2025-06": {
+      "rides": 24,
+      "duration_h": 53.9,
+      "tss": 3041,
+      "distance_km": 1138,
+      "ascent_m": 12281,
+      "calories": 34976,
+      "avg_power": 155,
+      "avg_hr": 113,
+      "best_20min": 275
+    },
+    "2025-07": {
+      "rides": 25,
+      "duration_h": 45.5,
+      "tss": 2763,
+      "distance_km": 1175,
+      "ascent_m": 9533,
+      "calories": 32099,
+      "avg_power": 165,
+      "avg_hr": 120,
+      "best_20min": 257
+    },
+    "2025-08": {
+      "rides": 27,
+      "duration_h": 60.3,
+      "tss": 3369,
+      "distance_km": 819,
+      "ascent_m": 18340,
+      "calories": 36160,
+      "avg_power": 144,
+      "avg_hr": 119,
+      "best_20min": 298
+    },
+    "2025-09": {
+      "rides": 29,
+      "duration_h": 61.2,
+      "tss": 3084,
+      "distance_km": 1257,
+      "ascent_m": 11488,
+      "calories": 39653,
+      "avg_power": 161,
+      "avg_hr": 115,
+      "best_20min": 302
+    },
+    "2025-10": {
+      "rides": 28,
+      "duration_h": 57.2,
+      "tss": 2851,
+      "distance_km": 1072,
+      "ascent_m": 13693,
+      "calories": 37482,
+      "avg_power": 161,
+      "avg_hr": 115,
+      "best_20min": 301
+    },
+    "2025-11": {
+      "rides": 21,
+      "duration_h": 41.3,
+      "tss": 1383,
+      "distance_km": 673,
+      "ascent_m": 6620,
+      "calories": 23685,
+      "avg_power": 149,
+      "avg_hr": 109,
+      "best_20min": 254
+    },
+    "2025-12": {
+      "rides": 21,
+      "duration_h": 35.7,
+      "tss": 841,
+      "distance_km": 590,
+      "ascent_m": 6938,
+      "calories": 21997,
+      "avg_power": 152,
+      "avg_hr": 117,
+      "best_20min": 239
+    },
+    "2026-01": {
+      "rides": 24,
+      "duration_h": 35.2,
+      "tss": 891,
+      "distance_km": 716,
+      "ascent_m": 7135,
+      "calories": 20828,
+      "avg_power": 140,
+      "avg_hr": 108,
+      "best_20min": 211
+    },
+    "2026-02": {
+      "rides": 22,
+      "duration_h": 41.8,
+      "tss": 983,
+      "distance_km": 775,
+      "ascent_m": 18927,
+      "calories": 25217,
+      "avg_power": 143,
+      "avg_hr": 121,
+      "best_20min": 275
+    },
+    "2026-03": {
+      "rides": 22,
+      "duration_h": 54.8,
+      "tss": 0,
+      "distance_km": 708,
+      "ascent_m": 14213,
+      "calories": 23638,
+      "avg_power": 0,
+      "avg_hr": 114,
+      "best_20min": null
+    }
+  },
+  "weekly": {
+    "2025-W14": {
+      "rides": 8,
+      "duration_h": 18.8,
+      "tss": 1005.8,
+      "distance_km": 231.9,
+      "ascent_m": 4380,
+      "calories": 10207,
+      "work_kj": 8608,
+      "best_20min": 265,
+      "avg_if": 0.734,
+      "sport_mix": {
+        "mountain": 8
+      }
+    },
+    "2025-W15": {
+      "rides": 7,
+      "duration_h": 16.5,
+      "tss": 858.6,
+      "distance_km": 203.8,
+      "ascent_m": 4328,
+      "calories": 8965,
+      "work_kj": 7548,
+      "best_20min": 242,
+      "avg_if": 0.71,
+      "sport_mix": {
+        "mountain": 7
+      }
+    },
+    "2025-W16": {
+      "rides": 1,
+      "duration_h": 2.0,
+      "tss": 148.8,
+      "distance_km": 30.1,
+      "ascent_m": 510,
+      "calories": 1285,
+      "work_kj": 1117,
+      "best_20min": 192,
+      "avg_if": 0.869,
+      "sport_mix": {
+        "mountain": 1
+      }
+    },
+    "2025-W17": {
+      "rides": 1,
+      "duration_h": 2.6,
+      "tss": 147.1,
+      "distance_km": 73.7,
+      "ascent_m": 494,
+      "calories": 1829,
+      "work_kj": 1607,
+      "best_20min": 226,
+      "avg_if": 0.754,
+      "sport_mix": {
+        "road": 1
+      }
+    },
+    "2025-W18": {
+      "rides": 6,
+      "duration_h": 12.5,
+      "tss": 754.7,
+      "distance_km": 268.4,
+      "ascent_m": 2550,
+      "calories": 8179,
+      "work_kj": 7120,
+      "best_20min": 225,
+      "avg_if": 0.77,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 1,
+        "road": 2
+      }
+    },
+    "2025-W19": {
+      "rides": 6,
+      "duration_h": 9.5,
+      "tss": 499.8,
+      "distance_km": 163.2,
+      "ascent_m": 1241,
+      "calories": 6078,
+      "work_kj": 5276,
+      "best_20min": 233,
+      "avg_if": 0.713,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 3
+      }
+    },
+    "2025-W20": {
+      "rides": 6,
+      "duration_h": 13.4,
+      "tss": 953.5,
+      "distance_km": 344.0,
+      "ascent_m": 3724,
+      "calories": 10224,
+      "work_kj": 9089,
+      "best_20min": 265,
+      "avg_if": 0.814,
+      "sport_mix": {
+        "mountain": 1,
+        "indoor_cycling": 1,
+        "road": 4
+      }
+    },
+    "2025-W21": {
+      "rides": 7,
+      "duration_h": 10.2,
+      "tss": 526.0,
+      "distance_km": 164.6,
+      "ascent_m": 1954,
+      "calories": 6344,
+      "work_kj": 5477,
+      "best_20min": 278,
+      "avg_if": 0.683,
+      "sport_mix": {
+        "mountain": 2,
+        "indoor_cycling": 4,
+        "road": 1
+      }
+    },
+    "2025-W22": {
+      "rides": 6,
+      "duration_h": 8.6,
+      "tss": 517.5,
+      "distance_km": 172.7,
+      "ascent_m": 1702,
+      "calories": 5938,
+      "work_kj": 5213,
+      "best_20min": 277,
+      "avg_if": 0.729,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 1,
+        "road": 2
+      }
+    },
+    "2025-W23": {
+      "rides": 6,
+      "duration_h": 16.9,
+      "tss": 971.8,
+      "distance_km": 432.4,
+      "ascent_m": 4500,
+      "calories": 11589,
+      "work_kj": 10160,
+      "best_20min": 227,
+      "avg_if": 0.749,
+      "sport_mix": {
+        "mountain": 3,
+        "road": 3
+      }
+    },
+    "2025-W24": {
+      "rides": 6,
+      "duration_h": 12.2,
+      "tss": 646.8,
+      "distance_km": 155.0,
+      "ascent_m": 2069,
+      "calories": 7030,
+      "work_kj": 5943,
+      "best_20min": 253,
+      "avg_if": 0.692,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 3
+      }
+    },
+    "2025-W25": {
+      "rides": 5,
+      "duration_h": 11.1,
+      "tss": 668.7,
+      "distance_km": 196.2,
+      "ascent_m": 3334,
+      "calories": 7363,
+      "work_kj": 6421,
+      "best_20min": 216,
+      "avg_if": 0.758,
+      "sport_mix": {
+        "mountain": 5
+      }
+    },
+    "2025-W26": {
+      "rides": 7,
+      "duration_h": 13.7,
+      "tss": 753.6,
+      "distance_km": 354.3,
+      "ascent_m": 2378,
+      "calories": 8994,
+      "work_kj": 7829,
+      "best_20min": 275,
+      "avg_if": 0.718,
+      "sport_mix": {
+        "mountain": 2,
+        "indoor_cycling": 3,
+        "road": 2
+      }
+    },
+    "2025-W27": {
+      "rides": 5,
+      "duration_h": 9.8,
+      "tss": 601.4,
+      "distance_km": 304.9,
+      "ascent_m": 1707,
+      "calories": 7395,
+      "work_kj": 6569,
+      "best_20min": 242,
+      "avg_if": 0.772,
+      "sport_mix": {
+        "mountain": 4,
+        "road": 1
+      }
+    },
+    "2025-W28": {
+      "rides": 4,
+      "duration_h": 8.3,
+      "tss": 534.4,
+      "distance_km": 211.1,
+      "ascent_m": 2061,
+      "calories": 5891,
+      "work_kj": 5189,
+      "best_20min": 257,
+      "avg_if": 0.794,
+      "sport_mix": {
+        "mountain": 1,
+        "indoor_cycling": 1,
+        "road": 2
+      }
+    },
+    "2025-W29": {
+      "rides": 7,
+      "duration_h": 14.3,
+      "tss": 819.6,
+      "distance_km": 362.0,
+      "ascent_m": 2893,
+      "calories": 10065,
+      "work_kj": 8850,
+      "best_20min": 253,
+      "avg_if": 0.715,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 3,
+        "road": 1
+      }
+    },
+    "2025-W30": {
+      "rides": 5,
+      "duration_h": 9.0,
+      "tss": 560.1,
+      "distance_km": 241.4,
+      "ascent_m": 1546,
+      "calories": 6058,
+      "work_kj": 5297,
+      "best_20min": 231,
+      "avg_if": 0.738,
+      "sport_mix": {
+        "mountain": 2,
+        "indoor_cycling": 2,
+        "road": 1
+      }
+    },
+    "2025-W31": {
+      "rides": 7,
+      "duration_h": 11.3,
+      "tss": 555.9,
+      "distance_km": 124.5,
+      "ascent_m": 3287,
+      "calories": 6515,
+      "work_kj": 5389,
+      "best_20min": 208,
+      "avg_if": 0.721,
+      "sport_mix": {
+        "mountain": 7
+      }
+    },
+    "2025-W32": {
+      "rides": 6,
+      "duration_h": 17.2,
+      "tss": 957.2,
+      "distance_km": 247.8,
+      "ascent_m": 4723,
+      "calories": 10144,
+      "work_kj": 8550,
+      "best_20min": 260,
+      "avg_if": 0.762,
+      "sport_mix": {
+        "mountain": 6
+      }
+    },
+    "2025-W33": {
+      "rides": 7,
+      "duration_h": 15.6,
+      "tss": 954.1,
+      "distance_km": 174.3,
+      "ascent_m": 4547,
+      "calories": 8732,
+      "work_kj": 7449,
+      "best_20min": 298,
+      "avg_if": 0.795,
+      "sport_mix": {
+        "mountain": 7
+      }
+    },
+    "2025-W34": {
+      "rides": 7,
+      "duration_h": 12.8,
+      "tss": 671.8,
+      "distance_km": 150.6,
+      "ascent_m": 4586,
+      "calories": 7809,
+      "work_kj": 6397,
+      "best_20min": 289,
+      "avg_if": 0.706,
+      "sport_mix": {
+        "mountain": 7
+      }
+    },
+    "2025-W35": {
+      "rides": 4,
+      "duration_h": 7.8,
+      "tss": 477.3,
+      "distance_km": 177.3,
+      "ascent_m": 2523,
+      "calories": 5650,
+      "work_kj": 4993,
+      "best_20min": 246,
+      "avg_if": 0.754,
+      "sport_mix": {
+        "mountain": 3,
+        "road": 1
+      }
+    },
+    "2025-W36": {
+      "rides": 4,
+      "duration_h": 8.6,
+      "tss": 466.0,
+      "distance_km": 149.1,
+      "ascent_m": 2140,
+      "calories": 5606,
+      "work_kj": 4879,
+      "best_20min": 276,
+      "avg_if": 0.72,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 1
+      }
+    },
+    "2025-W37": {
+      "rides": 7,
+      "duration_h": 16.3,
+      "tss": 838.0,
+      "distance_km": 278.7,
+      "ascent_m": 3376,
+      "calories": 10129,
+      "work_kj": 8739,
+      "best_20min": 264,
+      "avg_if": 0.711,
+      "sport_mix": {
+        "mountain": 4,
+        "indoor_cycling": 3
+      }
+    },
+    "2025-W38": {
+      "rides": 8,
+      "duration_h": 19.1,
+      "tss": 954.0,
+      "distance_km": 366.7,
+      "ascent_m": 3706,
+      "calories": 12364,
+      "work_kj": 10395,
+      "best_20min": 245,
+      "avg_if": 0.654,
+      "sport_mix": {
+        "mountain": 4,
+        "indoor_cycling": 3,
+        "unknown": 1
+      }
+    },
+    "2025-W39": {
+      "rides": 8,
+      "duration_h": 15.0,
+      "tss": 721.6,
+      "distance_km": 402.2,
+      "ascent_m": 2266,
+      "calories": 10006,
+      "work_kj": 8711,
+      "best_20min": 302,
+      "avg_if": 0.657,
+      "sport_mix": {
+        "mountain": 1,
+        "indoor_cycling": 4,
+        "road": 3
+      }
+    },
+    "2025-W40": {
+      "rides": 7,
+      "duration_h": 12.0,
+      "tss": 602.9,
+      "distance_km": 244.7,
+      "ascent_m": 1792,
+      "calories": 8161,
+      "work_kj": 6459,
+      "best_20min": 261,
+      "avg_if": 0.766,
+      "sport_mix": {
+        "mountain": 2,
+        "strength_training": 3,
+        "indoor_cycling": 1,
+        "road": 1
+      }
+    },
+    "2025-W41": {
+      "rides": 8,
+      "duration_h": 17.4,
+      "tss": 707.3,
+      "distance_km": 210.3,
+      "ascent_m": 4437,
+      "calories": 9304,
+      "work_kj": 7090,
+      "best_20min": 224,
+      "avg_if": 0.715,
+      "sport_mix": {
+        "generic": 1,
+        "mountain": 5,
+        "road": 1,
+        "gravel_cycling": 1
+      }
+    },
+    "2025-W42": {
+      "rides": 6,
+      "duration_h": 11.7,
+      "tss": 643.7,
+      "distance_km": 285.2,
+      "ascent_m": 2467,
+      "calories": 8286,
+      "work_kj": 6748,
+      "best_20min": 301,
+      "avg_if": 0.747,
+      "sport_mix": {
+        "mountain": 1,
+        "strength_training": 2,
+        "indoor_cycling": 2,
+        "road": 1
+      }
+    },
+    "2025-W43": {
+      "rides": 6,
+      "duration_h": 15.3,
+      "tss": 935.6,
+      "distance_km": 314.0,
+      "ascent_m": 4997,
+      "calories": 11592,
+      "work_kj": 9800,
+      "best_20min": 285,
+      "avg_if": 0.743,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 2,
+        "gravel_cycling": 1
+      }
+    },
+    "2025-W44": {
+      "rides": 5,
+      "duration_h": 9.1,
+      "tss": 264.2,
+      "distance_km": 131.0,
+      "ascent_m": 1154,
+      "calories": 4572,
+      "work_kj": 3771,
+      "best_20min": 185,
+      "avg_if": 0.511,
+      "sport_mix": {
+        "mountain": 2,
+        "indoor_cycling": 3
+      }
+    },
+    "2025-W45": {
+      "rides": 4,
+      "duration_h": 12.2,
+      "tss": 516.8,
+      "distance_km": 198.8,
+      "ascent_m": 2052,
+      "calories": 7177,
+      "work_kj": 6081,
+      "best_20min": 207,
+      "avg_if": 0.639,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 1
+      }
+    },
+    "2025-W46": {
+      "rides": 5,
+      "duration_h": 6.1,
+      "tss": 155.1,
+      "distance_km": 119.8,
+      "ascent_m": 782,
+      "calories": 3452,
+      "work_kj": 2339,
+      "best_20min": 198,
+      "avg_if": 0.58,
+      "sport_mix": {
+        "mountain": 2,
+        "indoor_cycling": 3
+      }
+    },
+    "2025-W47": {
+      "rides": 5,
+      "duration_h": 9.1,
+      "tss": 255.2,
+      "distance_km": 171.3,
+      "ascent_m": 1120,
+      "calories": 5640,
+      "work_kj": 2915,
+      "best_20min": 254,
+      "avg_if": 0.699,
+      "sport_mix": {
+        "mountain": 2,
+        "strength_training": 1,
+        "indoor_cycling": 2
+      }
+    },
+    "2025-W48": {
+      "rides": 5,
+      "duration_h": 7.8,
+      "tss": 258.2,
+      "distance_km": 130.2,
+      "ascent_m": 1512,
+      "calories": 4531,
+      "work_kj": 3286,
+      "best_20min": 238,
+      "avg_if": 0.653,
+      "sport_mix": {
+        "generic": 1,
+        "mountain": 2,
+        "indoor_cycling": 2
+      }
+    },
+    "2025-W49": {
+      "rides": 7,
+      "duration_h": 9.3,
+      "tss": 241.2,
+      "distance_km": 109.7,
+      "ascent_m": 2104,
+      "calories": 5993,
+      "work_kj": 4226,
+      "best_20min": 214,
+      "avg_if": 0.662,
+      "sport_mix": {
+        "generic": 3,
+        "mountain": 2,
+        "indoor_cycling": 2
+      }
+    },
+    "2025-W50": {
+      "rides": 5,
+      "duration_h": 7.3,
+      "tss": 106.8,
+      "distance_km": 120.8,
+      "ascent_m": 1046,
+      "calories": 4261,
+      "work_kj": 2753,
+      "best_20min": 217,
+      "avg_if": 0.608,
+      "sport_mix": {
+        "generic": 2,
+        "strength_training": 1,
+        "indoor_cycling": 2
+      }
+    },
+    "2025-W51": {
+      "rides": 7,
+      "duration_h": 14.8,
+      "tss": 492.9,
+      "distance_km": 336.3,
+      "ascent_m": 1813,
+      "calories": 9444,
+      "work_kj": 6464,
+      "best_20min": 239,
+      "avg_if": 0.67,
+      "sport_mix": {
+        "mountain": 3,
+        "indoor_cycling": 4
+      }
+    },
+    "2025-W52": {
+      "rides": 2,
+      "duration_h": 4.4,
+      "tss": 0,
+      "distance_km": 22.9,
+      "ascent_m": 1975,
+      "calories": 2299,
+      "work_kj": 0,
+      "best_20min": null,
+      "avg_if": 0,
+      "sport_mix": {
+        "mountain": 2
+      }
+    },
+    "2026-W01": {
+      "rides": 6,
+      "duration_h": 8.3,
+      "tss": 0,
+      "distance_km": 29.8,
+      "ascent_m": 1841,
+      "calories": 3375,
+      "work_kj": 1690,
+      "best_20min": 209,
+      "avg_if": 0,
+      "sport_mix": {
+        "generic": 6
+      }
+    },
+    "2026-W02": {
+      "rides": 6,
+      "duration_h": 9.2,
+      "tss": 181.1,
+      "distance_km": 172.0,
+      "ascent_m": 4955,
+      "calories": 4836,
+      "work_kj": 3559,
+      "best_20min": 207,
+      "avg_if": 0.617,
+      "sport_mix": {
+        "generic": 3,
+        "indoor_cycling": 3
+      }
+    },
+    "2026-W03": {
+      "rides": 4,
+      "duration_h": 6.5,
+      "tss": 284.5,
+      "distance_km": 154.2,
+      "ascent_m": 339,
+      "calories": 4615,
+      "work_kj": 4064,
+      "best_20min": 210,
+      "avg_if": 0.653,
+      "sport_mix": {
+        "mountain": 1,
+        "indoor_cycling": 3
+      }
+    },
+    "2026-W04": {
+      "rides": 4,
+      "duration_h": 5.7,
+      "tss": 218.8,
+      "distance_km": 185.0,
+      "ascent_m": 0,
+      "calories": 4074,
+      "work_kj": 3594,
+      "best_20min": 206,
+      "avg_if": 0.616,
+      "sport_mix": {
+        "indoor_cycling": 4
+      }
+    },
+    "2026-W05": {
+      "rides": 5,
+      "duration_h": 7.8,
+      "tss": 206.4,
+      "distance_km": 184.0,
+      "ascent_m": 863,
+      "calories": 5122,
+      "work_kj": 3919,
+      "best_20min": 211,
+      "avg_if": 0.602,
+      "sport_mix": {
+        "generic": 1,
+        "indoor_cycling": 4
+      }
+    },
+    "2026-W06": {
+      "rides": 4,
+      "duration_h": 5.4,
+      "tss": 259.3,
+      "distance_km": 153.0,
+      "ascent_m": 0,
+      "calories": 3941,
+      "work_kj": 3278,
+      "best_20min": 274,
+      "avg_if": 0.719,
+      "sport_mix": {
+        "indoor_cycling": 4
+      }
+    },
+    "2026-W07": {
+      "rides": 7,
+      "duration_h": 9.4,
+      "tss": 418.6,
+      "distance_km": 213.8,
+      "ascent_m": 1257,
+      "calories": 6496,
+      "work_kj": 5384,
+      "best_20min": 275,
+      "avg_if": 0.803,
+      "sport_mix": {
+        "generic": 2,
+        "indoor_cycling": 5
+      }
+    },
+    "2026-W08": {
+      "rides": 5,
+      "duration_h": 11.5,
+      "tss": 305.2,
+      "distance_km": 241.4,
+      "ascent_m": 6850,
+      "calories": 7298,
+      "work_kj": 4091,
+      "best_20min": 260,
+      "avg_if": 0.732,
+      "sport_mix": {
+        "generic": 1,
+        "mountain": 1,
+        "indoor_cycling": 3
+      }
+    },
+    "2026-W09": {
+      "rides": 6,
+      "duration_h": 16.4,
+      "tss": 0,
+      "distance_km": 191.9,
+      "ascent_m": 10888,
+      "calories": 7742,
+      "work_kj": 716,
+      "best_20min": 186,
+      "avg_if": 0,
+      "sport_mix": {
+        "generic": 2,
+        "mountain": 4
+      }
+    },
+    "2026-W10": {
+      "rides": 7,
+      "duration_h": 21.2,
+      "tss": 0,
+      "distance_km": 259.9,
+      "ascent_m": 4668,
+      "calories": 8903,
+      "work_kj": 0,
+      "best_20min": null,
+      "avg_if": 0,
+      "sport_mix": {
+        "mountain": 7
+      }
+    },
+    "2026-W11": {
+      "rides": 7,
+      "duration_h": 18.2,
+      "tss": 0,
+      "distance_km": 250.7,
+      "ascent_m": 5309,
+      "calories": 7559,
+      "work_kj": 0,
+      "best_20min": null,
+      "avg_if": 0,
+      "sport_mix": {
+        "generic": 1,
+        "mountain": 6
+      }
+    },
+    "2026-W12": {
+      "rides": 7,
+      "duration_h": 12.3,
+      "tss": 0,
+      "distance_km": 163.7,
+      "ascent_m": 3305,
+      "calories": 5722,
+      "work_kj": 0,
+      "best_20min": null,
+      "avg_if": 0,
+      "sport_mix": {
+        "generic": 1,
+        "mountain": 6
+      }
+    }
+  },
+  "power_bests": {
+    "1min": {
+      "best": [
+        "2026-02-16",
+        654
+      ],
+      "top5": [
+        [
+          "2026-02-16",
+          654
+        ],
+        [
+          "2025-07-23",
+          510
+        ],
+        [
+          "2025-08-31",
+          483
+        ],
+        [
+          "2025-08-12",
+          478
+        ],
+        [
+          "2025-06-13",
+          472
+        ]
+      ]
+    },
+    "5min": {
+      "best": [
+        "2025-07-10",
+        328
+      ],
+      "top5": [
+        [
+          "2025-07-10",
+          328
+        ],
+        [
+          "2025-08-09",
+          326
+        ],
+        [
+          "2025-10-18",
+          325
+        ],
+        [
+          "2025-05-18",
+          323
+        ],
+        [
+          "2025-09-26",
+          323
+        ]
+      ]
+    },
+    "20min": {
+      "best": [
+        "2025-09-26",
+        302
+      ],
+      "top5": [
+        [
+          "2025-09-26",
+          302
+        ],
+        [
+          "2025-10-18",
+          301
+        ],
+        [
+          "2025-08-13",
+          298
+        ],
+        [
+          "2025-08-23",
+          289
+        ],
+        [
+          "2025-10-25",
+          285
+        ]
+      ]
+    }
+  },
+  "zone_distribution": {
+    "seconds": {
+      "z0": 358367,
+      "z1": 783150,
+      "z2": 466190,
+      "z3": 179499,
+      "z4": 124743,
+      "z5": 76231,
+      "z6": 109090
+    },
+    "percentages": {
+      "z0": 17.1,
+      "z1": 37.3,
+      "z2": 22.2,
+      "z3": 8.6,
+      "z4": 5.9,
+      "z5": 3.6,
+      "z6": 5.2
+    },
+    "total_samples": 2097270
+  },
+  "ftp_progression": {
+    "2025-03": 244,
+    "2025-04": 265,
+    "2025-05": 262,
+    "2025-06": 267,
+    "2025-07": 269,
+    "2025-08": 283,
+    "2025-09": 283,
+    "2025-10": 287,
+    "2025-11": 287,
+    "2025-12": 287,
+    "2026-01": 287,
+    "2026-02": 261
+  },
+  "planned_vs_actual": {
+    "planned": 176,
+    "completed": 108,
+    "extra": 180,
+    "missed": 68,
+    "compliance_pct": 61.4
+  },
+  "training_phases": [
+    [
+      "2025-W14",
+      "build"
+    ],
+    [
+      "2025-W15",
+      "build"
+    ],
+    [
+      "2025-W16",
+      "recovery"
+    ],
+    [
+      "2025-W17",
+      "maintenance"
+    ],
+    [
+      "2025-W18",
+      "build"
+    ],
+    [
+      "2025-W19",
+      "maintenance"
+    ],
+    [
+      "2025-W20",
+      "build"
+    ],
+    [
+      "2025-W21",
+      "build"
+    ],
+    [
+      "2025-W22",
+      "build"
+    ],
+    [
+      "2025-W23",
+      "build"
+    ],
+    [
+      "2025-W24",
+      "build"
+    ],
+    [
+      "2025-W25",
+      "build"
+    ],
+    [
+      "2025-W26",
+      "build"
+    ],
+    [
+      "2025-W27",
+      "build"
+    ],
+    [
+      "2025-W28",
+      "build"
+    ],
+    [
+      "2025-W29",
+      "build"
+    ],
+    [
+      "2025-W30",
+      "build"
+    ],
+    [
+      "2025-W31",
+      "build"
+    ],
+    [
+      "2025-W32",
+      "build"
+    ],
+    [
+      "2025-W33",
+      "build"
+    ],
+    [
+      "2025-W34",
+      "build"
+    ],
+    [
+      "2025-W35",
+      "maintenance"
+    ],
+    [
+      "2025-W36",
+      "maintenance"
+    ],
+    [
+      "2025-W37",
+      "build"
+    ],
+    [
+      "2025-W38",
+      "build"
+    ],
+    [
+      "2025-W39",
+      "build"
+    ],
+    [
+      "2025-W40",
+      "build"
+    ],
+    [
+      "2025-W41",
+      "build"
+    ],
+    [
+      "2025-W42",
+      "build"
+    ],
+    [
+      "2025-W43",
+      "build"
+    ],
+    [
+      "2025-W44",
+      "recovery"
+    ],
+    [
+      "2025-W45",
+      "build"
+    ],
+    [
+      "2025-W46",
+      "recovery"
+    ],
+    [
+      "2025-W47",
+      "maintenance"
+    ],
+    [
+      "2025-W48",
+      "maintenance"
+    ],
+    [
+      "2025-W49",
+      "maintenance"
+    ],
+    [
+      "2025-W50",
+      "recovery"
+    ],
+    [
+      "2025-W51",
+      "volume"
+    ],
+    [
+      "2025-W52",
+      "recovery"
+    ],
+    [
+      "2026-W01",
+      "maintenance"
+    ],
+    [
+      "2026-W02",
+      "maintenance"
+    ],
+    [
+      "2026-W03",
+      "maintenance"
+    ],
+    [
+      "2026-W04",
+      "maintenance"
+    ],
+    [
+      "2026-W05",
+      "maintenance"
+    ],
+    [
+      "2026-W06",
+      "maintenance"
+    ],
+    [
+      "2026-W07",
+      "maintenance"
+    ],
+    [
+      "2026-W08",
+      "maintenance"
+    ],
+    [
+      "2026-W09",
+      "recovery"
+    ],
+    [
+      "2026-W10",
+      "volume"
+    ],
+    [
+      "2026-W11",
+      "volume"
+    ],
+    [
+      "2026-W12",
+      "volume"
+    ]
+  ],
+  "sport_breakdown": {
+    "mountain": 340.2,
+    "indoor_cycling": 111.4,
+    "road": 75.0,
+    "generic": 43.5,
+    "gravel_cycling": 5.8,
+    "strength_training": 5.0,
+    "unknown": 0.0
+  }
+}
