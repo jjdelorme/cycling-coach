@@ -17,6 +17,15 @@ import { fetchWeekPlan } from '../lib/api'
 import { fmtDuration, fmtDistance, fmtWeight } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
+import { 
+  TrendingUp, 
+  Zap, 
+  Activity, 
+  Weight, 
+  Calendar, 
+  Bike,
+  ChevronRight
+} from 'lucide-react'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
 
@@ -87,7 +96,6 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
 
   // Find next upcoming workout (today if no ride yet, otherwise tomorrow+)
   const today = new Date().toISOString().slice(0, 10)
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
   const rodeTodayAlready = rides?.some((r) => r.date === today) ?? false
 
   const nextWorkout = useMemo(() => {
@@ -111,110 +119,49 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
     return upcoming[0] || null
   }, [plannedWeeks, today, rodeTodayAlready])
 
-  // Find latest ride: today's ride, or yesterday's if none today
   const latestRide = useMemo(() => {
     if (!rides || rides.length === 0) return null
     const todayRide = rides.find((r) => r.date === today)
     if (todayRide) return { ...todayRide, isToday: true }
-    const yesterdayRide = rides.find((r) => r.date === yesterday)
-    if (yesterdayRide) return { ...yesterdayRide, isToday: false }
     return { ...rides[0], isToday: false }
-  }, [rides, today, yesterday])
+  }, [rides, today])
 
   if (pmcLoading || ridesLoading || weeklyLoading || plannedLoading) {
-    return <div className="p-6 text-text-muted">Loading...</div>
+    return <div className="p-6 text-text-muted animate-pulse">Loading dashboard...</div>
   }
 
   const lastPMC = pmcData && pmcData.length > 0 ? pmcData[pmcData.length - 1] : null
-
-  // Last 90 days of PMC data for chart
   const pmc90 = pmcData ? pmcData.slice(-90) : []
-
   const tsbValue = lastPMC?.tsb ?? 0
   const tsbColor = tsbValue >= 0 ? 'text-green' : 'text-red'
 
   const metricCards = [
-    { label: 'CTL (Fitness)', value: lastPMC?.ctl?.toFixed(0) ?? '--', color: 'text-green' },
-    { label: 'ATL (Fatigue)', value: lastPMC?.atl?.toFixed(0) ?? '--', color: 'text-red' },
-    { label: 'TSB (Form)', value: lastPMC?.tsb?.toFixed(0) ?? '--', color: tsbColor },
-    { label: 'Weight', value: fmtWeight(lastPMC?.weight), color: 'text-yellow' },
+    { label: 'Fitness (CTL)', value: lastPMC?.ctl?.toFixed(0) ?? '--', color: 'text-green', icon: TrendingUp },
+    { label: 'Fatigue (ATL)', value: lastPMC?.atl?.toFixed(0) ?? '--', color: 'text-red', icon: Zap },
+    { label: 'Form (TSB)', value: lastPMC?.tsb?.toFixed(0) ?? '--', color: tsbColor, icon: Activity },
+    { label: 'Weight', value: fmtWeight(lastPMC?.weight), color: 'text-yellow', icon: Weight },
   ]
 
   const chartData = {
     labels: pmc90.map((d) => d.date),
     datasets: [
-      {
-        label: 'CTL',
-        data: pmc90.map((d) => d.ctl ?? null),
-        borderColor: '#22c55e',
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.3,
-        fill: false,
-      },
-      {
-        label: 'ATL',
-        data: pmc90.map((d) => d.atl ?? null),
-        borderColor: '#ef4444',
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.3,
-        fill: false,
-      },
-      {
-        label: 'TSB',
-        data: pmc90.map((d) => d.tsb ?? null),
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.3,
-        fill: true,
-      },
+      { label: 'CTL', data: pmc90.map((d) => d.ctl ?? null), borderColor: '#00d4aa', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: false },
+      { label: 'ATL', data: pmc90.map((d) => d.atl ?? null), borderColor: '#e94560', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: false },
+      { label: 'TSB', data: pmc90.map((d) => d.tsb ?? null), borderColor: '#4a9eff', backgroundColor: 'rgba(74, 158, 255, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true },
     ],
   }
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    interaction: {
-      mode: 'index' as const,
-      intersect: false,
-    },
+    interaction: { mode: 'index' as const, intersect: false },
     plugins: {
-      legend: {
-        labels: {
-          color: cc.legendColor,
-        },
-      },
-      tooltip: {
-        backgroundColor: cc.tooltipBg,
-        titleColor: cc.tooltipTitle,
-        bodyColor: cc.tooltipBody,
-        borderColor: cc.tooltipBorder,
-        borderWidth: 1,
-      },
+      legend: { labels: { color: cc.legendColor, boxWidth: 12, font: { size: 12 } }, position: 'top' as const, align: 'end' as const },
+      tooltip: { backgroundColor: cc.tooltipBg, titleColor: cc.tooltipTitle, bodyColor: cc.tooltipBody, borderColor: cc.tooltipBorder, borderWidth: 1 },
     },
     scales: {
-      x: {
-        ticks: {
-          color: cc.tickColor,
-          maxTicksLimit: 10,
-        },
-        grid: {
-          color: cc.gridColor,
-        },
-      },
-      y: {
-        ticks: {
-          color: cc.tickColor,
-        },
-        grid: {
-          color: cc.gridColor,
-        },
-      },
+      x: { ticks: { color: cc.tickColor, maxTicksLimit: 10 }, grid: { display: false } },
+      y: { ticks: { color: cc.tickColor }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
     },
   }
 
@@ -223,369 +170,212 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
       {/* Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {metricCards.map((card) => (
-          <div key={card.label} className="bg-surface rounded-lg border border-border p-4">
-            <p className="text-sm text-text-muted">{card.label}</p>
-            <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
+          <div key={card.label} className="bg-surface rounded-xl border border-border p-5 shadow-sm hover:border-accent/30 transition-all group">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">{card.label}</span>
+              <card.icon size={16} className="text-text-muted group-hover:text-accent transition-colors" />
+            </div>
+            <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
           </div>
         ))}
       </div>
 
-      {/* Next Workout + Latest Ride tiles */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Next Workout */}
-        <div className="bg-surface rounded-lg border border-border p-4">
-          <h2 className="text-sm font-medium text-text-muted mb-2">Next Workout</h2>
-          {nextWorkout ? (
-            <div
-              className={nextWorkout.id ? "cursor-pointer hover:bg-surface2 -m-4 p-4 rounded-lg transition-colors" : ""}
-              onClick={() => nextWorkout.id && onWorkoutSelect?.(nextWorkout.id, nextWorkout.date)}
-            >
-              <div className="flex items-baseline justify-between">
-                <p className="text-lg font-semibold text-text">{nextWorkout.name}</p>
-                <span className="text-sm text-text-muted">
-                  {nextWorkout.date === today ? 'Today' : new Date(nextWorkout.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                </span>
-              </div>
-              <div className="flex gap-4 mt-1 text-sm">
-                {nextWorkout.duration_s > 0 && (
-                  <span className="text-blue">{fmtDuration(nextWorkout.duration_s)}</span>
+        <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
+          <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center justify-between">
+            <h2 className="text-sm font-bold text-text uppercase tracking-wider flex items-center gap-2">
+              <Calendar size={16} className="text-accent" />
+              Next Workout
+            </h2>
+          </div>
+          <div className="p-5">
+            {nextWorkout ? (
+              <div
+                className={nextWorkout.id ? "cursor-pointer group" : ""}
+                onClick={() => nextWorkout.id && onWorkoutSelect?.(nextWorkout.id, nextWorkout.date)}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xl font-bold text-text group-hover:text-accent transition-colors">{nextWorkout.name}</h3>
+                  <span className="text-xs font-medium px-2.5 py-1 bg-accent/10 text-accent rounded-full capitalize">
+                    {nextWorkout.date === today ? 'Today' : new Date(nextWorkout.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+                <div className="flex gap-4 mb-4">
+                  <div className="flex items-center gap-1.5 text-sm text-text-muted">
+                    <Zap size={14} className="text-yellow" />
+                    <span>{Math.round(nextWorkout.tss)} TSS</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-sm text-text-muted">
+                    <Activity size={14} className="text-blue" />
+                    <span>{fmtDuration(nextWorkout.duration_s)}</span>
+                  </div>
+                </div>
+                {nextWorkout.notes && (
+                  <div className="bg-surface-low rounded-lg p-3 text-sm text-text-muted line-clamp-3 italic">
+                    {nextWorkout.notes}
+                  </div>
                 )}
-                {nextWorkout.tss > 0 && (
-                  <span className="text-accent">{Math.round(nextWorkout.tss)} TSS</span>
+                {nextWorkout.id && (
+                  <div className="mt-4 flex items-center gap-1 text-accent text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                    View Details <ChevronRight size={14} />
+                  </div>
                 )}
               </div>
-              {nextWorkout.notes && (
-                <p className="mt-2 text-xs text-text-muted line-clamp-2">{nextWorkout.notes}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-text-muted text-sm">No upcoming workouts planned</p>
-          )}
+            ) : (
+              <p className="text-text-muted text-sm py-4 italic">No upcoming workouts planned</p>
+            )}
+          </div>
         </div>
 
         {/* Latest Ride */}
-        <div className="bg-surface rounded-lg border border-border p-4">
-          <h2 className="text-sm font-medium text-text-muted mb-2">
-            {latestRide?.isToday ? "Today's Ride" : 'Last Ride'}
-          </h2>
-          {latestRide ? (
-            <div
-              className="cursor-pointer hover:bg-surface2 -m-4 p-4 rounded-lg transition-colors"
-              onClick={() => onRideSelect?.(latestRide.id)}
-            >
-              <div className="flex items-baseline justify-between">
-                <p className="text-lg font-semibold text-text">
-                  {latestRide.title || latestRide.sub_sport || latestRide.sport || 'Ride'}
-                </p>
-                <span className="text-sm text-text-muted">
-                  {latestRide.isToday ? 'Today' : latestRide.date === yesterday ? 'Yesterday' : latestRide.date}
-                </span>
-              </div>
-              <div className="grid grid-cols-4 gap-3 mt-2 text-sm">
-                <div>
-                  <span className="text-text-muted text-xs block">Duration</span>
-                  <span className="text-text">{fmtDuration(latestRide.duration_s)}</span>
-                </div>
-                <div>
-                  <span className="text-text-muted text-xs block">TSS</span>
-                  <span className="text-accent">{latestRide.tss?.toFixed(0) ?? '--'}</span>
-                </div>
-                <div>
-                  <span className="text-text-muted text-xs block">Avg Power</span>
-                  <span className="text-blue">{latestRide.avg_power ? `${latestRide.avg_power}w` : '--'}</span>
-                </div>
-                <div>
-                  <span className="text-text-muted text-xs block">Distance</span>
-                  <span className="text-text">{fmtDistance(latestRide.distance_m, units)}</span>
-                </div>
-              </div>
-              {(latestRide.normalized_power || latestRide.avg_hr) && (
-                <div className="grid grid-cols-4 gap-3 mt-1 text-sm">
-                  <div>
-                    <span className="text-text-muted text-xs block">NP</span>
-                    <span className="text-text">{latestRide.normalized_power ? `${latestRide.normalized_power}w` : '--'}</span>
-                  </div>
-                  <div>
-                    <span className="text-text-muted text-xs block">Avg HR</span>
-                    <span className="text-red">{latestRide.avg_hr ? `${latestRide.avg_hr}bpm` : '--'}</span>
-                  </div>
-                  <div>
-                    <span className="text-text-muted text-xs block">Elevation</span>
-                    <span className="text-text">{latestRide.total_ascent ? `${latestRide.total_ascent}m` : '--'}</span>
-                  </div>
-                  <div>
-                    <span className="text-text-muted text-xs block">IF</span>
-                    <span className="text-text">{latestRide.intensity_factor?.toFixed(2) ?? '--'}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-text-muted text-sm">No recent rides</p>
-          )}
-        </div>
-      </div>
-
-      {/* PMC + Volume Charts — side by side on desktop */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-      {/* PMC Chart */}
-      <div className="bg-surface rounded-lg border border-border p-4">
-        <h2 className="text-lg font-semibold text-text mb-4">Performance Management Chart</h2>
-        <div className="h-72">
-          {pmc90.length > 0 ? (
-            <Line data={chartData} options={chartOptions} />
-          ) : (
-            <p className="text-text-muted">No PMC data available.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Weekly Volume Chart */}
-      {(() => {
-        // Build unified week list: last 12 actual + future planned (up to 3)
-        const actual = weekly?.slice(-12) ?? []
-        // Convert actual ISO week labels to Monday dates for matching
-        const actualMondays = new Set(actual.map((w) => isoWeekToMonday(w.week)))
-
-        // Future weeks not already in actual
-        const futureWeeks: { label: string; monday: string; tss: number; hours: number }[] = []
-        for (const mon of planMondays) {
-          if (!actualMondays.has(mon)) {
-            const plan = plannedByMonday.get(mon)
-            if (plan && (plan.tss > 0 || plan.hours > 0)) {
-              futureWeeks.push({ label: mon, monday: mon, ...plan })
-            }
-          }
-        }
-
-        // Use ISO week labels for display, Monday dates for matching
-        const allLabels = [...actual.map((w) => w.week), ...futureWeeks.map((w) => w.label)]
-        const allMondays = [...actual.map((w) => isoWeekToMonday(w.week)), ...futureWeeks.map((w) => w.monday)]
-        const thisWeekIdx = allMondays.indexOf(thisMonday)
-
-        // For each week: pick actual values or planned values, and set color accordingly
-        const tssData: number[] = []
-        const tssColors: string[] = []
-        const tssBorders: string[] = []
-        const hoursData: number[] = []
-        const hoursColors: string[] = []
-        const hoursBorders: string[] = []
-
-        // Tooltip labels
-        const tssLabels: string[] = []
-        const hoursLabels: string[] = []
-
-        for (const w of actual) {
-          const monday = isoWeekToMonday(w.week)
-          const plan = plannedByMonday.get(monday)
-          const isThisWeek = monday === thisMonday
-
-          tssData.push(w.tss ?? 0)
-          tssColors.push('rgba(59, 130, 246, 0.7)')
-          tssBorders.push('rgba(59, 130, 246, 1)')
-          tssLabels.push(plan && isThisWeek ? `TSS: ${Math.round(w.tss ?? 0)} / ${plan.tss} planned` : `TSS: ${Math.round(w.tss ?? 0)}`)
-
-          hoursData.push(w.duration_h ?? 0)
-          hoursColors.push('rgba(34, 197, 94, 0.7)')
-          hoursBorders.push('rgba(34, 197, 94, 1)')
-          hoursLabels.push(plan && isThisWeek ? `Hours: ${(w.duration_h ?? 0).toFixed(1)}h / ${plan.hours}h planned` : `Hours: ${(w.duration_h ?? 0).toFixed(1)}h`)
-        }
-
-        for (const w of futureWeeks) {
-          tssData.push(w.tss)
-          tssColors.push('rgba(59, 130, 246, 0.25)')
-          tssBorders.push('rgba(59, 130, 246, 0.5)')
-          tssLabels.push(`Planned TSS: ${w.tss}`)
-
-          hoursData.push(w.hours)
-          hoursColors.push('rgba(34, 197, 94, 0.25)')
-          hoursBorders.push('rgba(34, 197, 94, 0.5)')
-          hoursLabels.push(`Planned Hours: ${w.hours}h`)
-        }
-
-        // This week's planned values for overlay behind actual
-        const thisWeekPlan = thisMonday ? plannedByMonday.get(thisMonday) : undefined
-
-        // Plugin to draw planned bars behind this week's actual bars
-        const plannedOverlayPlugin = {
-          id: 'plannedOverlay',
-          beforeDatasetsDraw(chart: ChartJS) {
-            if (thisWeekIdx < 0 || !thisWeekPlan) return
-            const { ctx } = chart
-            const tsMeta = chart.getDatasetMeta(0) // TSS dataset
-            const hrMeta = chart.getDatasetMeta(1) // Hours dataset
-
-            // Draw planned TSS bar
-            if (thisWeekPlan.tss > 0 && tsMeta.data[thisWeekIdx]) {
-              const bar = tsMeta.data[thisWeekIdx]
-              const yScale = chart.scales.y
-              const plannedY = yScale.getPixelForValue(thisWeekPlan.tss)
-              const baseY = yScale.getPixelForValue(0)
-              ctx.save()
-              ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
-              ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)'
-              ctx.lineWidth = 1
-              ctx.setLineDash([4, 4])
-              const x = (bar as any).x - (bar as any).width / 2
-              const w = (bar as any).width
-              ctx.fillRect(x, plannedY, w, baseY - plannedY)
-              ctx.strokeRect(x, plannedY, w, baseY - plannedY)
-              ctx.restore()
-            }
-
-            // Draw planned Hours bar
-            if (thisWeekPlan.hours > 0 && hrMeta.data[thisWeekIdx]) {
-              const bar = hrMeta.data[thisWeekIdx]
-              const yScale = chart.scales.y1
-              const plannedY = yScale.getPixelForValue(thisWeekPlan.hours)
-              const baseY = yScale.getPixelForValue(0)
-              ctx.save()
-              ctx.fillStyle = 'rgba(34, 197, 94, 0.15)'
-              ctx.strokeStyle = 'rgba(34, 197, 94, 0.4)'
-              ctx.lineWidth = 1
-              ctx.setLineDash([4, 4])
-              const x = (bar as any).x - (bar as any).width / 2
-              const w = (bar as any).width
-              ctx.fillRect(x, plannedY, w, baseY - plannedY)
-              ctx.strokeRect(x, plannedY, w, baseY - plannedY)
-              ctx.restore()
-            }
-          },
-        }
-
-        return (
-          <div className="bg-surface rounded-lg border border-border p-4">
-            <h2 className="text-lg font-semibold text-text mb-4">Weekly Volume</h2>
-            <div className="h-72">
-              {allLabels.length > 0 ? (
-                <Bar
-                  plugins={[plannedOverlayPlugin]}
-                  data={{
-                    labels: allLabels,
-                    datasets: [
-                      {
-                        label: 'TSS',
-                        data: tssData,
-                        backgroundColor: tssColors,
-                        borderColor: tssBorders,
-                        borderWidth: 1,
-                        yAxisID: 'y',
-                      },
-                      {
-                        label: 'Hours',
-                        data: hoursData,
-                        backgroundColor: hoursColors,
-                        borderColor: hoursBorders,
-                        borderWidth: 1,
-                        yAxisID: 'y1',
-                      },
-                    ],
-                  }}
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                      legend: { labels: { color: cc.legendColor } },
-                      tooltip: {
-                        backgroundColor: cc.tooltipBg,
-                        titleColor: cc.tooltipTitle,
-                        bodyColor: cc.tooltipBody,
-                        borderColor: cc.tooltipBorder,
-                        borderWidth: 1,
-                        callbacks: {
-                          title: (items) => {
-                            const idx = items[0]?.dataIndex ?? -1
-                            const label = items[0]?.label ?? ''
-                            const monday = idx >= 0 && idx < allMondays.length ? allMondays[idx] : ''
-                            if (!monday) return label
-                            const mon = new Date(monday + 'T00:00:00')
-                            const sun = new Date(mon)
-                            sun.setDate(mon.getDate() + 6)
-                            const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                            const suffix = idx === thisWeekIdx ? '  (this week)' : ''
-                            return `${label}  (${fmt(mon)} – ${fmt(sun)})${suffix}`
-                          },
-                          label: (ctx) => {
-                            const idx = ctx.dataIndex
-                            return ctx.dataset.label === 'TSS' ? tssLabels[idx] : hoursLabels[idx]
-                          },
-                        },
-                      },
-                    },
-                    scales: {
-                      x: {
-                        ticks: {
-                          color: (ctx) => ctx.index === thisWeekIdx ? '#60a5fa' : cc.tickColor,
-                          font: (ctx) => ctx.index === thisWeekIdx ? { weight: 'bold' as const } : {},
-                        },
-                        grid: { color: cc.gridColor },
-                      },
-                      y: {
-                        type: 'linear',
-                        position: 'left',
-                        title: { display: true, text: 'TSS', color: cc.tickColor },
-                        ticks: { color: cc.tickColor },
-                        grid: { color: cc.gridColor },
-                      },
-                      y1: {
-                        type: 'linear',
-                        position: 'right',
-                        title: { display: true, text: 'Hours', color: cc.tickColor },
-                        ticks: { color: cc.tickColor },
-                        grid: { drawOnChartArea: false },
-                      },
-                    },
-                  }}
-                />
-              ) : (
-                <p className="text-text-muted">No weekly data available.</p>
-              )}
-            </div>
+        <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
+          <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center justify-between">
+            <h2 className="text-sm font-bold text-text uppercase tracking-wider flex items-center gap-2">
+              <Bike size={16} className="text-green" />
+              {latestRide?.isToday ? "Today's Ride" : 'Last Ride'}
+            </h2>
           </div>
-        )
-      })()}
+          <div className="p-5">
+            {latestRide ? (
+              <div className="cursor-pointer group" onClick={() => onRideSelect?.(latestRide.id)}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-text group-hover:text-accent transition-colors">
+                    {latestRide.title || latestRide.sub_sport || latestRide.sport || 'Ride'}
+                  </h3>
+                  <span className="text-xs font-medium text-text-muted">
+                    {latestRide.isToday ? 'Today' : latestRide.date}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-tighter block mb-1">TSS</span>
+                    <span className="text-lg font-bold text-accent">{latestRide.tss?.toFixed(0) ?? '--'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-tighter block mb-1">Power</span>
+                    <span className="text-lg font-bold text-blue">{latestRide.avg_power ? `${latestRide.avg_power}w` : '--'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-tighter block mb-1">Distance</span>
+                    <span className="text-lg font-bold text-text">{fmtDistance(latestRide.distance_m, units)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-tighter block mb-1">Duration</span>
+                    <span className="text-lg font-bold text-text">{fmtDuration(latestRide.duration_s)}</span>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center gap-1 text-accent text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                  View Analysis <ChevronRight size={14} />
+                </div>
+              </div>
+            ) : (
+              <p className="text-text-muted text-sm py-4 italic">No recent rides found</p>
+            )}
+          </div>
+        </div>
+      </div>
 
-      </div>{/* end PMC + Volume grid */}
+      {/* Main Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-surface rounded-xl border border-border p-5 shadow-sm">
+          <h2 className="text-sm font-bold text-text uppercase tracking-wider mb-6">Fitness Trends (PMC)</h2>
+          <div className="h-80">
+            {pmc90.length > 0 ? <Line data={chartData} options={chartOptions} /> : <p className="text-text-muted text-sm py-8 italic">No PMC data available.</p>}
+          </div>
+        </div>
 
-      {/* Recent Rides */}
-      <div className="bg-surface rounded-lg border border-border p-4">
-        <h2 className="text-lg font-semibold text-text mb-4">Recent Rides</h2>
-        {rides && rides.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-text-muted border-b border-border">
-                  <th className="text-left py-2 pr-4">Date</th>
-                  <th className="text-left py-2 pr-4">Sport</th>
-                  <th className="text-right py-2 pr-4">Duration</th>
-                  <th className="text-right py-2 pr-4">Distance</th>
-                  <th className="text-right py-2 pr-4">TSS</th>
-                  <th className="text-right py-2">Avg Power</th>
+        <div className="bg-surface rounded-xl border border-border p-5 shadow-sm">
+          <h2 className="text-sm font-bold text-text uppercase tracking-wider mb-6">Weekly Training Load</h2>
+          <div className="h-80">
+            {weekly && weekly.length > 0 ? (
+              <Bar 
+                data={{
+                  labels: weekly.slice(-12).map(w => w.week.slice(5)),
+                  datasets: [
+                    { 
+                      label: 'TSS', 
+                      data: weekly.slice(-12).map(w => w.tss), 
+                      backgroundColor: 'rgba(233, 69, 96, 0.7)', 
+                      borderRadius: 4,
+                      yAxisID: 'y'
+                    },
+                    { 
+                      label: 'Hours', 
+                      data: weekly.slice(-12).map(w => w.duration_h), 
+                      backgroundColor: 'rgba(0, 212, 170, 0.7)', 
+                      borderRadius: 4,
+                      yAxisID: 'y1'
+                    }
+                  ]
+                }}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: {
+                    x: { grid: { display: false }, ticks: { color: cc.tickColor } },
+                    y: { 
+                      position: 'left',
+                      title: { display: true, text: 'TSS', color: cc.tickColor, font: { size: 10, weight: 'bold' } },
+                      ticks: { color: cc.tickColor }, 
+                      grid: { color: 'rgba(148, 163, 184, 0.1)' } 
+                    },
+                    y1: { 
+                      position: 'right',
+                      title: { display: true, text: 'Hours', color: cc.tickColor, font: { size: 10, weight: 'bold' } },
+                      ticks: { color: cc.tickColor }, 
+                      grid: { drawOnChartArea: false } 
+                    }
+                  },
+                  plugins: { 
+                    legend: { 
+                      position: 'top',
+                      align: 'end',
+                      labels: { color: cc.legendColor, boxWidth: 12, font: { size: 11 } } 
+                    } 
+                  }
+                }}
+              />
+            ) : <p className="text-text-muted text-sm py-8 italic">No weekly data available.</p>}
+          </div>
+        </div>
+      </div>
+
+      {/* Rides Table */}
+      <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
+        <div className="px-5 py-4 border-b border-border bg-surface-low">
+          <h2 className="text-sm font-bold text-text uppercase tracking-wider">Recent Rides</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] font-bold text-text-muted uppercase tracking-widest bg-surface-low/50">
+                <th className="text-left py-3 px-5">Date</th>
+                <th className="text-left py-3 px-5">Sport</th>
+                <th className="text-right py-3 px-5">Duration</th>
+                <th className="text-right py-3 px-5">Distance</th>
+                <th className="text-right py-3 px-5">TSS</th>
+                <th className="text-right py-3 px-5">Avg Power</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {rides?.map((ride) => (
+                <tr
+                  key={ride.id}
+                  onClick={() => onRideSelect?.(ride.id)}
+                  className="text-text hover:bg-surface2/50 transition-colors cursor-pointer group"
+                >
+                  <td className="py-3 px-5 font-medium">{ride.date}</td>
+                  <td className="py-3 px-5 text-text-muted">{ride.sub_sport || ride.sport || '--'}</td>
+                  <td className="py-3 px-5 text-right font-mono">{fmtDuration(ride.duration_s)}</td>
+                  <td className="py-3 px-5 text-right font-mono">{fmtDistance(ride.distance_m, units)}</td>
+                  <td className="py-3 px-5 text-right font-bold text-accent">{ride.tss?.toFixed(0) ?? '--'}</td>
+                  <td className="py-3 px-5 text-right font-bold text-blue">{ride.avg_power ? `${ride.avg_power}w` : '--'}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {rides.map((ride) => (
-                  <tr
-                    key={ride.id}
-                    onClick={() => onRideSelect?.(ride.id)}
-                    className="border-b border-border/50 text-text hover:bg-surface2 transition-colors cursor-pointer"
-                  >
-                    <td className="py-2 pr-4">{ride.date}</td>
-                    <td className="py-2 pr-4 text-text-muted">{ride.sub_sport || ride.sport || '--'}</td>
-                    <td className="py-2 pr-4 text-right">{fmtDuration(ride.duration_s)}</td>
-                    <td className="py-2 pr-4 text-right">{fmtDistance(ride.distance_m, units)}</td>
-                    <td className="py-2 pr-4 text-right text-accent">{ride.tss?.toFixed(0) ?? '--'}</td>
-                    <td className="py-2 text-right text-blue">{ride.avg_power ? `${ride.avg_power}w` : '--'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-text-muted">No rides found.</p>
-        )}
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )
