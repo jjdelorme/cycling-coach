@@ -1,18 +1,11 @@
 steps:
-  # Generate VERSION from git tags (e.g. "1.4.0" or "1.4.0-3-ge616f61")
-  # Cloud Build downloads source as a tarball (no .git), so we shallow-clone to get tag info
-  - name: 'gcr.io/cloud-builders/git'
-    entrypoint: 'bash'
+  # Write VERSION from the git tag that triggered this build (e.g. "v1.4.0" → "1.4.0")
+  - name: 'bash'
     args:
       - '-c'
       - |
-        git clone --depth=50 --branch=${BRANCH_NAME} \
-          https://github.com/jjdelorme/cycling-coach.git /tmp/repo
-        cd /tmp/repo
-        git fetch --tags
-        RAW=$$(git describe --tags --always ${COMMIT_SHA} 2>/dev/null || echo "${SHORT_SHA}")
-        echo "$${RAW#v}" > /workspace/VERSION
-        echo "VERSION: $$(cat /workspace/VERSION)"
+        echo "${TAG_NAME#v}" > VERSION
+        echo "VERSION: $(cat VERSION)"
 
   # Build container image
   - name: 'gcr.io/cloud-builders/docker'
@@ -23,7 +16,7 @@ steps:
         docker build \
           --build-arg "APP_VERSION=$$(cat VERSION)" \
           --build-arg "VITE_GOOGLE_CLIENT_ID=$$GOOGLE_CLIENT_ID" \
-          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME} \
           .
     secretEnv: ['GOOGLE_CLIENT_ID']
 
@@ -31,7 +24,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME}'
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -44,12 +37,11 @@ steps:
           --region ${_REGION} \
           --format 'value(status.url)' 2>/dev/null || echo '')
 
-        # Build revision suffix from VERSION file: "1.4.0" → "v1-4-0"
-        # VERSION already includes commit info when not on a tagged commit
+        # Revision suffix: "1.4.0" → "v1-4-0"
         REVISION_SUFFIX="v$$(cat VERSION | tr '.' '-')"
 
         gcloud run deploy ${_SERVICE_NAME} \
-          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA} \
+          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME} \
           --region ${_REGION} \
           --revision-suffix "$${REVISION_SUFFIX}" \
           --allow-unauthenticated \
@@ -72,4 +64,4 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 images:
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME}'
