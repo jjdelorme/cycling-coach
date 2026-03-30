@@ -6,7 +6,7 @@ results for their consumer (LLM context vs Pydantic models vs JSON API).
 """
 
 from datetime import datetime
-from server.database import get_athlete_setting
+from server.database import get_athlete_setting, ATHLETE_SETTINGS_DEFAULTS
 
 
 def get_latest_metric(conn, key: str, as_of_date: str) -> float:
@@ -27,7 +27,11 @@ def get_latest_metric(conn, key: str, as_of_date: str) -> float:
         "SELECT value FROM athlete_settings WHERE key = %s",
         (key,),
     ).fetchone()
-    return float(row["value"]) if row else 0.0
+    if row and row["value"] is not None:
+        return float(row["value"])
+
+    # Fallback to defaults
+    return float(ATHLETE_SETTINGS_DEFAULTS.get(key, 0.0))
 
 
 def get_current_ftp(conn) -> int:
