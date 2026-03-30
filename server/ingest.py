@@ -46,7 +46,7 @@ def compute_rolling_best(powers, window_s):
     return round(best / window_s)
 
 
-def parse_ride_json(filepath):
+def parse_ride_json(filepath, conn=None):
     with open(filepath) as f:
         data = json.load(f)
 
@@ -115,14 +115,22 @@ def parse_ride_json(filepath):
 
     # If no power-based TSS but we have HR data, compute hrTSS
     if (not ride["tss"] or ride["tss"] == 0) and ride["avg_hr"] and ride["avg_hr"] > 0:
-        from server.database import get_athlete_setting
+        from server.queries import get_latest_metric
         try:
-            lthr = float(get_athlete_setting("lthr"))
-            max_hr_setting = float(get_athlete_setting("max_hr"))
-            resting_hr = float(get_athlete_setting("resting_hr"))
-            hr_tss = compute_hr_tss(ride["avg_hr"], ride["duration_s"], lthr, max_hr_setting, resting_hr)
-            if hr_tss > 0:
-                ride["tss"] = hr_tss
+            if conn:
+                lthr = get_latest_metric(conn, "lthr", ride["date"])
+                max_hr_setting = get_latest_metric(conn, "max_hr", ride["date"])
+                resting_hr = get_latest_metric(conn, "resting_hr", ride["date"])
+            else:
+                from server.database import get_athlete_setting
+                lthr = float(get_athlete_setting("lthr"))
+                max_hr_setting = float(get_athlete_setting("max_hr"))
+                resting_hr = float(get_athlete_setting("resting_hr"))
+                
+            if lthr > 0:
+                hr_tss = compute_hr_tss(ride["avg_hr"], ride["duration_s"], lthr, max_hr_setting, resting_hr)
+                if hr_tss > 0:
+                    ride["tss"] = hr_tss
         except (ValueError, TypeError):
             pass  # athlete settings not configured yet
 
@@ -267,18 +275,21 @@ def compute_hr_tss(avg_hr: float, duration_s: float, lthr: float, max_hr: float,
 
 def backfill_hr_tss(conn):
     """Backfill hrTSS for rides that have HR data but no power-based TSS."""
-    from server.database import get_athlete_setting
-
-    lthr = float(get_athlete_setting("lthr"))
-    max_hr = float(get_athlete_setting("max_hr"))
-    resting_hr = float(get_athlete_setting("resting_hr"))
+    from server.queries import get_latest_metric
 
     rows = conn.execute(
-        "SELECT id, avg_hr, duration_s FROM rides WHERE (tss IS NULL OR tss = 0) AND avg_hr > 0 AND duration_s > 0"
+        "SELECT id, date, avg_hr, duration_s FROM rides WHERE (tss IS NULL OR tss = 0) AND avg_hr > 0 AND duration_s > 0"
     ).fetchall()
 
     updated = 0
     for r in rows:
+        lthr = get_latest_metric(conn, "lthr", r["date"])
+        max_hr = get_latest_metric(conn, "max_hr", r["date"])
+        resting_hr = get_latest_metric(conn, "resting_hr", r["date"])
+
+        if lthr <= 0:
+            continue
+
         hr_tss = compute_hr_tss(
             avg_hr=float(r["avg_hr"]),
             duration_s=float(r["duration_s"]),
@@ -287,7 +298,7 @@ def backfill_hr_tss(conn):
             resting_hr=resting_hr,
         )
         if hr_tss > 0:
-            conn.execute("UPDATE rides SET tss = ? WHERE id = ?", (hr_tss, r["id"]))
+            conn.execute("UPDATE rides SET tss = %s WHERE id = %s", (hr_tss, r["id"]))
             updated += 1
 
     logger.info("Backfilled hrTSS for %d rides (of %d without TSS)", updated, len(rows))
@@ -411,7 +422,7 @@ def ingest_rides(conn, rides_dir=None):
             continue
 
         filepath = os.path.join(rides_dir, fname)
-        ride, records, power_bests, laps = parse_ride_json(filepath)
+        ride, records, power_bests, laps = parse_ride_json(filepath, conn=conn)
 
         if ride is None:
             continue
@@ -494,7 +505,7 @@ def backfill_laps(conn, rides_dir=None):
         filepath = os.path.join(rides_dir, ride_row["filename"])
         if not os.path.exists(filepath):
             continue
-        _ride, _records, _power_bests, laps = parse_ride_json(filepath)
+        _ride, _records, _power_bests, laps = parse_ride_json(filepath, conn=conn)
         if not laps:
             continue
         conn.executemany(

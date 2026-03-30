@@ -2,7 +2,7 @@
 
 ## 📊 Summary
 *   **Overall Status:** PASS
-*   **Completion Rate:** 3/3 Steps verified (Phase 1 and 2)
+*   **Completion Rate:** 5/5 Steps verified (Phase 1, 2, and 3)
 
 ## 🕵️ Detailed Audit (Evidence-Based)
 
@@ -18,9 +18,15 @@
 *   **Dynamic Check:** All database tests passed via `pytest tests/test_database*.py` without failures.
 *   **Notes:** Schema changes exactly match the plan's requirements.
 
+### Step 3.A & 3.B: Metric Source-of-Truth
+*   **Status:** ✅ Verified
+*   **Evidence:** Found `get_latest_metric` implementation in `server/queries.py` (lines 12-30). Found refactor in `server/queries.py` modifying `get_current_ftp` and `get_ftp_history_rows` to use this new helper. Found implementation in `server/ingest.py` (lines 118-128, 278-288) replacing HR threshold lookups (`lthr`, `max_hr`, `resting_hr`) with `get_latest_metric`. The Engineer correctly ignored the literal instruction to modify `server/routers/pmc.py`, as that router does not handle direct FTP/Weight lookups; instead, the Engineer patched `get_current_ftp` in `server/queries.py` which cascades the fix up to the router and coaching tools that actually consume FTP. Found unit tests in `tests/test_queries.py` correctly validating historical logs and fallback logic.
+*   **Dynamic Check:** Tests passed via `pytest tests/test_queries.py`.
+*   **Notes:** Excellent execution. The Engineer recognized a logical flaw in the plan's test expectations (correctly using `2022-01-01` instead of `2024-01-01` to test the fallback behavior prior to the log's existence) and added an explanatory comment in the test. The Engineer also correctly preserved the $O(\log N)$ batched lookup for Weight during PMC generation in `server/ingest.py` to prevent N+1 query performance issues that would arise if `get_latest_metric` were used naively inside the loop.
+
 ## 🚨 Anti-Shortcut & Quality Scan
-*   **Placeholders/TODOs:** None found in `server/database.py` or `tests/test_database_schema_v1_5_2.py`.
-*   **Test Integrity:** Tests are robust. They insert records with the new schema columns and assert the values are retrieved correctly. No mocked or skipped database assertions.
+*   **Placeholders/TODOs:** None found in modified files (`server/database.py`, `tests/test_database_schema_v1_5_2.py`, `server/queries.py`, `tests/test_queries.py`, `server/ingest.py`).
+*   **Test Integrity:** Tests are robust. The test setup is meticulously written to simulate empty `athlete_log` and `athlete_settings` tables, and correctly asserts logic boundary conditions.
 
 ## 🎯 Conclusion
-Phase 2 (Steps 2.A & 2.B) has been successfully implemented. Database schema updates for power tracking are applied correctly and backed by appropriate testing.
+Phases 1, 2, and 3 have been successfully implemented. The foundation metrics helper functions have been integrated deeply without performance regressions and correctly track historical point-in-time metrics.

@@ -9,14 +9,33 @@ from datetime import datetime
 from server.database import get_athlete_setting
 
 
+def get_latest_metric(conn, key: str, as_of_date: str) -> float:
+    """Get the latest metric value as of a specific date.
+
+    Checks athlete_log for historical accuracy (most recent entry <= as_of_date).
+    Falls back to athlete_settings if not found in log.
+    """
+    row = conn.execute(
+        "SELECT value FROM athlete_log WHERE type = %s AND date <= %s ORDER BY date DESC LIMIT 1",
+        (key, as_of_date),
+    ).fetchone()
+    if row and row["value"] is not None:
+        return float(row["value"])
+
+    # Fallback to current settings
+    row = conn.execute(
+        "SELECT value FROM athlete_settings WHERE key = %s",
+        (key,),
+    ).fetchone()
+    return float(row["value"]) if row else 0.0
+
+
 def get_current_ftp(conn) -> int:
-    """Get current FTP: prefer athlete_settings, fall back to latest ride."""
-    try:
-        val = int(get_athlete_setting("ftp") or 0)
-        if val > 0:
-            return val
-    except (ValueError, TypeError):
-        pass
+    """Get current FTP: prefer athlete_log/settings, fall back to latest ride."""
+    val = int(get_latest_metric(conn, "ftp", datetime.now().strftime("%Y-%m-%d")))
+    if val > 0:
+        return val
+
     row = conn.execute(
         "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
     ).fetchone()
@@ -92,20 +111,15 @@ def get_ftp_history_rows(conn) -> list[dict]:
         for r in rows
     ]
 
-    # Append current athlete_settings FTP if it differs from the latest ride-based entry
-    try:
-        current_ftp = int(get_athlete_setting("ftp") or 0)
-    except (ValueError, TypeError):
-        current_ftp = 0
+    # Append current athlete_log/settings FTP if it differs from the latest ride-based entry
+    today = datetime.now().strftime("%Y-%m-%d")
+    current_ftp = int(get_latest_metric(conn, "ftp", today))
     if current_ftp > 0:
         current_month = datetime.now().strftime("%Y-%m")
         last_ftp = result[-1]["ftp"] if result else 0
         last_month = result[-1]["month"] if result else ""
         if current_ftp != last_ftp or current_month != last_month:
-            try:
-                weight = float(get_athlete_setting("weight_kg") or 0)
-            except (ValueError, TypeError):
-                weight = 0
+            weight = float(get_latest_metric(conn, "weight_kg", today))
             entry = {
                 "month": current_month,
                 "ftp": current_ftp,
