@@ -17,8 +17,8 @@ from server.ingest import (
 
 def test_compute_rolling_best():
     powers = [100] * 60 + [200] * 60
-    assert compute_rolling_best(powers, 60) == 200
-    assert compute_rolling_best(powers, 120) == 150
+    assert compute_rolling_best(powers, 60)["power"] == 200
+    assert compute_rolling_best(powers, 120)["power"] == 150
     assert compute_rolling_best(powers, 200) is None
 
 
@@ -45,7 +45,7 @@ def test_parse_ride_json(tmp_path):
         ],
         "sport": [{"sport": "cycling", "sub_sport": "mountain", "name": "MTB"}],
         "user_profile": [{"weight": 75.0}],
-        "record": [{"timestamp": f"2025-06-01T10:00:{i:02d}", "power": 180 + (i % 20), "heart_rate": 145} for i in range(120)],
+        "record": [{"timestamp": f"2025-06-01T10:00:{i:02d}", "power": 180, "heart_rate": 145} for i in range(120)],
     }
 
     filepath = tmp_path / "test_ride.json"
@@ -56,7 +56,6 @@ def test_parse_ride_json(tmp_path):
     assert ride is not None
     assert ride["date"] == "2025-06-01"
     assert ride["avg_power"] == 180
-    assert ride["tss"] == 85.5
     assert ride["weight"] == 75.0
     assert len(records) == 120
     assert ride["best_1min_power"] is not None

@@ -4,12 +4,14 @@ import bisect
 import json
 import logging
 import os
+import numpy as np
 import hashlib
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from collections import defaultdict
 
 from server.database import init_db, get_db
+from server.metrics import clean_ride_data, calculate_np, calculate_tss
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +35,38 @@ def file_hash(filepath):
     return hashlib.md5(open(filepath, "rb").read()).hexdigest()
 
 
-def compute_rolling_best(powers, window_s):
+def compute_rolling_best(powers, window_s, hrs=None, cadences=None):
     if len(powers) < window_s:
         return None
-    best = 0
+    
     current_sum = sum(powers[:window_s])
-    best = current_sum
+    best_sum = current_sum
+    best_idx = 0
+    
     for i in range(window_s, len(powers)):
         current_sum += powers[i] - powers[i - window_s]
-        if current_sum > best:
-            best = current_sum
-    return round(best / window_s)
+        if current_sum > best_sum:
+            best_sum = current_sum
+            best_idx = i - window_s + 1
+            
+    avg_power = round(best_sum / window_s)
+    
+    res = {
+        "power": avg_power,
+        "start_offset_s": best_idx,
+        "avg_hr": None,
+        "avg_cadence": None
+    }
+    
+    if hrs is not None:
+        window_hrs = [h for h in hrs[best_idx : best_idx + window_s] if h is not None and not np.isnan(h)]
+        res["avg_hr"] = round(sum(window_hrs) / len(window_hrs)) if window_hrs else None
+        
+    if cadences is not None:
+        window_cadences = [c for c in cadences[best_idx : best_idx + window_s] if c is not None and not np.isnan(c)]
+        res["avg_cadence"] = round(sum(window_cadences) / len(window_cadences)) if window_cadences else None
+        
+    return res
 
 
 def parse_ride_json(filepath, conn=None):
@@ -62,6 +85,34 @@ def parse_ride_json(filepath, conn=None):
     ftp = session.get("threshold_power", 0) or 0
     avg_power = session.get("avg_power", 0) or 0
     np_power = session.get("normalized_power", 0) or 0
+    tss = session.get("training_stress_score", 0) or 0
+
+    # Extract raw samples for cleaning
+    raw_powers = [r.get("power") for r in records]
+    raw_hrs = [r.get("heart_rate") for r in records]
+    raw_cadences = [r.get("cadence") for r in records]
+
+    # Clean using SciPy pipeline
+    cleaned_p, cleaned_hr, cleaned_cadence = clean_ride_data(raw_powers, raw_hrs, raw_cadences)
+    
+    # Identify if we have power data and update status
+    has_power_data = any(p is not None and not np.isnan(p) and p > 0 for p in (cleaned_p if cleaned_p is not None else []))
+    data_status = "cleaned" if has_power_data else "raw"
+
+    # Convert vectors back to list of native types, NaNs become None
+    powers = [float(p) if not np.isnan(p) else None for p in cleaned_p] if cleaned_p is not None else []
+    hrs = [int(h) if not np.isnan(h) else None for h in cleaned_hr] if cleaned_hr is not None else []
+    cadences = [int(c) if not np.isnan(c) else None for c in cleaned_cadence] if cleaned_cadence is not None else []
+
+    # Recalculate NP and TSS using vectorized math if we have power data
+    powers_vec = np.nan_to_num(cleaned_p, nan=0.0) if cleaned_p is not None else np.array([])
+    intensity_factor = session.get("intensity_factor", 0) or 0
+    if has_power_data:
+        np_power = calculate_np(powers_vec)
+        duration_s = session.get("total_timer_time", 0)
+        tss = calculate_tss(np_power, duration_s, ftp)
+        avg_power = round(np.mean(powers_vec))
+        intensity_factor = round(np_power / ftp, 3) if ftp > 0 else 0
 
     vi = 0
     if avg_power > 0 and np_power > 0:
@@ -69,17 +120,24 @@ def parse_ride_json(filepath, conn=None):
 
     total_work = session.get("total_work", 0) or 0
 
-    # Extract power samples for best-power calculations
-    powers = [r.get("power", 0) or 0 for r in records]
-
-    best_1min = compute_rolling_best(powers, 60) if powers else None
-    best_5min = compute_rolling_best(powers, 300) if powers else None
-    best_20min = compute_rolling_best(powers, 1200) if powers else None
-    best_60min = compute_rolling_best(powers, 3600) if powers else None
+    best_1min_res = compute_rolling_best(powers_vec, 60) if has_power_data else None
+    best_5min_res = compute_rolling_best(powers_vec, 300) if has_power_data else None
+    best_20min_res = compute_rolling_best(powers_vec, 1200) if has_power_data else None
+    best_60min_res = compute_rolling_best(powers_vec, 3600) if has_power_data else None
 
     # GPS start position
     start_lat = _semicircles_to_degrees(session.get("start_position_lat"))
     start_lon = _semicircles_to_degrees(session.get("start_position_long"))
+
+    avg_hr = session.get("avg_heart_rate", 0) or 0
+    if hrs:
+        valid_hrs = [h for h in hrs if h is not None]
+        avg_hr = round(sum(valid_hrs) / len(valid_hrs)) if valid_hrs else avg_hr
+    
+    avg_cadence = session.get("avg_cadence", 0) or 0
+    if cadences:
+        valid_cadences = [c for c in cadences if c is not None]
+        avg_cadence = round(sum(valid_cadences) / len(valid_cadences)) if valid_cadences else avg_cadence
 
     ride = {
         "date": start_time[:10] if len(start_time) >= 10 else start_time,
@@ -92,29 +150,32 @@ def parse_ride_json(filepath, conn=None):
         "avg_power": avg_power,
         "normalized_power": np_power,
         "max_power": session.get("max_power", 0),
-        "avg_hr": session.get("avg_heart_rate", 0),
+        "avg_hr": avg_hr,
         "max_hr": session.get("max_heart_rate", 0),
-        "avg_cadence": session.get("avg_cadence", 0),
+        "avg_cadence": avg_cadence,
         "total_ascent": session.get("total_ascent", 0),
         "total_descent": session.get("total_descent", 0),
         "total_calories": session.get("total_calories", 0),
-        "tss": session.get("training_stress_score", 0),
-        "intensity_factor": session.get("intensity_factor", 0),
+        "tss": tss,
+        "intensity_factor": intensity_factor,
         "ftp": ftp,
         "total_work_kj": round(total_work / 1000, 1) if total_work else 0,
         "training_effect": session.get("total_training_effect", 0),
         "variability_index": vi,
-        "best_1min_power": best_1min,
-        "best_5min_power": best_5min,
-        "best_20min_power": best_20min,
-        "best_60min_power": best_60min,
+        "best_1min_power": best_1min_res["power"] if best_1min_res else None,
+        "best_5min_power": best_5min_res["power"] if best_5min_res else None,
+        "best_20min_power": best_20min_res["power"] if best_20min_res else None,
+        "best_60min_power": best_60min_res["power"] if best_60min_res else None,
         "weight": user.get("weight"),
         "start_lat": start_lat,
         "start_lon": start_lon,
+        "has_power_data": has_power_data,
+        "data_status": data_status,
     }
 
     # If no power-based TSS but we have HR data, compute hrTSS
     if (not ride["tss"] or ride["tss"] == 0) and ride["avg_hr"] and ride["avg_hr"] > 0:
+        # ... (rest of hrTSS logic unchanged)
         from server.queries import get_latest_metric
         try:
             if conn:
@@ -136,14 +197,14 @@ def parse_ride_json(filepath, conn=None):
 
     # Build record rows
     record_rows = []
-    for r in records:
+    for i, r in enumerate(records):
         lat = _semicircles_to_degrees(r.get("position_lat"))
         lon = _semicircles_to_degrees(r.get("position_long"))
         record_rows.append({
             "timestamp": r.get("timestamp", ""),
-            "power": r.get("power"),
-            "heart_rate": r.get("heart_rate"),
-            "cadence": r.get("cadence"),
+            "power": powers[i] if i < len(powers) else None,
+            "heart_rate": hrs[i] if i < len(hrs) else None,
+            "cadence": cadences[i] if i < len(cadences) else None,
             "speed": r.get("enhanced_speed"),
             "altitude": r.get("enhanced_altitude"),
             "distance": r.get("distance"),
@@ -155,9 +216,15 @@ def parse_ride_json(filepath, conn=None):
     # Power bests at standard durations
     power_bests = []
     for dur in POWER_BEST_DURATIONS:
-        best = compute_rolling_best(powers, dur)
-        if best and best > 0:
-            power_bests.append({"duration_s": dur, "power": best})
+        res = compute_rolling_best(powers_vec, dur, hrs=hrs, cadences=cadences)
+        if res and res["power"] > 0:
+            power_bests.append({
+                "duration_s": dur,
+                "power": res["power"],
+                "avg_hr": res["avg_hr"],
+                "avg_cadence": res["avg_cadence"],
+                "start_offset_s": res["start_offset_s"]
+            })
 
     # Extract lap data
     laps = data.get("lap", [])
@@ -359,18 +426,26 @@ def compute_daily_pmc(conn, since_date: str | None = None):
         start = datetime.fromisoformat(min(all_ride_dates))
 
     day = start
-    pmc_rows = []
-
+    day_list = []
+    tss_list = []
     while day <= end:
         ds = day.strftime("%Y-%m-%d")
-        tss = daily_tss.get(ds, 0)
-        ctl = ctl + (tss - ctl) / 42
-        atl = atl + (tss - atl) / 7
-        tsb = ctl - atl
-        weight = _lookup_weight(ds)
-
-        pmc_rows.append((ds, round(tss, 1), round(ctl, 1), round(atl, 1), round(tsb, 1), weight))
+        day_list.append(ds)
+        tss_list.append(daily_tss.get(ds, 0.0))
         day += timedelta(days=1)
+
+    # Vectorized calculation
+    from server.metrics import calculate_pmc
+    ctl_values, atl_values = calculate_pmc(tss_list, initial_ctl=ctl, initial_atl=atl)
+
+    pmc_rows = []
+    for i, ds in enumerate(day_list):
+        tss = tss_list[i]
+        c = ctl_values[i]
+        a = atl_values[i]
+        tsb = c - a
+        weight = _lookup_weight(ds)
+        pmc_rows.append((ds, round(tss, 1), round(c, 1), round(a, 1), round(tsb, 1), weight))
 
     # Batch upsert all rows
     conn.executemany(
@@ -433,13 +508,13 @@ def ingest_rides(conn, rides_dir=None):
                total_ascent, total_descent, total_calories, tss, intensity_factor,
                ftp, total_work_kj, training_effect, variability_index,
                best_1min_power, best_5min_power, best_20min_power, best_60min_power,
-               weight, start_lat, start_lon)
+               weight, start_lat, start_lon, has_power_data, data_status)
             VALUES (:date, :start_time, :filename, :sport, :sub_sport, :duration_s, :distance_m,
                :avg_power, :normalized_power, :max_power, :avg_hr, :max_hr, :avg_cadence,
                :total_ascent, :total_descent, :total_calories, :tss, :intensity_factor,
                :ftp, :total_work_kj, :training_effect, :variability_index,
                :best_1min_power, :best_5min_power, :best_20min_power, :best_60min_power,
-               :weight, :start_lat, :start_lon) RETURNING id""",
+               :weight, :start_lat, :start_lon, :has_power_data, :data_status) RETURNING id""",
             ride,
         )
         row = cursor.fetchone()
@@ -463,8 +538,8 @@ def ingest_rides(conn, rides_dir=None):
         # Insert power bests
         if power_bests:
             conn.executemany(
-                "INSERT INTO power_bests (ride_id, date, duration_s, power) VALUES (?, ?, ?, ?)",
-                [(ride_id, ride["date"], pb["duration_s"], pb["power"]) for pb in power_bests],
+                "INSERT INTO power_bests (ride_id, date, duration_s, power, avg_hr, avg_cadence, start_offset_s) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(ride_id, ride["date"], pb["duration_s"], pb["power"], pb.get("avg_hr"), pb.get("avg_cadence"), pb.get("start_offset_s")) for pb in power_bests],
             )
 
         # Insert laps

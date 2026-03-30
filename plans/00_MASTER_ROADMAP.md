@@ -12,8 +12,8 @@ This document serves as the top-level view of all active, planned, and completed
 **Tracking Plan:** `plans/v1.5.2-roadmap.md`
 
 #### Epics / Milestones
-- [ ] **Phase 1: Foundations & Metric Integrity** (`plans/v1.5.2-01-foundations-metrics.md`)
-  - *Status:* Planned
+- [x] **Phase 1: Foundations & Metric Integrity** (`plans/v1.5.2-01-foundations-metrics.md`)
+  - *Status:* Completed ✅
   - *Goal:* DB Schema updates, data science tooling (numpy, scipy), and unified source-of-truth metrics.
 - [ ] **Phase 2: Sophisticated Ingestion Engine** (`plans/v1.5.2-02-ingestion-engine.md`)
   - *Status:* Planned
