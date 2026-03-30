@@ -243,6 +243,13 @@ CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
+
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS has_power_data BOOLEAN DEFAULT FALSE;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS data_status TEXT DEFAULT 'raw';
+ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_hr INTEGER;
+ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_cadence INTEGER;
+ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS start_offset_s INTEGER;
+CREATE INDEX IF NOT EXISTS idx_power_bests_composite ON power_bests(duration_s, date DESC);
 """
 
 # ---------------------------------------------------------------------------
@@ -470,6 +477,26 @@ def init_db():
             cur.close()
         except Exception:
             conn.rollback()
+    
+    # Migrations for v1.5.2: Foundations & Metric Integrity
+    v152_migrations = [
+        "ALTER TABLE rides ADD COLUMN IF NOT EXISTS has_power_data BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE rides ADD COLUMN IF NOT EXISTS data_status TEXT DEFAULT 'raw'",
+        "ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_hr INTEGER",
+        "ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_cadence INTEGER",
+        "ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS start_offset_s INTEGER",
+        "CREATE INDEX IF NOT EXISTS idx_power_bests_composite ON power_bests(duration_s, date DESC)"
+    ]
+    for stmt in v152_migrations:
+        try:
+            cur = conn.cursor()
+            cur.execute(stmt)
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            logger.warning("Migration failed (likely already applied): %s", e)
+            conn.rollback()
+    
     conn.close()
 
 

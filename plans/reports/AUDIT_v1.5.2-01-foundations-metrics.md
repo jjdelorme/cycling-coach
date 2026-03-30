@@ -2,7 +2,7 @@
 
 ## 📊 Summary
 *   **Overall Status:** PASS
-*   **Completion Rate:** 1/1 Steps verified
+*   **Completion Rate:** 3/3 Steps verified (Phase 1 and 2)
 
 ## 🕵️ Detailed Audit (Evidence-Based)
 
@@ -12,9 +12,15 @@
 *   **Dynamic Check:** N/A (Only requirement addition and plan update for this step).
 *   **Notes:** The benefit of using these libraries for this specific task (foundations metrics) is substantial. Standard Python loops over large sets of 1-second interval records (e.g., thousands of rows for a single ride) are computationally slow. Using NumPy enables highly optimized $O(N)$ vectorized mathematical operations (like calculating 30-second rolling averages for Normalized Power using `numpy.convolve`, 4th power means, EWMA for CTL/ATL), and SciPy provides robust tools for data cleaning such as `scipy.interpolate` for filling gaps in time-series data and `scipy.signal` for outlier filtering.
 
+### Step 2.A & 2.B: Database Schema Expansion
+*   **Status:** ✅ Verified
+*   **Evidence:** Found schema changes in `server/database.py` (lines 135-140) adding `has_power_data`, `data_status` to `rides` and `avg_hr`, `avg_cadence`, `start_offset_s` to `power_bests` along with `idx_power_bests_composite`. Found migration statements inside `init_db()` in `server/database.py` (lines 403-410). Found database tests verifying table constraints in `tests/test_database_schema_v1_5_2.py` (lines 6-52).
+*   **Dynamic Check:** All database tests passed via `pytest tests/test_database*.py` without failures.
+*   **Notes:** Schema changes exactly match the plan's requirements.
+
 ## 🚨 Anti-Shortcut & Quality Scan
-*   **Placeholders/TODOs:** None found in the modified `requirements.txt`.
-*   **Test Integrity:** N/A for dependency addition.
+*   **Placeholders/TODOs:** None found in `server/database.py` or `tests/test_database_schema_v1_5_2.py`.
+*   **Test Integrity:** Tests are robust. They insert records with the new schema columns and assert the values are retrieved correctly. No mocked or skipped database assertions.
 
 ## 🎯 Conclusion
-Phase 1, Step 1.A has been successfully implemented and properly documented in the project plan. The requisite high-performance mathematical libraries are accurately pinned in the project dependencies.
+Phase 2 (Steps 2.A & 2.B) has been successfully implemented. Database schema updates for power tracking are applied correctly and backed by appropriate testing.
