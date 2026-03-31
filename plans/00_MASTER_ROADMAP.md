@@ -18,8 +18,8 @@ This document serves as the top-level view of all active, planned, and completed
 - [x] **Campaign 2: Sophisticated Ingestion Engine** (`plans/v1.5.2-02-ingestion-engine.md`)
   - *Status:* Completed ✅
   - *Goal:* Statistical outlier removal (Z-score), physiological HR cleaning, and robust handling of sensor errors.
-- [ ] **Campaign 3: Dynamic Agent Intelligence** (`plans/v1.5.2-03-agent-intelligence.md`)
-  - *Status:* Planned
+- [x] **Campaign 3: Dynamic Agent Intelligence** (`plans/v1.5.2-03-agent-intelligence.md`)
+  - *Status:* Completed ✅
   - *Goal:* Tool-based metric retrieval and dynamic prompt injection to ensure the AI uses live DB state.
 - [ ] **Campaign 4: Enhanced Analysis API** (`plans/v1.5.2-04-analysis-api.md`)
   - *Status:* Planned
