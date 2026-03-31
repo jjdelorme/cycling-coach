@@ -1,7 +1,7 @@
 # Cycling Coaching Platform
 
 ## Project Overview
-Cycling coaching platform. Currently single-athlete, but designed for multi-user support in the future. Web app that ingests ride data, computes training metrics, and provides AI coaching insights. 
+Scalable cycling coaching platform designed for multi-athlete support. Web app that ingests ride data, computes training metrics, and provides AI coaching insights at scale.
 
 ## Tech Stack
 - **Backend**: Python 3.11+ / FastAPI / PostgreSQL (psycopg2)
