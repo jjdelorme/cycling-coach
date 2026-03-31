@@ -15,8 +15,8 @@ This document serves as the top-level view of all active, planned, and completed
 - [x] **Phase 1: Foundations & Metric Integrity** (`plans/v1.5.2-01-foundations-metrics.md`)
   - *Status:* Completed ✅
   - *Goal:* DB Schema updates, data science tooling (numpy, scipy), and unified source-of-truth metrics.
-- [ ] **Phase 2: Sophisticated Ingestion Engine** (`plans/v1.5.2-02-ingestion-engine.md`)
-  - *Status:* 🔵 In Progress (Refined)
+- [x] **Phase 2: Sophisticated Ingestion Engine** (`plans/v1.5.2-02-ingestion-engine.md`)
+  - *Status:* Completed ✅
   - *Goal:* Statistical outlier removal (Z-score), physiological HR cleaning, and robust handling of sensor errors.
 - [ ] **Phase 3: Dynamic Agent Intelligence** (`plans/v1.5.2-03-agent-intelligence.md`)
   - *Status:* Planned
@@ -30,12 +30,11 @@ This document serves as the top-level view of all active, planned, and completed
 - [x] **Phase 6: Sync Recalculation** (`plans/v1.5.2-06-sync-recalculation.md`)
   - *Status:* Completed ✅
   - *Goal:* Unify the metric calculation pipeline for Intervals.icu synced rides to ensure power bests and metrics are consistent with JSON imports.
-- [ ] **Phase 7: Intervals.icu Bi-directional Sync** (`plans/v1.5.2-07-intervals-integration.md`)
-  - *Status:* Planned
+- [x] **Phase 7: Intervals.icu Bi-directional Sync** (`plans/v1.5.2-07-intervals-integration.md`)
+  - *Status:* Completed ✅
   - *Goal:* Implement write-back capabilities for FTP, Weight, and Workouts to Intervals.icu, and resolve duplicate workout issues.
 
-## Backlog
+- [ ] **Phase 8: Delete Ride Feature** (`plans/feat_delete_ride.md`)
+  - *Status:* Planned
+  - *Goal:* Full-stack capability to hard-delete rides and cascade DB deletions while recalculating PMC logic.
 
-- [ ] Support for manual workout entry/edit via the Coach Agent.
-- [ ] Strava API integration for supplementary ride verification.
-- [ ] "Season Goal" tracking and progress visualization.
