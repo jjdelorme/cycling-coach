@@ -177,3 +177,6 @@ export const updateUserRole = (email: string, role: string) =>
   put<{ status: string }>(`/api/admin/users/${encodeURIComponent(email)}`, { role })
 export const deleteUser = (email: string) =>
   request<{ status: string }>(`/api/admin/users/${encodeURIComponent(email)}`, { method: 'DELETE' })
+
+export const syncSingleRide = (icuId: string) => post<{ status: string; sync_id: string }>(`/api/sync/ride/${icuId}`)
+

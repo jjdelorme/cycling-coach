@@ -151,3 +151,13 @@ echo "JWT_SECRET=$JWT_VALUE" >> .env
 | **ZWO** | Zwift Workout | XML file format defining structured workout intervals |
 | **Z0-Z5** | Power Zones 0-5 | Training intensity zones based on percentage of FTP (Z0=recovery through Z5=VO2max+) |
 | **ADC** | Application Default Credentials | GCP authentication method; no API keys needed |
+
+### Intervals.icu Activity Taxonomy
+The system relies on Intervals.icu for external ride ingestion. When syncing, the `sport` type dictates how the ingestion engine processes streams (e.g., stripping power data for non-cycling sports to accurately fall back to `hrTSS`).
+
+*   **Cycling (Power Allowed):** `Ride`, `VirtualRide`, `EBikeRide`, `EMountainBikeRide`, `GravelRide`, `MountainBikeRide`, `TrackRide`, `Velomobile`, `Handcycle`
+*   **Running:** `Run`, `TrailRun`, `VirtualRun`
+*   **Swimming:** `Swim`, `OpenWaterSwim`
+*   **Winter Sports:** `AlpineSki`, `BackcountrySki`, `NordicSki`, `RollerSki`, `Snowboard`, `Snowshoe`, `VirtualSki`
+*   **Water Sports:** `Canoeing`, `Kayaking`, `Rowing`, `Sail`, `StandUpPaddling`, `Surfing`, `VirtualRow`, `WaterSport`, `Windsurf`
+*   **Gym, Fitness & Other:** `Crossfit`, `Elliptical`, `HighIntensityIntervalTraining`, `Pilates`, `StairStepper`, `WeightTraining`, `Workout`, `Yoga`, `Hike`, `Walk`, `RockClimbing`

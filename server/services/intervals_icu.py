@@ -290,17 +290,20 @@ def map_activity_to_ride(activity: dict) -> dict | None:
     moving_time = activity.get("moving_time", 0) or activity.get("elapsed_time", 0) or 0
     distance = activity.get("distance", 0) or 0
 
+    sport = (activity.get("type") or "cycling").lower()
+    is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
+
     ride = {
         "date": date,
         "start_time": start_date,
         "filename": f"icu_{icu_id}",
-        "sport": (activity.get("type") or "cycling").lower(),
+        "sport": sport,
         "sub_sport": (activity.get("sub_type") or "").lower(),
         "duration_s": moving_time,
         "distance_m": distance,
-        "avg_power": activity.get("average_watts") or activity.get("icu_weighted_avg_watts"),
-        "normalized_power": activity.get("icu_weighted_avg_watts"),
-        "max_power": activity.get("max_watts"),
+        "avg_power": (activity.get("average_watts") or activity.get("icu_weighted_avg_watts")) if is_cycling else None,
+        "normalized_power": activity.get("icu_weighted_avg_watts") if is_cycling else None,
+        "max_power": activity.get("max_watts") if is_cycling else None,
         "avg_hr": activity.get("average_heartrate"),
         "max_hr": activity.get("max_heartrate"),
         "avg_cadence": activity.get("average_cadence"),

@@ -163,7 +163,7 @@ def test_process_ride_samples_logic():
     duration_s = 3600.0
     
     result = process_ride_samples(raw_powers, raw_hrs, raw_cadences, ftp, duration_s)
-    
+
     # We expect NP=200, TSS=100, IF=1.0, VI=1.0 for constant 200W at 200W FTP
     assert result["np_power"] == pytest.approx(200.0)
     assert result["tss"] == pytest.approx(100.0)
@@ -171,13 +171,47 @@ def test_process_ride_samples_logic():
     assert result["intensity_factor"] == pytest.approx(1.0)
     assert result["variability_index"] == pytest.approx(1.0)
     assert result["has_power_data"] is True
-    
+
     # Check power bests structure
     # Expected: list of dicts like {"duration_s": 60, "power": 200.0}
     assert len(result["power_bests"]) > 0
     best_1min = next(b for b in result["power_bests"] if b["duration_s"] == 60)
     assert best_1min["power"] == pytest.approx(200.0)
-import numpy as np
+
+def test_clean_ride_data_hr_bounds():
+    """Verify HR values < 30 or > 240 are filtered and interpolated."""
+    hr = np.array([120, 125, 255, 125, 120], dtype=float)
+    # 255 is out of bounds, should be removed and interpolated
+    _, cleaned_hr, _ = clean_ride_data(None, hr_array=hr)
+    assert cleaned_hr[2] == pytest.approx(125.0)
+    assert np.all(cleaned_hr >= 30)
+    assert np.all(cleaned_hr <= 240)
+
+def test_clean_ride_data_hr_roc():
+    """Verify impossible sudden jumps in HR (>10 bpm/s) are filtered."""
+    hr = np.array([120, 121, 145, 121, 120], dtype=float)
+    # 145 is a +24 jump from 121, should be filtered
+    _, cleaned_hr, _ = clean_ride_data(None, hr_array=hr)
+    assert cleaned_hr[2] == pytest.approx(121.0)
+
+def test_clean_ride_data_power_zscore():
+    """Verify power spikes are caught by rolling Z-score but sprints are kept."""
+    # 1. Brief massive spike
+    power_spike = np.full(60, 200.0)
+    power_spike[30] = 1000.0 # Massive spike in the middle
+    # Add some tiny noise to avoid zero variance issues in the test itself
+    power_spike += np.random.normal(0, 1, 60)
+
+    cleaned_p, _, _ = clean_ride_data(power_spike)
+    assert cleaned_p[30] < 500.0 # Should be significantly reduced (replaced by rolling mean)
+
+    # 2. Sustained sprint (should NOT be filtered)
+    power_sprint = np.full(60, 200.0)
+    power_sprint[30:45] = 800.0 # 15-second sprint
+
+    cleaned_p_sprint, _, _ = clean_ride_data(power_sprint)
+    assert np.all(cleaned_p_sprint[30:45] >= 700.0) # Should be largely preserved
+
 from server.metrics import compute_rolling_best
 
 def test_compute_rolling_best():
@@ -189,28 +223,24 @@ def test_compute_rolling_best():
     #          [300,400,500] -> sum 1200, avg 400 (best)
     
     res = compute_rolling_best(powers, 3)
-    print(f"3s res: {res}")
     assert res["power"] == 400
     assert res["start_offset_s"] == 2
 
     # 1s window
     res = compute_rolling_best(powers, 1)
-    print(f"1s res: {res}")
     assert res["power"] == 500
     assert res["start_offset_s"] == 4
 
     # 5s window
     res = compute_rolling_best(powers, 5)
-    print(f"5s res: {res}")
     assert res["power"] == 300
     assert res["start_offset_s"] == 0
 
     # Window longer than powers
     res = compute_rolling_best(powers, 10)
-    print(f"10s res: {res}")
     assert res is None
 
-    print("All tests passed!")
-
 if __name__ == "__main__":
+    # If run as script, we can still run some basic tests
     test_compute_rolling_best()
+    print("All basic tests passed!")

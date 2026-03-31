@@ -1,3 +1,4 @@
+import { useSyncSingleRide } from '../hooks/useSyncSingleRide'
 import { useState, useEffect, useMemo } from 'react'
 import { 
   useRides, 
@@ -150,6 +151,9 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   const [titleDraft, setTitleDraft] = useState('')
   const updateTitle = useUpdateRideTitle()
 
+const syncSingleRide = useSyncSingleRide()
+
+
   const [locationName, setLocationName] = useState<string | null>(null)
   useEffect(() => {
     if (!ride?.start_lat || !ride?.start_lon) {
@@ -296,6 +300,17 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
                         <Edit3 size={16} />
                       </button>
                     </h1>
+                {ride?.filename?.startsWith('icu_') && (
+                  <button
+                    onClick={() => syncSingleRide.mutate(ride.filename!.replace('icu_', ''))}
+                    disabled={syncSingleRide.isPending}
+                    className="ml-4 flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-text-muted hover:text-accent border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className={syncSingleRide.isPending ? 'animate-spin' : ''} />
+                    {syncSingleRide.isPending ? 'Syncing...' : 'Re-sync Ride'}
+                  </button>
+                )}
+
                     <div className="flex items-center gap-4 mt-2 text-text-muted text-xs font-medium">
                       <span className="flex items-center gap-1.5"><Clock size={14} className="text-accent" /> {startTime || 'No start time'}</span>
                       {locationName && <span className="flex items-center gap-1.5"><MapPin size={14} className="text-accent" /> {locationName}</span>}

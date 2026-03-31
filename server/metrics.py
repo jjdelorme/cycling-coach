@@ -1,16 +1,66 @@
 import math
 import numpy as np
 from scipy.signal import lfilter, medfilt
+from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import interp1d
 from itertools import groupby
 
 POWER_BEST_DURATIONS = [5, 30, 60, 300, 1200, 3600]  # seconds
 
+def _clean_hr_array(arr):
+    if arr is None or len(arr) == 0:
+        return arr
+    
+    # Convert to numpy float array, treating None as NaN
+    arr = np.array([float(x) if x is not None else np.nan for x in arr], dtype=float)
+    
+    # 0. Median filter to handle single-point spikes
+    if len(arr) >= 3:
+        # Fill NaNs temporarily for filtering
+        mask = ~np.isnan(arr)
+        if np.any(mask):
+            temp_arr = arr.copy()
+            if np.any(~mask):
+                x = np.arange(len(arr))
+                f_fill = interp1d(x[mask], arr[mask], kind='nearest', bounds_error=False, fill_value="extrapolate")
+                temp_arr[~mask] = f_fill(x[~mask])
+            
+            padded = np.pad(temp_arr, (1, 1), mode='edge')
+            filtered = medfilt(padded, kernel_size=3)
+            arr[mask] = filtered[1:-1][mask]
+
+    # 1. Physiological Bounds check (Humans alive and exercising)
+    arr[(arr < 30) | (arr > 240)] = np.nan
+    
+    # 2. Rate of change (RoC) filter (max 10 bpm per sec is physiologically impossible)
+    if len(arr) > 1:
+        diffs = np.abs(np.diff(arr))
+        # diffs[i] is arr[i+1] - arr[i]. If diff > 10, mark arr[i+1] as nan
+        roc_mask = np.concatenate(([False], diffs > 10.0))
+        arr[roc_mask] = np.nan
+    
+    # 3. Interpolate the NaNs that were just created
+    nans = np.isnan(arr)
+    if np.any(nans) and np.any(~nans):
+        x = np.arange(len(arr))
+        mask = ~nans
+        if np.sum(mask) >= 2:
+            f = interp1d(x[mask], arr[mask], kind='linear', bounds_error=False, fill_value="extrapolate")
+            # Only interpolate small gaps (<10s)
+            for is_nan, group in groupby(enumerate(nans), key=lambda x: x[1]):
+                group_list = list(group)
+                if is_nan and len(group_list) < 10:
+                    indices = [i for i, _ in group_list]
+                    arr[indices] = f(indices)
+                    
+    return arr
+
 def clean_ride_data(power_array, hr_array=None, cadence_array=None):
     """
     Clean ride data:
     - Missing values (gaps < 10s): Linear interpolation.
-    - Outlier detection: Zero out power > 2500W and smooth spikes using median filter (3-5s).
+    - Outlier detection: Power uses rolling Z-score and hard cutoff.
+    - Heart rate: Biological bounds, RoC filtering, and median filter.
     """
     def _clean_single_array(arr, is_power=False):
         if arr is None or len(arr) == 0:
@@ -21,8 +71,8 @@ def clean_ride_data(power_array, hr_array=None, cadence_array=None):
         
         # Power specific cleaning: Outlier detection
         if is_power:
-            # Zero out power > 2500W (impossible for human)
-            arr[arr > 2500] = 0.0
+            # Set power > 2500W to NaN for interpolation instead of 0
+            arr[arr > 2500] = np.nan
         
         # Linear interpolation for gaps (NaNs) < 10s
         nans = np.isnan(arr)
@@ -34,16 +84,49 @@ def clean_ride_data(power_array, hr_array=None, cadence_array=None):
                 if is_nan and len(group_list) < 10:
                     # Small gap: interpolate
                     indices = [i for i, _ in group_list]
-                    # We need at least one non-NaN before and after for good interpolation, 
-                    # but interp1d with 'linear' handles edge cases with 'extrapolate'.
-                    # However, we only want to fill the small gaps.
                     mask = ~nans
                     if np.sum(mask) >= 2:
                         f = interp1d(x[mask], arr[mask], kind='linear', bounds_error=False, fill_value="extrapolate")
                         arr[indices] = f(indices)
         
+        # Rolling Z-Score Outlier Detection for Power
+        if is_power and len(arr) >= 30:
+            # Use 30-second rolling window to ensure single-point spikes have Z > 4
+            window = 30 
+            
+            # Temporarily fill NaNs for rolling calculations to prevent NaN propagation
+            temp_arr = arr.copy()
+            nans_temp = np.isnan(temp_arr)
+            if np.any(nans_temp) and np.any(~nans_temp):
+                x = np.arange(len(temp_arr))
+                mask = ~nans_temp
+                f_fill = interp1d(x[mask], temp_arr[mask], kind='nearest', bounds_error=False, fill_value="extrapolate")
+                temp_arr[nans_temp] = f_fill(x[nans_temp])
+            elif np.all(nans_temp):
+                temp_arr[:] = 0.0
+                
+            rolling_mean = uniform_filter1d(temp_arr, size=window)
+            rolling_sq_mean = uniform_filter1d(temp_arr**2, size=window)
+            
+            # Calculate standard deviation safely to avoid negative variances due to float precision
+            variance = np.maximum(rolling_sq_mean - rolling_mean**2, 0)
+            rolling_std = np.sqrt(variance)
+            
+            # Avoid division by zero when signal is perfectly steady
+            rolling_std[rolling_std < 1.0] = 1.0
+            
+            # Compute Z-score contextual to the current window
+            z_scores = np.abs((temp_arr - rolling_mean) / rolling_std)
+            
+            # Flag anomalies (Z > 4.0 captures sensor glitches but ignores organic sprint onset)
+            anomalies = z_scores > 4.0
+            
+            # Replace anomalies with the contextual rolling mean
+            if np.any(anomalies):
+                arr[anomalies] = rolling_mean[anomalies]
+        
         # Statistical outlier removal (spike suppression) using median filter
-        # Apply to all signals (power, HR, cadence) to handle stochastic anomalies
+        # Apply to all signals (including power for short arrays or single points)
         if len(arr) >= 5:
             # Fill NaNs temporarily for filtering to avoid propagating NaNs
             mask = ~np.isnan(arr)
@@ -68,7 +151,7 @@ def clean_ride_data(power_array, hr_array=None, cadence_array=None):
         return arr
 
     cleaned_power = _clean_single_array(power_array, is_power=True)
-    cleaned_hr = _clean_single_array(hr_array) if hr_array is not None else None
+    cleaned_hr = _clean_hr_array(hr_array) if hr_array is not None else None
     cleaned_cadence = _clean_single_array(cadence_array) if cadence_array is not None else None
     
     return cleaned_power, cleaned_hr, cleaned_cadence

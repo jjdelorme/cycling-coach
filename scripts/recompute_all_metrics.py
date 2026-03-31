@@ -18,7 +18,7 @@ def recompute_all_metrics():
     with get_db() as conn:
         logger.info("Fetching all rides...")
         # Select necessary columns to update and recalculate
-        rides = conn.execute("SELECT id, date, duration_s, avg_hr, avg_cadence, filename FROM rides ORDER BY date").fetchall()
+        rides = conn.execute("SELECT id, date, duration_s, avg_hr, avg_cadence, filename, sport FROM rides ORDER BY date").fetchall()
         logger.info(f"Found {len(rides)} rides to process.")
 
         for i, ride in enumerate(rides):
@@ -47,7 +47,10 @@ def recompute_all_metrics():
                 )
                 continue
 
-            raw_powers = [r['power'] for r in records]
+            sport = (ride.get('sport') or '').lower()
+            is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
+            
+            raw_powers = [r['power'] for r in records] if is_cycling else []
             raw_hrs = [r['heart_rate'] for r in records]
             raw_cadences = [r['cadence'] for r in records]
             
@@ -124,26 +127,28 @@ def recompute_all_metrics():
                         tss = compute_hr_tss(avg_hr, duration_s, lthr, max_hr_setting, resting_hr)
 
             # 4. Update rides table
-            conn.execute(
-                """UPDATE rides SET 
-                   normalized_power = %s, 
-                   tss = %s, 
-                   intensity_factor = %s, 
-                   avg_power = %s, 
-                   has_power_data = %s, 
-                   data_status = %s,
-                   ftp = %s,
-                   weight = %s,
-                   avg_hr = %s,
-                   avg_cadence = %s,
-                   best_1min_power = %s,
-                   best_5min_power = %s,
-                   best_20min_power = %s,
-                   best_60min_power = %s
-                   WHERE id = %s""",
-                (np_power, tss, if_val, avg_p, has_power_data, data_status, ftp, weight, avg_hr, avg_cadence, 
-                 best_1min, best_5min, best_20min, best_60min, ride_id)
-            )
+            if has_power_data:
+                conn.execute(
+                    """UPDATE rides SET 
+                       normalized_power = %s, tss = %s, intensity_factor = %s, avg_power = %s, 
+                       has_power_data = %s, data_status = %s, ftp = %s, weight = %s,
+                       avg_hr = %s, avg_cadence = %s,
+                       best_1min_power = %s, best_5min_power = %s, best_20min_power = %s, best_60min_power = %s
+                       WHERE id = %s""",
+                    (np_power, tss, if_val, avg_p, True, data_status, ftp, weight, avg_hr, avg_cadence, 
+                     best_1min, best_5min, best_20min, best_60min, ride_id)
+                )
+            else:
+                conn.execute(
+                    """UPDATE rides SET 
+                       tss = %s, 
+                       normalized_power = NULL, intensity_factor = NULL, avg_power = NULL, max_power = NULL,
+                       has_power_data = FALSE, data_status = %s, ftp = %s, weight = %s,
+                       avg_hr = %s, avg_cadence = %s,
+                       best_1min_power = NULL, best_5min_power = NULL, best_20min_power = NULL, best_60min_power = NULL
+                       WHERE id = %s""",
+                    (tss, data_status, ftp, weight, avg_hr, avg_cadence, ride_id)
+                )
             
             # Commit every 10 rides to avoid huge transactions
             if (i + 1) % 10 == 0:

@@ -447,8 +447,11 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         log_lines.append(_tlog(f"  + stored stream data for {ride['date']} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
 
                         # Step 3.A: Process ride samples for metrics and power bests
+                        sport = ride.get("sport", "").lower()
+                        is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
+                        
                         stream_map = _extract_streams(streams)
-                        raw_powers = stream_map.get("watts", [])
+                        raw_powers = stream_map.get("watts", []) if is_cycling else []
                         raw_hrs = stream_map.get("heartrate", [])
                         raw_cadences = stream_map.get("cadence", [])
 
@@ -504,10 +507,16 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                                 ),
                             )
                         else:
-                            # Still update avg_hr and avg_cadence even if no power
+                            # Still update avg_hr and avg_cadence even if no power, and clear power metrics
                             conn.execute(
-                                "UPDATE rides SET avg_hr = ?, avg_cadence = ? WHERE id = ?",
-                                (metrics["avg_hr"], metrics["avg_cadence"], ride_db_id),
+                                """UPDATE rides SET 
+                                   avg_hr = ?, avg_cadence = ?,
+                                   normalized_power = NULL, avg_power = NULL, max_power = NULL,
+                                   intensity_factor = NULL, variability_index = NULL,
+                                   best_1min_power = NULL, best_5min_power = NULL, best_20min_power = NULL, best_60min_power = NULL,
+                                   has_power_data = FALSE, data_status = ?
+                                   WHERE id = ?""",
+                                (metrics["avg_hr"], metrics["avg_cadence"], metrics["data_status"], ride_db_id),
                             )
                             if metrics["tss"] > 0:
                                 # hrTSS fallback
@@ -864,3 +873,27 @@ def get_sync_overview() -> dict:
             "workouts_synced_through": workouts_watermark,
         },
     }
+
+def sync_single_ride_background(icu_id: str) -> str:
+    sync_id = str(uuid.uuid4())[:8]
+    _create_sync_run(sync_id)
+
+    async def _run():
+        try:
+            logger.info(f"Starting single ride sync for {icu_id} (sync_id={sync_id})")
+            from server.services.single_sync import import_specific_activity
+            await import_specific_activity(icu_id)
+        except Exception as e:
+            logger.exception("Single ride sync failed")
+            _update_sync_run(sync_id, status="error", message=str(e))
+        else:
+            _update_sync_run(sync_id, status="success", message=f"Successfully re-synced {icu_id}")
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_run())
+    except RuntimeError:
+        asyncio.run(_run())
+    
+    return sync_id
+

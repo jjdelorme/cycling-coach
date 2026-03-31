@@ -17,6 +17,7 @@ from server.services.sync import (
     get_sync_status,
     run_sync,
     start_sync_background,
+    sync_single_ride_background,
     subscribe,
     unsubscribe,
 )
