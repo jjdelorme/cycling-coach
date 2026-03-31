@@ -2,7 +2,7 @@
 
 import math
 from datetime import datetime, timedelta
-from server.database import get_db, get_athlete_setting
+from server.database import get_db, get_athlete_setting, get_all_athlete_settings
 from server.queries import get_current_pmc_row, get_pmc_row_for_date, get_power_bests_rows, get_ftp_history_rows, get_periodization_phases
 
 
@@ -680,3 +680,126 @@ def get_power_curve(start_date: str = "", end_date: str = "", last_n_days: int =
         "end_date": end_date,
         "bests": bests,
     }
+
+
+def get_athlete_status() -> dict:
+    """Get the athlete's current physiological profile and training load status.
+
+    Combines athlete settings (FTP, weight, HR thresholds) with latest PMC
+    metrics (CTL/ATL/TSB) and computes derived values like W/kg and weight in lbs.
+
+    Returns:
+        Dictionary with all athlete benchmarks, computed metrics, and current training load.
+    """
+    settings = get_all_athlete_settings()
+
+    try:
+        ftp = float(settings.get("ftp", 0))
+    except (ValueError, TypeError):
+        ftp = 0.0
+    try:
+        weight_kg = float(settings.get("weight_kg", 0))
+    except (ValueError, TypeError):
+        weight_kg = 0.0
+
+    weight_lbs = round(weight_kg * 2.20462, 1) if weight_kg > 0 else 0.0
+    w_kg = round(ftp / weight_kg, 2) if weight_kg > 0 else 0.0
+
+    with get_db() as conn:
+        pmc = get_current_pmc_row(conn)
+
+    return {
+        "ftp": int(ftp) if ftp else 0,
+        "weight_kg": weight_kg,
+        "weight_lbs": weight_lbs,
+        "w_kg": w_kg,
+        "lthr": settings.get("lthr"),
+        "max_hr": settings.get("max_hr"),
+        "resting_hr": settings.get("resting_hr"),
+        "age": settings.get("age"),
+        "gender": settings.get("gender"),
+        "ctl": round(pmc["ctl"], 1) if pmc and pmc.get("ctl") is not None else None,
+        "atl": round(pmc["atl"], 1) if pmc and pmc.get("atl") is not None else None,
+        "tsb": round(pmc["tsb"], 1) if pmc and pmc.get("tsb") is not None else None,
+        "as_of_date": pmc["date"] if pmc else None,
+    }
+
+
+def get_planned_workout_for_ride(date: str) -> dict:
+    """Get the planned workout for a given date alongside the actual ride summary.
+
+    Use this tool when analyzing a ride to compare what was planned vs what was
+    actually done. Helps identify deviations in duration, intensity, or workout type.
+
+    Args:
+        date: Date string (YYYY-MM-DD) to look up.
+
+    Returns:
+        Dictionary with planned workout details and actual ride summary for comparison.
+    """
+    with get_db() as conn:
+        # Get planned workout for this date
+        planned = conn.execute(
+            """SELECT name, sport, total_duration_s, planned_tss, coach_notes, athlete_notes
+               FROM planned_workouts WHERE date = ? ORDER BY id LIMIT 1""",
+            (date,),
+        ).fetchone()
+
+        # Get actual ride for this date
+        actual = conn.execute(
+            """SELECT id, date, sub_sport, duration_s, distance_m, tss,
+                      avg_power, normalized_power, avg_hr, total_ascent, ftp
+               FROM rides WHERE date = ? ORDER BY duration_s DESC LIMIT 1""",
+            (date,),
+        ).fetchone()
+
+    result = {"date": date, "planned": None, "actual": None, "comparison": None}
+
+    if planned:
+        result["planned"] = {
+            "name": planned["name"],
+            "sport": planned["sport"],
+            "duration_min": round((planned["total_duration_s"] or 0) / 60),
+            "planned_tss": planned["planned_tss"],
+            "coach_notes": planned["coach_notes"],
+            "athlete_notes": planned["athlete_notes"],
+        }
+
+    if actual:
+        result["actual"] = {
+            "ride_id": actual["id"],
+            "sport": actual["sub_sport"],
+            "duration_min": round((actual["duration_s"] or 0) / 60),
+            "tss": actual["tss"],
+            "avg_power": actual["avg_power"],
+            "normalized_power": actual["normalized_power"],
+            "avg_hr": actual["avg_hr"],
+            "ascent_m": actual["total_ascent"],
+        }
+
+    # Compute comparison if both exist
+    if result["planned"] and result["actual"]:
+        planned_dur = result["planned"]["duration_min"]
+        actual_dur = result["actual"]["duration_min"]
+        planned_tss = result["planned"]["planned_tss"]
+        actual_tss = result["actual"]["tss"]
+
+        comparison = {}
+        if planned_dur and planned_dur > 0:
+            comparison["duration_diff_min"] = actual_dur - planned_dur
+            comparison["duration_diff_pct"] = round(100 * (actual_dur - planned_dur) / planned_dur, 1)
+        try:
+            planned_tss_f = float(planned_tss) if planned_tss else 0
+        except (ValueError, TypeError):
+            planned_tss_f = 0
+        try:
+            actual_tss_f = float(actual_tss) if actual_tss else 0
+        except (ValueError, TypeError):
+            actual_tss_f = 0
+        if planned_tss_f > 0 and actual_tss_f > 0:
+            comparison["tss_diff"] = round(actual_tss_f - planned_tss_f, 1)
+            comparison["tss_diff_pct"] = round(100 * (actual_tss_f - planned_tss_f) / planned_tss_f, 1)
+
+        result["comparison"] = comparison
+
+    return result

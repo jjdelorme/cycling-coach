@@ -10,7 +10,12 @@ git describe --tags --always | sed 's/^v//' > VERSION
 echo "VERSION: $(cat VERSION)"
 
 # Start backend
-uvicorn server.main:app --reload &
+if [ -f "venv/bin/uvicorn" ]; then
+  UVICORN="venv/bin/uvicorn"
+else
+  UVICORN="uvicorn"
+fi
+$UVICORN server.main:app --reload &
 BACKEND_PID=$!
 
 # Start frontend

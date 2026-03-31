@@ -23,6 +23,8 @@ from server.coaching.tools import (
     get_ride_segments,
     get_ride_records_window,
     get_power_curve,
+    get_athlete_status,
+    get_planned_workout_for_ride,
 )
 from server.coaching.planning_tools import (
     replan_missed_day,
@@ -81,7 +83,8 @@ def _permission_gate(fn):
 def _build_system_instruction(ctx) -> str:
     """Build the system instruction dynamically from database settings."""
     from datetime import datetime
-    from server.database import get_all_settings, get_all_athlete_settings
+    from server.database import get_all_settings, get_all_athlete_settings, get_db
+    from server.queries import get_current_pmc_row
     settings = get_all_settings()
     benchmarks = get_all_athlete_settings()
 
@@ -89,8 +92,20 @@ def _build_system_instruction(ctx) -> str:
     today_str = today.strftime("%A, %B %d, %Y")  # e.g. "Friday, March 28, 2026"
     today_iso = today.strftime("%Y-%m-%d")
 
+    # Compute derived metrics
+    try:
+        ftp = float(benchmarks.get("ftp", 0))
+    except (ValueError, TypeError):
+        ftp = 0.0
+    try:
+        weight_kg = float(benchmarks.get("weight_kg", 0))
+    except (ValueError, TypeError):
+        weight_kg = 0.0
+
+    weight_lbs = round(weight_kg * 2.20462, 1) if weight_kg > 0 else 0.0
+    w_kg = round(ftp / weight_kg, 2) if weight_kg > 0 else 0.0
+
     # Format structured benchmarks for the coach
-    # We map keys to more readable labels
     labels = {
         "ftp": "Current FTP (Watts)",
         "weight_kg": "Current Weight (kg)",
@@ -105,6 +120,22 @@ def _build_system_instruction(ctx) -> str:
         for k, v in benchmarks.items()
         if k in labels
     ])
+
+    # Add computed metrics
+    benchmarks_text += f"\n- Current Weight (lbs): {weight_lbs}"
+    benchmarks_text += f"\n- W/kg: {w_kg}"
+
+    # Add PMC training load
+    with get_db() as conn:
+        pmc = get_current_pmc_row(conn)
+
+    if pmc and pmc.get("ctl") is not None:
+        benchmarks_text += f"\n- CTL (Fitness): {round(pmc['ctl'], 1)}"
+        benchmarks_text += f"\n- ATL (Fatigue): {round(pmc['atl'], 1)}"
+        benchmarks_text += f"\n- TSB (Form): {round(pmc['tsb'], 1)}"
+        benchmarks_text += f"\n- Metrics as-of: {pmc['date']}"
+    else:
+        benchmarks_text += "\n- CTL/ATL/TSB: No data available"
 
     return f"""You are an expert cycling coach working with a specific athlete.
 
@@ -122,6 +153,8 @@ KEY COACHING PRINCIPLES:
 
 YOUR ROLE:
 {settings['coach_role']}
+
+When analyzing a ride, use get_planned_workout_for_ride to compare what was planned vs what actually happened. Flag significant deviations in duration or TSS and suggest adjustments to the remaining week if needed.
 
 PLAN MANAGEMENT:
 {settings['plan_management']}"""
@@ -155,6 +188,8 @@ def _get_agent():
         get_ride_segments,
         get_ride_records_window,
         get_power_curve,
+        get_athlete_status,
+        get_planned_workout_for_ride,
         get_week_summary,
         list_workout_templates,
         preload_memory_tool,

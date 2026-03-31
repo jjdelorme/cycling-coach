@@ -1,7 +1,7 @@
 """Tests for coaching chat API endpoint (mocked LLM)."""
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 from server.database import init_db
 
@@ -40,3 +40,31 @@ def test_chat_preserves_session_id(client):
 
     assert resp.status_code == 200
     assert resp.json()["session_id"] == "my-session-123"
+
+
+def test_build_system_instruction_includes_computed_metrics():
+    """Test that system prompt includes W/kg, weight in lbs, and CTL/ATL/TSB."""
+    from server.coaching.agent import _build_system_instruction
+
+    prompt = _build_system_instruction(None)
+
+    # Should contain computed metrics
+    assert "W/kg:" in prompt
+    assert "Current Weight (lbs):" in prompt
+    # Should contain PMC data (test DB has daily_metrics)
+    assert "CTL (Fitness):" in prompt
+    assert "ATL (Fatigue):" in prompt
+    assert "TSB (Form):" in prompt
+    assert "Metrics as-of:" in prompt
+    # Should contain planned vs actual guidance
+    assert "get_planned_workout_for_ride" in prompt
+
+
+def test_build_system_instruction_pmc_missing():
+    """Test that system prompt handles missing PMC data gracefully."""
+    from server.coaching.agent import _build_system_instruction
+
+    with patch("server.queries.get_current_pmc_row", return_value=None):
+        prompt = _build_system_instruction(None)
+
+    assert "CTL/ATL/TSB: No data available" in prompt

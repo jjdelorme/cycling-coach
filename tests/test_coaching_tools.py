@@ -201,6 +201,63 @@ def test_get_power_curve_date_range():
         assert "2025-06-01" <= b["date"] <= "2025-06-30"
 
 
+# --- Athlete status tool ---
+
+def test_get_athlete_status_keys():
+    from server.coaching.tools import get_athlete_status
+    result = get_athlete_status()
+    expected_keys = {"ftp", "weight_kg", "weight_lbs", "w_kg", "lthr", "max_hr",
+                     "resting_hr", "age", "gender", "ctl", "atl", "tsb", "as_of_date"}
+    assert expected_keys == set(result.keys())
+
+
+def test_get_athlete_status_conversions():
+    from server.coaching.tools import get_athlete_status
+    result = get_athlete_status()
+    if result["weight_kg"] and float(result["weight_kg"]) > 0:
+        weight_kg = float(result["weight_kg"])
+        assert abs(result["weight_lbs"] - weight_kg * 2.20462) < 0.2
+        ftp = result["ftp"]
+        if ftp > 0:
+            assert abs(result["w_kg"] - ftp / weight_kg) < 0.01
+
+
+def test_get_athlete_status_pmc_data():
+    from server.coaching.tools import get_athlete_status
+    result = get_athlete_status()
+    # Should have PMC data from the test database
+    assert result["ctl"] is not None
+    assert result["ctl"] >= 0
+    assert result["atl"] is not None
+    assert result["tsb"] is not None
+    assert result["as_of_date"] is not None
+
+
+# --- Planned workout comparison tool ---
+
+def test_get_planned_workout_for_ride_no_data():
+    from server.coaching.tools import get_planned_workout_for_ride
+    result = get_planned_workout_for_ride("2020-01-01")
+    assert result["date"] == "2020-01-01"
+    assert result["planned"] is None
+    assert result["actual"] is None
+    assert result["comparison"] is None
+
+
+def test_get_planned_workout_for_ride_structure():
+    from server.coaching.tools import get_planned_workout_for_ride
+    # Use a date we know has rides from the test data
+    date = _get_test_date_with_power()
+    if not date:
+        pytest.skip("No ride with power data available")
+    result = get_planned_workout_for_ride(date)
+    assert result["date"] == date
+    assert result["actual"] is not None
+    assert "ride_id" in result["actual"]
+    assert "duration_min" in result["actual"]
+    assert "tss" in result["actual"]
+
+
 def test_best_effort_index_tracking():
     """Verify start_offset_s points to the actual best window."""
     from server.coaching.tools import get_ride_analysis, get_ride_records_window
