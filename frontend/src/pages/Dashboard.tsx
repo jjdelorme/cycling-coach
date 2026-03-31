@@ -23,9 +23,9 @@ import {
   Activity, 
   Weight, 
   Calendar, 
-  Bike,
   ChevronRight
 } from 'lucide-react'
+import SportIcon from '../components/SportIcon'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
 
@@ -200,7 +200,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
         <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
           <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center justify-between">
             <h2 className="text-sm font-bold text-text uppercase tracking-wider flex items-center gap-2">
-              <Bike size={16} className="text-green" />
+              <SportIcon sport={latestRide?.sport} size={16} className="text-green" />
               {latestRide?.isToday ? "Today's Ride" : 'Last Ride'}
             </h2>
           </div>
@@ -334,7 +334,10 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
                   className="text-text hover:bg-surface2/50 transition-colors cursor-pointer group"
                 >
                   <td className="py-3 px-5 font-medium">{ride.date}</td>
-                  <td className="py-3 px-5 text-text-muted">{ride.sub_sport || ride.sport || '--'}</td>
+                  <td className="py-3 px-5 text-text-muted flex items-center gap-2">
+                    <SportIcon sport={ride.sport} size={14} />
+                    {ride.sub_sport || ride.sport || '--'}
+                  </td>
                   <td className="py-3 px-5 text-right font-mono">{fmtDuration(ride.duration_s)}</td>
                   <td className="py-3 px-5 text-right font-mono">{fmtDistance(ride.distance_m, units)}</td>
                   <td className="py-3 px-5 text-right font-bold text-accent">{ride.tss?.toFixed(0) ?? '--'}</td>

@@ -11,7 +11,6 @@ import {
   Calendar as CalendarIcon, 
   Trash2, 
   ExternalLink, 
-  Bike, 
   Zap,
   Clock,
   TrendingUp,
@@ -21,6 +20,7 @@ import {
   Activity
 } from 'lucide-react'
 import type { PlannedWorkout, RideSummary } from '../types/api'
+import SportIcon from '../components/SportIcon'
 
 interface Props {
   onRideSelect: (id: number) => void
@@ -187,7 +187,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                 <div className="space-y-1 overflow-hidden">
                   {dayRides.map((r) => (
                     <div key={r.id} className="flex items-center gap-1 text-[9px] font-bold text-green uppercase tracking-tighter truncate leading-none">
-                      <Bike size={8} /> {Math.round(r.tss ?? 0)}
+                      <SportIcon sport={r.sport} size={8} /> {Math.round(r.tss ?? 0)}
                     </div>
                   ))}
                   {dayWOs.map((w, i) => (
@@ -229,9 +229,9 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                   <div key={r.id} className="group">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="p-2 bg-green/10 rounded-lg"><Bike size={20} className="text-green" /></div>
+                        <div className="p-2 bg-green/10 rounded-lg"><SportIcon sport={r.sport} size={20} className="text-green" /></div>
                         <div>
-                          <h4 className="font-bold text-lg text-text leading-none">{r.title || r.sport || 'Completed Ride'}</h4>
+                          <h4 className="font-bold text-lg text-text leading-none">{r.title || r.sport || 'Completed Activity'}</h4>
                           <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{r.sub_sport || r.sport || 'Cycling'}</span>
                         </div>
                       </div>
@@ -281,7 +281,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
                       <MiniMetric label="Target Duration" value={fmtDuration(w.total_duration_s)} icon={Clock} color="text-text" />
                       <MiniMetric label="Est. TSS" value={String(Math.round(Number(w.planned_tss)))} icon={Zap} color="text-yellow" />
-                      <MiniMetric label="Sport" value={w.sport || 'Cycling'} icon={Bike} color="text-text" />
+                      <MiniMetric label="Sport" value={w.sport || 'Cycling'} icon={(props: any) => <SportIcon sport={w.sport} {...props} />} color="text-text" />
                     </div>
                     {w.coach_notes && (
                       <div className="mt-4 flex gap-3 p-4 bg-surface-low rounded-xl border border-border">

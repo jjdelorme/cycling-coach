@@ -35,6 +35,7 @@ import {
   RefreshCw,
   Target
 } from 'lucide-react'
+import SportIcon from '../components/SportIcon'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import RideTimelineChart from '../components/RideTimelineChart'
 
@@ -286,6 +287,7 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
                 ) : (
                   <div>
                     <h1 className="text-2xl font-bold text-text flex items-center gap-3 group">
+                      <SportIcon sport={ride.sport} size={28} className="text-accent" />
                       {displayTitle}
                       <button
                         onClick={() => { setTitleDraft(ride.title || ride.sport || ''); setEditingTitle(true) }}
@@ -544,8 +546,13 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
                     >
                       <td className="py-3 px-5 font-mono text-xs font-bold text-text-muted group-hover:text-accent transition-colors">{r.date?.slice(0, 10)}</td>
                       <td className="py-3 px-5">
-                        <span className="font-bold">{r.title || r.sport || '--'}</span>
-                        {r.sub_sport && <span className="block text-[10px] text-text-muted uppercase tracking-tighter">{r.sub_sport}</span>}
+                        <div className="flex items-center gap-2">
+                          <SportIcon sport={r.sport} size={16} />
+                          <div>
+                            <span className="font-bold">{r.title || r.sport || '--'}</span>
+                            {r.sub_sport && <span className="block text-[10px] text-text-muted uppercase tracking-tighter">{r.sub_sport}</span>}
+                          </div>
+                        </div>
                       </td>
                       <td className="py-3 px-5 text-right font-mono">{fmtDuration(r.duration_s)}</td>
                       <td className="py-3 px-5 text-right font-mono text-xs">{fmtDistance(r.distance_m, units)}</td>
@@ -570,9 +577,12 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
                   className="p-4 active:bg-surface-high transition-colors"
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="text-[10px] font-bold text-accent uppercase tracking-tighter mb-0.5">{r.date?.slice(0, 10)}</p>
-                      <h3 className="font-bold text-text">{r.title || r.sport || '--'}</h3>
+                    <div className="flex items-center gap-3">
+                      <SportIcon sport={r.sport} size={20} className="text-accent" />
+                      <div>
+                        <p className="text-[10px] font-bold text-accent uppercase tracking-tighter mb-0.5">{r.date?.slice(0, 10)}</p>
+                        <h3 className="font-bold text-text">{r.title || r.sport || '--'}</h3>
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-accent leading-none">{r.tss?.toFixed(0) ?? '--'}</p>
