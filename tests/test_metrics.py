@@ -177,3 +177,40 @@ def test_process_ride_samples_logic():
     assert len(result["power_bests"]) > 0
     best_1min = next(b for b in result["power_bests"] if b["duration_s"] == 60)
     assert best_1min["power"] == pytest.approx(200.0)
+import numpy as np
+from server.metrics import compute_rolling_best
+
+def test_compute_rolling_best():
+    powers = np.array([100, 200, 300, 400, 500], dtype=float)
+    
+    # 3s window
+    # windows: [100,200,300] -> sum 600, avg 200
+    #          [200,300,400] -> sum 900, avg 300
+    #          [300,400,500] -> sum 1200, avg 400 (best)
+    
+    res = compute_rolling_best(powers, 3)
+    print(f"3s res: {res}")
+    assert res["power"] == 400
+    assert res["start_offset_s"] == 2
+
+    # 1s window
+    res = compute_rolling_best(powers, 1)
+    print(f"1s res: {res}")
+    assert res["power"] == 500
+    assert res["start_offset_s"] == 4
+
+    # 5s window
+    res = compute_rolling_best(powers, 5)
+    print(f"5s res: {res}")
+    assert res["power"] == 300
+    assert res["start_offset_s"] == 0
+
+    # Window longer than powers
+    res = compute_rolling_best(powers, 10)
+    print(f"10s res: {res}")
+    assert res is None
+
+    print("All tests passed!")
+
+if __name__ == "__main__":
+    test_compute_rolling_best()
