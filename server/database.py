@@ -127,15 +127,8 @@ CREATE TABLE IF NOT EXISTS daily_metrics (
     atl REAL,
     tsb REAL,
     weight REAL,
+    ftp REAL,
     notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS athlete_log (
-    id SERIAL PRIMARY KEY,
-    date TEXT NOT NULL,
-    type TEXT NOT NULL,
-    value REAL,
-    note TEXT
 );
 
 CREATE TABLE IF NOT EXISTS power_bests (
@@ -143,7 +136,10 @@ CREATE TABLE IF NOT EXISTS power_bests (
     ride_id INTEGER NOT NULL REFERENCES rides(id),
     date TEXT NOT NULL,
     duration_s INTEGER NOT NULL,
-    power REAL NOT NULL
+    power REAL NOT NULL,
+    avg_hr INTEGER,
+    avg_cadence INTEGER,
+    start_offset_s INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS periodization_phases (
@@ -163,6 +159,7 @@ CREATE INDEX IF NOT EXISTS idx_ride_records_ride_id ON ride_records(ride_id);
 CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date);
 CREATE INDEX IF NOT EXISTS idx_power_bests_date ON power_bests(date);
 CREATE INDEX IF NOT EXISTS idx_power_bests_duration ON power_bests(duration_s);
+CREATE INDEX IF NOT EXISTS idx_power_bests_composite ON power_bests(duration_s, date DESC);
 
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id TEXT PRIMARY KEY,
@@ -195,9 +192,14 @@ CREATE TABLE IF NOT EXISTS coach_settings (
 );
 
 CREATE TABLE IF NOT EXISTS athlete_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+    id SERIAL PRIMARY KEY,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    date_set TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE
 );
+
+CREATE INDEX IF NOT EXISTS idx_athlete_settings_key_active ON athlete_settings(key, is_active);
 
 CREATE TABLE IF NOT EXISTS workout_templates (
     id SERIAL PRIMARY KEY,
@@ -309,12 +311,10 @@ class _DbConnection:
 # Settings defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_ATHLETE_PROFILE = """- 50-year-old male, ~163 lbs (75 kg), 5'10"
-- Current FTP: ~261w, W/kg: ~3.45
+DEFAULT_ATHLETE_PROFILE = """- Experience: ~300 rides / 600 hours over the past year
 - A-race: Big Sky Biggie (late August 2026) - ~50mi MTB, ~6,000ft climbing
-- Experience: 291 rides / 581 hours over the past year
-- Peaked at CTL 106.8 (Oct 2025), FTP 287w
-- Power meter has been broken since ~Feb 25, 2026"""
+- Qualitative Goals: Focus on technical climbing and sustained threshold power for marathon MTB events.
+- Constraints: Limited to 12-14 hours per week; prefers early morning workouts."""
 
 DEFAULT_COACHING_PRINCIPLES = """- 12-14h/week is the sweet spot (not 15-19h)
 - 3-week build / 1-week recovery cycles
@@ -424,26 +424,36 @@ ATHLETE_SETTINGS_DEFAULTS = {
 def get_athlete_setting(key: str) -> str:
     """Get an athlete setting value, returning the default if not set."""
     with get_db() as conn:
-        row = conn.execute("SELECT value FROM athlete_settings WHERE key = %s", (key,)).fetchone()
+        row = conn.execute("SELECT value FROM athlete_settings WHERE key = %s AND is_active = TRUE", (key,)).fetchone()
     if row:
         return row["value"]
     return ATHLETE_SETTINGS_DEFAULTS.get(key, "")
 
 
-def set_athlete_setting(key: str, value: str):
-    """Set an athlete setting value."""
+def set_athlete_setting(key: str, value: str, date_set: str = None):
+    """Set an athlete setting value, deactivating the old one."""
+    from datetime import datetime
+    if not date_set:
+        date_set = datetime.now().strftime("%Y-%m-%d")
+    
     with get_db() as conn:
+        # Deactivate current active setting
         conn.execute(
-            "INSERT INTO athlete_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-            (key, value),
+            "UPDATE athlete_settings SET is_active = FALSE WHERE key = %s AND is_active = TRUE",
+            (key,)
+        )
+        # Insert new active setting
+        conn.execute(
+            "INSERT INTO athlete_settings (key, value, date_set, is_active) VALUES (%s, %s, %s, TRUE)",
+            (key, value, date_set),
         )
 
 
 def get_all_athlete_settings() -> dict:
-    """Get all athlete settings, filling in defaults for any not yet customized."""
+    """Get all active athlete settings, filling in defaults for any not yet customized."""
     result = dict(ATHLETE_SETTINGS_DEFAULTS)
     with get_db() as conn:
-        rows = conn.execute("SELECT key, value FROM athlete_settings").fetchall()
+        rows = conn.execute("SELECT key, value FROM athlete_settings WHERE is_active = TRUE").fetchall()
     for row in rows:
         result[row["key"]] = row["value"]
     return result

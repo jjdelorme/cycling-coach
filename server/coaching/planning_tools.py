@@ -908,14 +908,12 @@ def set_ride_coach_comments(date: str, comments: str) -> dict:
 
 
 def update_coach_settings(section: str, new_value: str) -> dict:
-    """Update coaching configuration settings like athlete profile, coaching principles, or coach behavior.
+    """Update qualitative coaching configuration settings like goals, principles, or coach behavior.
 
-    Use this when the athlete tells you about changes to their profile (new FTP, weight, goals, target events),
-    or when they want to adjust coaching style or principles.
+    Use this when the athlete tells you about changes to their qualitative profile (new goals, 
+    target events, strengths, limiters) or when they want to adjust coaching style or principles.
 
-    IMPORTANT: When the athlete reports a new FTP, weight, or other numeric value, you MUST ALSO call
-    update_athlete_setting to persist the structured value. This function only updates the text profile;
-    structured values (used by workout generation and analysis) are stored separately.
+    For structured numeric values like FTP, Weight, or Heart Rate, use update_athlete_setting instead.
 
     Args:
         section: Which setting to update. One of: 'athlete_profile', 'coaching_principles', 'coach_role', 'plan_management'.
@@ -930,47 +928,24 @@ def update_coach_settings(section: str, new_value: str) -> dict:
 
     set_setting(section, new_value)
 
-    # Auto-sync numeric athlete values when athlete_profile is updated
-    synced = []
-    if section == "athlete_profile":
-        import re
-        # Extract FTP value (e.g., "FTP 275w", "FTP: 275", "FTP ~275")
-        ftp_match = re.search(r'FTP[:\s~]*(\d{2,4})\s*w?\b', new_value, re.IGNORECASE)
-        if ftp_match:
-            set_athlete_setting("ftp", ftp_match.group(1))
-            synced.append(f"ftp={ftp_match.group(1)}")
-        # Extract weight (e.g., "74kg", "74 kg", "Weight: 74")
-        weight_match = re.search(r'(?:weight|wt)[:\s~]*(\d{2,3})\s*kg\b|(\d{2,3})\s*kg\b', new_value, re.IGNORECASE)
-        if weight_match:
-            val = weight_match.group(1) or weight_match.group(2)
-            set_athlete_setting("weight_kg", val)
-            synced.append(f"weight_kg={val}")
-
-    msg = f"Updated {section.replace('_', ' ')}. Changes take effect immediately."
-    if synced:
-        msg += f" Also synced athlete settings: {', '.join(synced)}."
-
     return {
         "status": "success",
         "section": section,
-        "synced_athlete_settings": synced,
-        "message": msg,
+        "message": f"Updated {section.replace('_', ' ')}. Qualitative profile changes saved.",
     }
 
 
-def update_athlete_setting(key: str, value: str) -> dict:
-    """Update a structured athlete setting like FTP, weight, heart rate thresholds, etc.
+def update_athlete_setting(key: str, value: str, date_set: str = "") -> dict:
+    """Update a structured athlete benchmark like FTP, weight, heart rate thresholds, etc.
 
-    Use this when the athlete reports changes to measurable values. These settings are used
-    by workout generation (power targets), ride analysis (zone calculations), and the FTP
-    history display.
-
-    IMPORTANT: Always call this when the athlete reports a new FTP, weight, or HR value,
-    in addition to updating the athlete_profile text via update_coach_settings.
+    Use this when the athlete reports changes to measurable values. These settings are critical
+    for metric calculations (TSS, IF, NP), workout power targets, zone calculations, 
+    and the Performance Management Chart (PMC). Each update creates a historical record.
 
     Args:
         key: Setting to update. One of: 'ftp', 'weight_kg', 'lthr', 'max_hr', 'resting_hr', 'age', 'gender'.
-        value: The new value as a string (e.g., '275' for FTP, '74' for weight).
+        value: The new value (e.g., '275' for FTP, '74' for weight).
+        date_set: Optional date (YYYY-MM-DD) when this benchmark became effective. Defaults to today.
 
     Returns:
         Status of the update.
@@ -980,11 +955,12 @@ def update_athlete_setting(key: str, value: str) -> dict:
     if key not in valid_keys:
         return {"status": "error", "message": f"Invalid key '{key}'. Must be one of: {', '.join(sorted(valid_keys))}"}
 
-    set_athlete_setting(key, value)
+    set_athlete_setting(key, value, date_set)
 
     return {
         "status": "success",
         "key": key,
         "value": value,
-        "message": f"Updated {key} to {value}. This will be used for future workout generation and analysis.",
+        "date_set": date_set or datetime.now().strftime("%Y-%m-%d"),
+        "message": f"Updated {key} to {value}. This structured benchmark will be used for future metric calculations and interval analysis.",
     }

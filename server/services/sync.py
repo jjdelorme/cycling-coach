@@ -623,6 +623,9 @@ async def run_sync(sync_id: str | None = None) -> str:
 
             # Phase 1: Download rides
             rides_dl, rides_skip, earliest = await _download_rides(sync_id, log_lines, conn)
+            if rides_dl > 0:
+                from server.ingest import sync_athlete_settings_from_latest_ride
+                sync_athlete_settings_from_latest_ride(conn)
             conn.commit()
 
             await _broadcast(sync_id, {"status": "running", "phase": "workouts", "detail": "Starting workout upload..."})

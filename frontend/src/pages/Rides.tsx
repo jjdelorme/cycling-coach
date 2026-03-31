@@ -41,12 +41,33 @@ import RideTimelineChart from '../components/RideTimelineChart'
 interface Props {
   initialRideId?: number
   initialDate?: string
+  onRideSelect?: (id: number | null) => void
+  onDateSelect?: (date: string | null) => void
 }
 
-export default function Rides({ initialRideId, initialDate }: Props) {
+export default function Rides({ initialRideId, initialDate, onRideSelect, onDateSelect }: Props) {
   const units = useUnits()
   const [selectedRideId, setSelectedRideId] = useState<number | null>(initialRideId ?? null)
   const [selectedDate, setSelectedDate] = useState<string | null>(initialDate ?? null)
+
+  // Sync internal state with external handlers
+  const handleSetSelectedRideId = (id: number | null) => {
+    setSelectedRideId(id)
+    onRideSelect?.(id)
+    if (id !== null) {
+      setSelectedDate(null)
+      onDateSelect?.(null)
+    }
+  }
+
+  const handleSetSelectedDate = (date: string | null) => {
+    setSelectedDate(date)
+    onDateSelect?.(date)
+    if (date !== null) {
+      setSelectedRideId(null)
+      onRideSelect?.(null)
+    }
+  }
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [filterParams, setFilterParams] = useState<{ start_date?: string; end_date?: string }>({})
@@ -170,11 +191,9 @@ export default function Rides({ initialRideId, initialDate }: Props) {
   function navigateToDate(date: string) {
     const rideOnDate = rides?.find(r => r.date?.slice(0, 10) === date)
     if (rideOnDate) {
-      setSelectedRideId(rideOnDate.id)
-      setSelectedDate(null)
+      handleSetSelectedRideId(rideOnDate.id)
     } else {
-      setSelectedRideId(null)
-      setSelectedDate(date)
+      handleSetSelectedDate(date)
     }
   }
 
@@ -199,7 +218,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
         {/* Navigation & Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <button 
-            onClick={() => { setSelectedRideId(null); setSelectedDate(null) }}
+            onClick={() => { handleSetSelectedRideId(null); handleSetSelectedDate(null) }}
             className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors text-xs font-bold uppercase tracking-widest"
           >
             <ChevronLeft size={14} /> Back to List
@@ -520,7 +539,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
                   {rides?.map(r => (
                     <tr
                       key={r.id}
-                      onClick={() => setSelectedRideId(r.id)}
+                      onClick={() => handleSetSelectedRideId(r.id)}
                       className="text-text hover:bg-surface2/50 cursor-pointer transition-all group"
                     >
                       <td className="py-3 px-5 font-mono text-xs font-bold text-text-muted group-hover:text-accent transition-colors">{r.date?.slice(0, 10)}</td>
@@ -547,7 +566,7 @@ export default function Rides({ initialRideId, initialDate }: Props) {
               {rides?.map(r => (
                 <div
                   key={r.id}
-                  onClick={() => setSelectedRideId(r.id)}
+                  onClick={() => handleSetSelectedRideId(r.id)}
                   className="p-4 active:bg-surface-high transition-colors"
                 >
                   <div className="flex justify-between items-start mb-2">

@@ -35,7 +35,10 @@ function buildViewHint(ctx?: ViewContext): string {
       else if (ctx.rideDate) parts.push(`Viewing: Workout on ${ctx.rideDate}`)
       else parts.push('Viewing: Rides list')
       break
-    case 'calendar': parts.push('Viewing: Calendar'); break
+    case 'calendar': 
+      if (ctx.calendarDate) parts.push(`Viewing: Calendar (selected day: ${ctx.calendarDate})`)
+      else parts.push('Viewing: Calendar')
+      break
     case 'analysis': parts.push('Viewing: Analysis'); break
     case 'settings': parts.push('Viewing: Settings'); break
   }

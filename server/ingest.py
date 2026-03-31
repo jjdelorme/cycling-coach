@@ -69,6 +69,36 @@ def compute_rolling_best(powers, window_s, hrs=None, cadences=None):
     return res
 
 
+def get_benchmark_for_date(conn, key: str, date_str: str) -> float:
+    """Get the active benchmark for a specific date using the hierarchy.
+    
+    Hierarchy:
+    1. Historical athlete_settings entry <= as_of_date (Manual Override - Athlete's Word).
+    2. Most recent ride on or before this date with this metric (File-as-Fallback).
+    3. Final fallback to defaults.
+    """
+    # 1. Check historical athlete_settings (Manual Override)
+    from server.queries import get_latest_metric
+    val = get_latest_metric(conn, key, date_str)
+    if val > 0:
+        # Check if this came from an actual setting and not just the default
+        from server.database import ATHLETE_SETTINGS_DEFAULTS
+        if str(val) != str(ATHLETE_SETTINGS_DEFAULTS.get(key)):
+            return val
+
+    # 2. Look back to the most recent ride with this metric
+    col = "ftp" if key == "ftp" else "weight"
+    row = conn.execute(
+        f"SELECT {col} FROM rides WHERE {col} > 0 AND date <= %s ORDER BY date DESC LIMIT 1",
+        (date_str,)
+    ).fetchone()
+    if row and row[col]:
+        return float(row[col])
+    
+    # 3. Final fallback (Defaults)
+    return val
+
+
 def parse_ride_json(filepath, conn=None):
     with open(filepath) as f:
         data = json.load(f)
@@ -76,13 +106,43 @@ def parse_ride_json(filepath, conn=None):
     session = data.get("session", [{}])[0]
     sport_info = data.get("sport", [{}])[0]
     user = data.get("user_profile", [{}])[0]
+    zones = data.get("zones_target", [{}])[0]
     records = data.get("record", [])
 
     start_time = session.get("start_time", session.get("timestamp", ""))
     if not start_time or not session.get("total_timer_time"):
         return None, None, None, None
 
-    ftp = session.get("threshold_power", 0) or 0
+    ride_date = start_time[:10] if len(start_time) >= 10 else start_time
+    sport = (session.get("sport") or sport_info.get("sport") or "cycling").lower()
+
+    # 1. Extract & Hierarchy for FTP/Weight
+    # We START with the hierarchy (Settings > Previous Rides)
+    ftp = 0
+    weight = 0
+    
+    if conn:
+        ftp = get_benchmark_for_date(conn, "ftp", ride_date)
+        weight = get_benchmark_for_date(conn, "weight_kg", ride_date)
+    
+    # 2. Fallback to Source File ONLY if hierarchy returned 0/default
+    # AND only extract FTP if this is a cycling activity
+    is_cycling = sport in ("cycling", "virtualride", "mountainbikeride")
+    
+    if ftp <= 0 and is_cycling:
+        ftp = (session.get("threshold_power", 0) or 
+               session.get("functional_threshold_power", 0) or 
+               zones.get("functional_threshold_power", 0)) or 0
+               
+    if weight <= 0:
+        weight = user.get("weight") or 0
+        
+    # Final check: if still 0, use defaults
+    if not conn:
+        from server.database import get_athlete_setting
+        if ftp <= 0: ftp = float(get_athlete_setting("ftp"))
+        if weight <= 0: weight = float(get_athlete_setting("weight_kg"))
+
     avg_power = session.get("avg_power", 0) or 0
     np_power = session.get("normalized_power", 0) or 0
     tss = session.get("training_stress_score", 0) or 0
@@ -92,7 +152,7 @@ def parse_ride_json(filepath, conn=None):
     raw_hrs = [r.get("heart_rate") for r in records]
     raw_cadences = [r.get("cadence") for r in records]
 
-    # Clean using SciPy pipeline
+    # 3. Clean using SciPy pipeline
     cleaned_p, cleaned_hr, cleaned_cadence = clean_ride_data(raw_powers, raw_hrs, raw_cadences)
     
     # Identify if we have power data and update status
@@ -104,7 +164,7 @@ def parse_ride_json(filepath, conn=None):
     hrs = [int(h) if not np.isnan(h) else None for h in cleaned_hr] if cleaned_hr is not None else []
     cadences = [int(c) if not np.isnan(c) else None for c in cleaned_cadence] if cleaned_cadence is not None else []
 
-    # Recalculate NP and TSS using vectorized math if we have power data
+    # 4. Vectorize: Recalculate NP and TSS using vectorized math if we have power data
     powers_vec = np.nan_to_num(cleaned_p, nan=0.0) if cleaned_p is not None else np.array([])
     intensity_factor = session.get("intensity_factor", 0) or 0
     if has_power_data:
@@ -166,7 +226,7 @@ def parse_ride_json(filepath, conn=None):
         "best_5min_power": best_5min_res["power"] if best_5min_res else None,
         "best_20min_power": best_20min_res["power"] if best_20min_res else None,
         "best_60min_power": best_60min_res["power"] if best_60min_res else None,
-        "weight": user.get("weight"),
+        "weight": weight,
         "start_lat": start_lat,
         "start_lon": start_lon,
         "has_power_data": has_power_data,
@@ -389,19 +449,36 @@ def compute_daily_pmc(conn, since_date: str | None = None):
     if not daily_tss:
         return
 
-    # Prefetch all weight data (eliminates N+1 queries)
-    weight_rows = conn.execute(
-        "SELECT date, weight FROM rides WHERE weight IS NOT NULL ORDER BY date"
+    # Prefetch all weight and ftp data (eliminates N+1 queries)
+    ride_data_rows = conn.execute(
+        "SELECT date, weight, ftp FROM rides ORDER BY date"
     ).fetchall()
-    weight_dates = [r["date"] for r in weight_rows]
-    weight_values = [r["weight"] for r in weight_rows]
+    ride_dates = [r["date"] for r in ride_data_rows]
+    weight_values = [r["weight"] for r in ride_data_rows]
+    ftp_values = [r["ftp"] for r in ride_data_rows]
 
-    def _lookup_weight(ds: str):
-        """O(log n) weight lookup using bisect."""
-        if not weight_dates:
+    def _lookup_ride_metric(ds: str, values_list):
+        """O(log n) metric lookup using bisect."""
+        if not ride_dates:
             return None
-        idx = bisect.bisect_right(weight_dates, ds) - 1
-        return weight_values[idx] if idx >= 0 else None
+        idx = bisect.bisect_right(ride_dates, ds) - 1
+        return values_list[idx] if idx >= 0 else None
+
+    # Prefetch athlete_settings for FTP/Weight as well
+    settings_rows = conn.execute(
+        "SELECT date_set, key, value FROM athlete_settings WHERE key IN ('ftp', 'weight_kg') ORDER BY date_set"
+    ).fetchall()
+    
+    ftp_settings = [(r["date_set"], float(r["value"])) for r in settings_rows if r["key"] == "ftp"]
+    weight_settings = [(r["date_set"], float(r["value"])) for r in settings_rows if r["key"] == "weight_kg"]
+
+    def _lookup_setting_metric(ds: str, settings_list):
+        if not settings_list:
+            return None
+        # bisect on the date_set
+        dates = [s[0] for s in settings_list]
+        idx = bisect.bisect_right(dates, ds) - 1
+        return settings_list[idx][1] if idx >= 0 else None
 
     all_ride_dates = list(daily_tss.keys())
     end = datetime.today()
@@ -413,7 +490,7 @@ def compute_daily_pmc(conn, since_date: str | None = None):
     if since_date:
         prev_day = (datetime.fromisoformat(since_date) - timedelta(days=1)).strftime("%Y-%m-%d")
         prev = conn.execute(
-            "SELECT ctl, atl FROM daily_metrics WHERE date = ?", (prev_day,)
+            "SELECT ctl, atl FROM daily_metrics WHERE date = %s", (prev_day,)
         ).fetchone()
         if prev:
             ctl = prev["ctl"]
@@ -444,15 +521,35 @@ def compute_daily_pmc(conn, since_date: str | None = None):
         c = ctl_values[i]
         a = atl_values[i]
         tsb = c - a
-        weight = _lookup_weight(ds)
-        pmc_rows.append((ds, round(tss, 1), round(c, 1), round(a, 1), round(tsb, 1), weight))
+        
+        # Determine weight and FTP for this day
+        # Preference: 
+        # 1. most recent ride on or before this day (Performance Truth)
+        # 2. athlete_settings active on this day (Manual Truth)
+        # 3. Defaults
+        
+        weight = _lookup_ride_metric(ds, weight_values)
+        if weight is None or weight <= 0:
+            weight = _lookup_setting_metric(ds, weight_settings)
+        if weight is None or weight <= 0:
+            from server.database import ATHLETE_SETTINGS_DEFAULTS
+            weight = float(ATHLETE_SETTINGS_DEFAULTS.get("weight_kg", 0))
+            
+        ftp = _lookup_ride_metric(ds, ftp_values)
+        if ftp is None or ftp <= 0:
+            ftp = _lookup_setting_metric(ds, ftp_settings)
+        if ftp is None or ftp <= 0:
+            from server.database import ATHLETE_SETTINGS_DEFAULTS
+            ftp = float(ATHLETE_SETTINGS_DEFAULTS.get("ftp", 0))
+
+        pmc_rows.append((ds, round(tss, 1), round(c, 1), round(a, 1), round(tsb, 1), weight, ftp))
 
     # Batch upsert all rows
     conn.executemany(
-        "INSERT INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight) "
-        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (date) DO UPDATE SET "
+        "INSERT INTO daily_metrics (date, total_tss, ctl, atl, tsb, weight, ftp) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (date) DO UPDATE SET "
         "total_tss = EXCLUDED.total_tss, ctl = EXCLUDED.ctl, "
-        "atl = EXCLUDED.atl, tsb = EXCLUDED.tsb, weight = EXCLUDED.weight",
+        "atl = EXCLUDED.atl, tsb = EXCLUDED.tsb, weight = EXCLUDED.weight, ftp = EXCLUDED.ftp",
         pmc_rows,
     )
 
@@ -475,6 +572,30 @@ def seed_periodization(conn):
             "INSERT INTO periodization_phases (name, start_date, end_date, focus, hours_per_week_low, hours_per_week_high, tss_target_low, tss_target_high) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             p,
         )
+
+
+def sync_athlete_settings_from_latest_ride(conn):
+    """Update active athlete_settings to match benchmarks from the most recent ride."""
+    # Get the most recent ride with FTP and Weight
+    row = conn.execute(
+        "SELECT date, ftp, weight FROM rides WHERE ftp > 0 AND weight > 0 ORDER BY date DESC LIMIT 1"
+    ).fetchone()
+    if row:
+        from server.database import set_athlete_setting, get_athlete_setting
+        
+        current_ftp = get_athlete_setting("ftp")
+        current_weight = get_athlete_setting("weight_kg")
+        
+        new_ftp = str(int(row["ftp"]))
+        new_weight = str(round(row["weight"], 2))
+        
+        if new_ftp != current_ftp:
+            logger.info("Auto-syncing FTP from latest ride: %s -> %s", current_ftp, new_ftp)
+            set_athlete_setting("ftp", new_ftp, date_set=row["date"])
+            
+        if new_weight != current_weight:
+            logger.info("Auto-syncing weight from latest ride: %s -> %s", current_weight, new_weight)
+            set_athlete_setting("weight_kg", new_weight, date_set=row["date"])
 
 
 def ingest_rides(conn, rides_dir=None):
@@ -562,6 +683,9 @@ def ingest_rides(conn, rides_dir=None):
             )
 
         ingested += 1
+
+    if ingested > 0:
+        sync_athlete_settings_from_latest_ride(conn)
 
     return ingested
 

@@ -25,6 +25,7 @@ import type { PlannedWorkout, RideSummary } from '../types/api'
 interface Props {
   onRideSelect: (id: number) => void
   onWorkoutSelect: (id: number, date: string) => void
+  onDateSelect?: (date: string | null) => void
 }
 
 const MONTH_NAMES = [
@@ -72,7 +73,7 @@ function getWeekMondays(calendarDays: Date[]): string[] {
   return Array.from(set).sort()
 }
 
-export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
+export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }: Props) {
   const units = useUnits()
   const deleteWorkout = useDeleteWorkout()
   const [currentDate, setCurrentDate] = useState(() => {
@@ -80,6 +81,11 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
     return { year: now.getFullYear(), month: now.getMonth() }
   })
   const [selectedDay, setSelectedDay] = useState<string | null>(() => toDateStr(new Date()))
+
+  const handleSetSelectedDay = (date: string | null) => {
+    setSelectedDay(date)
+    onDateSelect?.(date)
+  }
 
   const calendarDays = useMemo(
     () => buildCalendarDays(currentDate.year, currentDate.month),
@@ -117,8 +123,8 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
     return map
   }, [allWorkouts])
 
-  function prevMonth() { setCurrentDate(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 }); setSelectedDay(null) }
-  function nextMonth() { setCurrentDate(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 }); setSelectedDay(null) }
+  function prevMonth() { setCurrentDate(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 }); handleSetSelectedDay(null) }
+  function nextMonth() { setCurrentDate(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 }); handleSetSelectedDay(null) }
 
   const selectedRides = selectedDay ? ridesByDate.get(selectedDay) ?? [] : []
   const selectedWorkouts = selectedDay ? workoutsByDate.get(selectedDay) ?? [] : []
@@ -167,7 +173,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect }: Props) {
             return (
               <div
                 key={dateStr}
-                onClick={() => setSelectedDay(isS ? null : dateStr)}
+                onClick={() => handleSetSelectedDay(isS ? null : dateStr)}
                 className={`min-h-[100px] md:min-h-[130px] p-2 cursor-pointer transition-all relative group
                   ${isCM ? 'bg-surface' : 'bg-bg opacity-40'}
                   ${isT ? 'after:absolute after:inset-0 after:ring-2 after:ring-accent after:ring-inset' : ''}

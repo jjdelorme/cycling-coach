@@ -14,6 +14,7 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>('dashboard')
   const [rideId, setRideId] = useState<number | undefined>()
   const [rideDate, setRideDate] = useState<string | undefined>()
+  const [calendarDate, setCalendarDate] = useState<string | undefined>()
 
   const handleRideSelect = (id: number) => {
     setRideId(id)
@@ -31,7 +32,8 @@ export default function App() {
     tab,
     rideId,
     rideDate,
-  }), [tab, rideId, rideDate])
+    calendarDate,
+  }), [tab, rideId, rideDate, calendarDate])
 
   if (isLoading) {
     return (
@@ -47,11 +49,22 @@ export default function App() {
   }
 
   return (
-    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined) }} viewContext={viewContext}>
+    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined); setCalendarDate(undefined) }} viewContext={viewContext}>
       {tab === 'dashboard' && <Dashboard onRideSelect={handleRideSelect} onWorkoutSelect={handleWorkoutSelect} />}
-      {tab === 'rides' && <Rides initialRideId={rideId} initialDate={rideDate} />}
+      {tab === 'rides' && (
+        <Rides 
+          initialRideId={rideId} 
+          initialDate={rideDate} 
+          onRideSelect={(id) => setRideId(id ?? undefined)}
+          onDateSelect={(date) => setRideDate(date ?? undefined)}
+        />
+      )}
       {tab === 'calendar' && (
-        <Calendar onRideSelect={handleRideSelect} onWorkoutSelect={handleWorkoutSelect} />
+        <Calendar 
+          onRideSelect={handleRideSelect} 
+          onWorkoutSelect={handleWorkoutSelect} 
+          onDateSelect={(date) => setCalendarDate(date ?? undefined)}
+        />
       )}
       {tab === 'analysis' && <Analysis />}
       {tab === 'settings' && <Settings />}

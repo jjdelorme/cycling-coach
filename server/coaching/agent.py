@@ -81,19 +81,40 @@ def _permission_gate(fn):
 def _build_system_instruction(ctx) -> str:
     """Build the system instruction dynamically from database settings."""
     from datetime import datetime
-    from server.database import get_all_settings
+    from server.database import get_all_settings, get_all_athlete_settings
     settings = get_all_settings()
+    benchmarks = get_all_athlete_settings()
 
     today = datetime.now()
     today_str = today.strftime("%A, %B %d, %Y")  # e.g. "Friday, March 28, 2026"
     today_iso = today.strftime("%Y-%m-%d")
+
+    # Format structured benchmarks for the coach
+    # We map keys to more readable labels
+    labels = {
+        "ftp": "Current FTP (Watts)",
+        "weight_kg": "Current Weight (kg)",
+        "lthr": "Lactate Threshold HR (bpm)",
+        "max_hr": "Max Heart Rate (bpm)",
+        "resting_hr": "Resting Heart Rate (bpm)",
+        "age": "Age (years)",
+        "gender": "Gender",
+    }
+    benchmarks_text = "\n".join([
+        f"- {labels.get(k, k)}: {v}"
+        for k, v in benchmarks.items()
+        if k in labels
+    ])
 
     return f"""You are an expert cycling coach working with a specific athlete.
 
 TODAY'S DATE: {today_str} ({today_iso})
 Use this date to correctly map day-of-week references (e.g. "Saturday", "today", "next Tuesday") to YYYY-MM-DD date strings when calling tools.
 
-ATHLETE PROFILE:
+ATHLETE PERFORMANCE BENCHMARKS (Structured):
+{benchmarks_text}
+
+ATHLETE PROFILE (Free-text):
 {settings['athlete_profile']}
 
 KEY COACHING PRINCIPLES:

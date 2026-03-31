@@ -12,23 +12,21 @@ from server.database import get_athlete_setting, ATHLETE_SETTINGS_DEFAULTS
 def get_latest_metric(conn, key: str, as_of_date: str) -> float:
     """Get the latest metric value as of a specific date.
 
-    Checks athlete_log for historical accuracy (most recent entry <= as_of_date).
-    Falls back to athlete_settings if not found in log.
+    Checks athlete_settings for historical accuracy (most recent entry <= as_of_date).
+    Falls back to defaults if not found.
     """
+    if key == 'weight':
+        key = 'weight_kg'
+
     row = conn.execute(
-        "SELECT value FROM athlete_log WHERE type = %s AND date <= %s ORDER BY date DESC LIMIT 1",
+        "SELECT value FROM athlete_settings WHERE key = %s AND date_set <= %s ORDER BY date_set DESC, id DESC LIMIT 1",
         (key, as_of_date),
     ).fetchone()
     if row and row["value"] is not None:
-        return float(row["value"])
-
-    # Fallback to current settings
-    row = conn.execute(
-        "SELECT value FROM athlete_settings WHERE key = %s",
-        (key,),
-    ).fetchone()
-    if row and row["value"] is not None:
-        return float(row["value"])
+        try:
+            return float(row["value"])
+        except ValueError:
+            return 0.0
 
     # Fallback to defaults
     return float(ATHLETE_SETTINGS_DEFAULTS.get(key, 0.0))
@@ -94,49 +92,24 @@ def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | No
 
 
 def get_ftp_history_rows(conn) -> list[dict]:
-    """Get FTP progression by month, including current athlete setting.
-
-    Returns list of dicts with: month, ftp, weight, w_per_kg, and optionally source.
-    """
+    """Get FTP progression by month from daily_metrics."""
     rows = conn.execute(
-        """SELECT m.month, m.max_ftp as ftp,
-                  (SELECT r.weight FROM rides r WHERE SUBSTR(r.date, 1, 7) = m.month AND r.ftp = m.max_ftp LIMIT 1) as weight
-           FROM (SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as max_ftp FROM rides WHERE ftp > 0 GROUP BY SUBSTR(date, 1, 7)) m
-           ORDER BY m.month"""
+        """SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as ftp, MAX(weight) as weight
+           FROM daily_metrics 
+           WHERE ftp > 0 
+           GROUP BY SUBSTR(date, 1, 7)
+           ORDER BY month"""
     ).fetchall()
 
-    result = [
+    return [
         {
             "month": r["month"],
-            "ftp": r["ftp"],
-            "weight": r["weight"],
+            "ftp": int(r["ftp"]),
+            "weight": round(r["weight"], 1) if r["weight"] else None,
             "w_per_kg": round(r["ftp"] / r["weight"], 2) if r["weight"] and r["weight"] > 0 else None,
         }
         for r in rows
     ]
-
-    # Append current athlete_log/settings FTP if it differs from the latest ride-based entry
-    today = datetime.now().strftime("%Y-%m-%d")
-    current_ftp = int(get_latest_metric(conn, "ftp", today))
-    if current_ftp > 0:
-        current_month = datetime.now().strftime("%Y-%m")
-        last_ftp = result[-1]["ftp"] if result else 0
-        last_month = result[-1]["month"] if result else ""
-        if current_ftp != last_ftp or current_month != last_month:
-            weight = float(get_latest_metric(conn, "weight_kg", today))
-            entry = {
-                "month": current_month,
-                "ftp": current_ftp,
-                "weight": weight if weight > 0 else None,
-                "w_per_kg": round(current_ftp / weight, 2) if weight > 0 else None,
-                "source": "athlete_setting",
-            }
-            if result and last_month == current_month:
-                result[-1] = entry
-            else:
-                result.append(entry)
-
-    return result
 
 
 def get_periodization_phases(conn) -> list[dict]:
