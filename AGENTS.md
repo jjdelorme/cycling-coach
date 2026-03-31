@@ -3,6 +3,12 @@
 ## Project Overview
 Scalable cycling coaching platform designed for multi-athlete support. Web app that ingests ride data, computes training metrics, and provides AI coaching insights at scale.
 
+## Development Safety & Mandates
+
+- **DATABASE PROTECTION:** NEVER write sample, test, or dummy data to the production database.
+- **LOCAL DEVELOPMENT:** Always use the local Podman-managed PostgreSQL container (`podman-compose up -d`) for development and testing.
+- **ENVIRONMENT VERIFICATION:** Before running any script or command that modifies the database, verify that `DATABASE_URL` is pointing to `localhost` or the intended local development instance.
+
 ## Tech Stack
 - **Backend**: Python 3.11+ / FastAPI / PostgreSQL (psycopg2)
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS + Chart.js

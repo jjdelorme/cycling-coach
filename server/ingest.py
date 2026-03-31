@@ -11,15 +11,17 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from server.database import init_db, get_db
-from server.metrics import clean_ride_data, calculate_np, calculate_tss
+from server.metrics import (
+    clean_ride_data, 
+    calculate_np, 
+    calculate_tss, 
+    POWER_BEST_DURATIONS, 
+    compute_rolling_best, 
+    compute_hr_tss, 
+    process_ride_samples
+)
 
 logger = logging.getLogger(__name__)
-
-DATA_DIR = os.environ.get("COACH_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "data"))
-RIDES_DIR = os.path.join(DATA_DIR, "rides")
-WORKOUTS_DIR = os.path.join(DATA_DIR, "planned_workouts")
-
-POWER_BEST_DURATIONS = [5, 30, 60, 300, 1200, 3600]  # seconds
 
 
 def _semicircles_to_degrees(val):
@@ -33,40 +35,6 @@ def _semicircles_to_degrees(val):
 
 def file_hash(filepath):
     return hashlib.md5(open(filepath, "rb").read()).hexdigest()
-
-
-def compute_rolling_best(powers, window_s, hrs=None, cadences=None):
-    if len(powers) < window_s:
-        return None
-    
-    current_sum = sum(powers[:window_s])
-    best_sum = current_sum
-    best_idx = 0
-    
-    for i in range(window_s, len(powers)):
-        current_sum += powers[i] - powers[i - window_s]
-        if current_sum > best_sum:
-            best_sum = current_sum
-            best_idx = i - window_s + 1
-            
-    avg_power = round(best_sum / window_s)
-    
-    res = {
-        "power": avg_power,
-        "start_offset_s": best_idx,
-        "avg_hr": None,
-        "avg_cadence": None
-    }
-    
-    if hrs is not None:
-        window_hrs = [h for h in hrs[best_idx : best_idx + window_s] if h is not None and not np.isnan(h)]
-        res["avg_hr"] = round(sum(window_hrs) / len(window_hrs)) if window_hrs else None
-        
-    if cadences is not None:
-        window_cadences = [c for c in cadences[best_idx : best_idx + window_s] if c is not None and not np.isnan(c)]
-        res["avg_cadence"] = round(sum(window_cadences) / len(window_cadences)) if window_cadences else None
-        
-    return res
 
 
 def get_benchmark_for_date(conn, key: str, date_str: str) -> float:
@@ -143,61 +111,68 @@ def parse_ride_json(filepath, conn=None):
         if ftp <= 0: ftp = float(get_athlete_setting("ftp"))
         if weight <= 0: weight = float(get_athlete_setting("weight_kg"))
 
-    avg_power = session.get("avg_power", 0) or 0
-    np_power = session.get("normalized_power", 0) or 0
-    tss = session.get("training_stress_score", 0) or 0
-
     # Extract raw samples for cleaning
     raw_powers = [r.get("power") for r in records]
     raw_hrs = [r.get("heart_rate") for r in records]
     raw_cadences = [r.get("cadence") for r in records]
 
-    # 3. Clean using SciPy pipeline
-    cleaned_p, cleaned_hr, cleaned_cadence = clean_ride_data(raw_powers, raw_hrs, raw_cadences)
+    # 3. Process samples for metrics and power bests using the unified pipeline
+    duration_s = session.get("total_timer_time", 0)
     
-    # Identify if we have power data and update status
-    has_power_data = any(p is not None and not np.isnan(p) and p > 0 for p in (cleaned_p if cleaned_p is not None else []))
-    data_status = "cleaned" if has_power_data else "raw"
+    # Fetch HR benchmarks for hrTSS fallback
+    from server.queries import get_latest_metric
+    lthr = 0
+    max_hr_setting = 0
+    resting_hr = 0
+    try:
+        if conn:
+            lthr = get_latest_metric(conn, "lthr", ride_date)
+            max_hr_setting = get_latest_metric(conn, "max_hr", ride_date)
+            resting_hr = get_latest_metric(conn, "resting_hr", ride_date)
+        else:
+            from server.database import get_athlete_setting
+            lthr = float(get_athlete_setting("lthr"))
+            max_hr_setting = float(get_athlete_setting("max_hr"))
+            resting_hr = float(get_athlete_setting("resting_hr"))
+    except (ValueError, TypeError):
+        pass
 
-    # Convert vectors back to list of native types, NaNs become None
-    powers = [float(p) if not np.isnan(p) else None for p in cleaned_p] if cleaned_p is not None else []
-    hrs = [int(h) if not np.isnan(h) else None for h in cleaned_hr] if cleaned_hr is not None else []
-    cadences = [int(c) if not np.isnan(c) else None for c in cleaned_cadence] if cleaned_cadence is not None else []
+    metrics = process_ride_samples(
+        raw_powers, raw_hrs, raw_cadences, 
+        ftp, duration_s,
+        lthr=lthr, max_hr=max_hr_setting, resting_hr=resting_hr
+    )
+    
+    # Use recalculated metrics if we have power, otherwise fallback to session
+    if metrics["has_power_data"]:
+        avg_power = metrics["avg_power"]
+        np_power = metrics["np_power"]
+        tss = metrics["tss"]
+        intensity_factor = metrics["intensity_factor"]
+    else:
+        avg_power = session.get("avg_power", 0) or 0
+        np_power = session.get("normalized_power", 0) or 0
+        # If no power data, prioritize the hrTSS from metrics if it's > 0, otherwise fallback to session
+        tss = metrics["tss"] if metrics["tss"] > 0 else (session.get("training_stress_score", 0) or 0)
+        intensity_factor = session.get("intensity_factor", 0) or 0
 
-    # 4. Vectorize: Recalculate NP and TSS using vectorized math if we have power data
-    powers_vec = np.nan_to_num(cleaned_p, nan=0.0) if cleaned_p is not None else np.array([])
-    intensity_factor = session.get("intensity_factor", 0) or 0
-    if has_power_data:
-        np_power = calculate_np(powers_vec)
-        duration_s = session.get("total_timer_time", 0)
-        tss = calculate_tss(np_power, duration_s, ftp)
-        avg_power = round(np.mean(powers_vec))
-        intensity_factor = round(np_power / ftp, 3) if ftp > 0 else 0
+    vi = metrics["variability_index"]
+    has_power_data = metrics["has_power_data"]
+    data_status = metrics["data_status"]
+    powers = metrics["powers"]
+    hrs = metrics["hrs"]
+    cadences = metrics["cadences"]
+    power_bests = metrics["power_bests"]
+    avg_hr = metrics["avg_hr"] or session.get("avg_heart_rate", 0) or 0
+    avg_cadence = metrics["avg_cadence"] or session.get("avg_cadence", 0) or 0
 
-    vi = 0
-    if avg_power > 0 and np_power > 0:
-        vi = round(np_power / avg_power, 3)
-
-    total_work = session.get("total_work", 0) or 0
-
-    best_1min_res = compute_rolling_best(powers_vec, 60) if has_power_data else None
-    best_5min_res = compute_rolling_best(powers_vec, 300) if has_power_data else None
-    best_20min_res = compute_rolling_best(powers_vec, 1200) if has_power_data else None
-    best_60min_res = compute_rolling_best(powers_vec, 3600) if has_power_data else None
+    best_powers = {pb["duration_s"]: pb["power"] for pb in power_bests}
 
     # GPS start position
     start_lat = _semicircles_to_degrees(session.get("start_position_lat"))
     start_lon = _semicircles_to_degrees(session.get("start_position_long"))
 
-    avg_hr = session.get("avg_heart_rate", 0) or 0
-    if hrs:
-        valid_hrs = [h for h in hrs if h is not None]
-        avg_hr = round(sum(valid_hrs) / len(valid_hrs)) if valid_hrs else avg_hr
-    
-    avg_cadence = session.get("avg_cadence", 0) or 0
-    if cadences:
-        valid_cadences = [c for c in cadences if c is not None]
-        avg_cadence = round(sum(valid_cadences) / len(valid_cadences)) if valid_cadences else avg_cadence
+    total_work = session.get("total_work", 0) or 0
 
     ride = {
         "date": start_time[:10] if len(start_time) >= 10 else start_time,
@@ -205,7 +180,7 @@ def parse_ride_json(filepath, conn=None):
         "filename": os.path.basename(filepath),
         "sport": sport_info.get("sport", "unknown"),
         "sub_sport": sport_info.get("sub_sport", "unknown"),
-        "duration_s": session.get("total_timer_time", 0),
+        "duration_s": duration_s,
         "distance_m": session.get("total_distance", 0),
         "avg_power": avg_power,
         "normalized_power": np_power,
@@ -222,38 +197,16 @@ def parse_ride_json(filepath, conn=None):
         "total_work_kj": round(total_work / 1000, 1) if total_work else 0,
         "training_effect": session.get("total_training_effect", 0),
         "variability_index": vi,
-        "best_1min_power": best_1min_res["power"] if best_1min_res else None,
-        "best_5min_power": best_5min_res["power"] if best_5min_res else None,
-        "best_20min_power": best_20min_res["power"] if best_20min_res else None,
-        "best_60min_power": best_60min_res["power"] if best_60min_res else None,
+        "best_1min_power": best_powers.get(60),
+        "best_5min_power": best_powers.get(300),
+        "best_20min_power": best_powers.get(1200),
+        "best_60min_power": best_powers.get(3600),
         "weight": weight,
         "start_lat": start_lat,
         "start_lon": start_lon,
         "has_power_data": has_power_data,
         "data_status": data_status,
     }
-
-    # If no power-based TSS but we have HR data, compute hrTSS
-    if (not ride["tss"] or ride["tss"] == 0) and ride["avg_hr"] and ride["avg_hr"] > 0:
-        # ... (rest of hrTSS logic unchanged)
-        from server.queries import get_latest_metric
-        try:
-            if conn:
-                lthr = get_latest_metric(conn, "lthr", ride["date"])
-                max_hr_setting = get_latest_metric(conn, "max_hr", ride["date"])
-                resting_hr = get_latest_metric(conn, "resting_hr", ride["date"])
-            else:
-                from server.database import get_athlete_setting
-                lthr = float(get_athlete_setting("lthr"))
-                max_hr_setting = float(get_athlete_setting("max_hr"))
-                resting_hr = float(get_athlete_setting("resting_hr"))
-                
-            if lthr > 0:
-                hr_tss = compute_hr_tss(ride["avg_hr"], ride["duration_s"], lthr, max_hr_setting, resting_hr)
-                if hr_tss > 0:
-                    ride["tss"] = hr_tss
-        except (ValueError, TypeError):
-            pass  # athlete settings not configured yet
 
     # Build record rows
     record_rows = []
@@ -272,19 +225,6 @@ def parse_ride_json(filepath, conn=None):
             "lon": lon,
             "temperature": r.get("temperature"),
         })
-
-    # Power bests at standard durations
-    power_bests = []
-    for dur in POWER_BEST_DURATIONS:
-        res = compute_rolling_best(powers_vec, dur, hrs=hrs, cadences=cadences)
-        if res and res["power"] > 0:
-            power_bests.append({
-                "duration_s": dur,
-                "power": res["power"],
-                "avg_hr": res["avg_hr"],
-                "avg_cadence": res["avg_cadence"],
-                "start_offset_s": res["start_offset_s"]
-            })
 
     # Extract lap data
     laps = data.get("lap", [])
@@ -357,47 +297,6 @@ def parse_zwo(filepath):
         "total_duration_s": total_duration,
         "workout_xml": xml_content,
     }
-
-
-def compute_hr_tss(avg_hr: float, duration_s: float, lthr: float, max_hr: float, resting_hr: float) -> float:
-    """Compute heart-rate-based TSS (hrTSS) using the exponential TRIMP model.
-
-    This is the standard formula used by TrainingPeaks when power data is unavailable.
-    hrTSS approximates the training stress using heart rate relative to lactate threshold.
-
-    Args:
-        avg_hr: Average heart rate for the activity (bpm).
-        duration_s: Duration of the activity (seconds).
-        lthr: Lactate threshold heart rate (bpm).
-        max_hr: Maximum heart rate (bpm).
-        resting_hr: Resting heart rate (bpm).
-
-    Returns:
-        Estimated TSS value, or 0 if inputs are invalid.
-    """
-    import math
-
-    hr_range = max_hr - resting_hr
-    if hr_range <= 0 or lthr <= resting_hr or duration_s <= 0 or avg_hr <= resting_hr:
-        return 0.0
-
-    duration_h = duration_s / 3600.0
-
-    # Heart rate reserve ratio for the activity
-    hr_ratio = (avg_hr - resting_hr) / hr_range
-
-    # Heart rate reserve ratio at LTHR (the reference point = 100 TSS/hr)
-    lthr_ratio = (lthr - resting_hr) / hr_range
-
-    # Exponential TRIMP factor
-    trimp_activity = hr_ratio * 0.64 * math.exp(1.92 * hr_ratio)
-    trimp_lthr = lthr_ratio * 0.64 * math.exp(1.92 * lthr_ratio)
-
-    if trimp_lthr <= 0:
-        return 0.0
-
-    hr_tss = (duration_h * trimp_activity / trimp_lthr) * 100.0
-    return round(hr_tss, 1)
 
 
 def backfill_hr_tss(conn):

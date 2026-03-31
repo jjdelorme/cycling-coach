@@ -153,3 +153,72 @@ def test_sync_run_persistence(db):
     # Cleanup
     with get_db() as conn:
         conn.execute("DELETE FROM sync_runs WHERE id = 'test-123'")
+
+@pytest.mark.asyncio
+async def test_sync_generates_power_bests(db):
+    """Verify that a sync run calculates and persists power bests."""
+    from server.services.sync import _download_rides
+    
+    # Mock data for a single ride
+    mock_activity = {
+        "id": "icu_999",
+        "start_date_local": "2026-03-24T08:30:00",
+        "type": "Ride",
+        "moving_time": 3600,
+        "distance": 30000,
+        "average_watts": 200,
+        "icu_ftp": 200,
+    }
+    
+    # Mock streams: 1 hour of 200W
+    mock_streams = {
+        "time": list(range(3600)),
+        "watts": [200.0] * 3600,
+        "heartrate": [150.0] * 3600,
+        "cadence": [90.0] * 3600
+    }
+    
+    with patch("server.services.sync.fetch_activities", return_value=[mock_activity]), \
+         patch("server.services.sync.fetch_activity_streams", return_value=mock_streams), \
+         patch("server.services.sync.fetch_activity_intervals", return_value=[]), \
+         patch("server.services.sync.get_watermark", return_value=None), \
+         patch("server.services.sync.set_watermark"), \
+         patch("server.services.sync._broadcast"):
+        
+        sync_id = "test-pb-1"
+        log_lines = []
+        
+        with get_db() as conn:
+            # Clear existing data for this mock ride if it exists
+            conn.execute("DELETE FROM power_bests WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_999')")
+            conn.execute("DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_999')")
+            conn.execute("DELETE FROM rides WHERE filename = 'icu_icu_999'")
+            
+            # Run the download
+            downloaded, skipped, earliest = await _download_rides(sync_id, log_lines, conn)
+            assert downloaded == 1
+            
+            # Get the inserted ride's ID
+            ride_row = conn.execute("SELECT id FROM rides WHERE filename = 'icu_icu_999'").fetchone()
+            assert ride_row is not None
+            ride_db_id = ride_row["id"]
+            
+            # Verify power_bests were created for THIS ride
+            rows = conn.execute("SELECT * FROM power_bests WHERE ride_id = %s", (ride_db_id,)).fetchall()
+            assert len(rows) > 0, "No power bests were created for the synced ride!"
+            
+            # Check for specific durations (e.g., 60s, 300s, 1200s, 3600s)
+            durations = [r["duration_s"] for r in rows]
+            assert 60 in durations
+            assert 300 in durations
+            assert 1200 in durations
+            assert 3600 in durations
+            
+            # Check power value
+            for row in rows:
+                assert row["power"] == pytest.approx(200.0)
+                
+            # Cleanup for this test
+            conn.execute("DELETE FROM power_bests")
+            conn.execute("DELETE FROM ride_records")
+            conn.execute("DELETE FROM rides WHERE filename = 'icu_icu_999'")

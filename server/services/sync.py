@@ -14,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from server.database import get_db
+from server.metrics import process_ride_samples
+from server.queries import get_latest_metric
 from server.services.intervals_icu import (
     compute_sync_hash,
     fetch_activities,
@@ -164,17 +166,36 @@ async def _broadcast(sync_id: str, message: dict):
 # Core sync logic
 # ---------------------------------------------------------------------------
 
-def _store_streams(ride_id: int, streams: dict, conn=None):
-    """Store intervals.icu stream data as ride_records."""
-    # streams is a dict like: [{"type":"time","data":[0,1,2,...]}, {"type":"watts","data":[...]}]
-    # or a dict with keys: {"time": [...], "watts": [...], ...}
+def _extract_streams(streams: dict | list) -> dict[str, list]:
+    """Normalize intervals.icu stream data into a dict of lists.
+    Handles both list-of-dicts and dict-of-lists formats.
+    Ensures a 'time' stream exists by generating one if missing.
+    """
     stream_map = {}
     if isinstance(streams, list):
         for s in streams:
-            stream_map[s.get("type", "")] = s.get("data", [])
+            if isinstance(s, dict) and "type" in s:
+                stream_map[s["type"]] = s.get("data") or []
     elif isinstance(streams, dict):
-        stream_map = streams
+        for k, v in streams.items():
+            stream_map[k] = v or []
 
+    # Ensure 'time' exists if possible
+    if "time" not in stream_map or not stream_map["time"]:
+        # Find the longest other stream to determine duration
+        max_len = 0
+        for k, v in stream_map.items():
+            if isinstance(v, list) and k != "latlng":
+                max_len = max(max_len, len(v))
+        if max_len > 0:
+            stream_map["time"] = list(range(max_len))
+            
+    return stream_map
+
+
+def _store_streams(ride_id: int, streams: dict | list, conn=None):
+    """Store intervals.icu stream data as ride_records."""
+    stream_map = _extract_streams(streams)
     time_data = stream_map.get("time", [])
     if not time_data:
         return
@@ -192,7 +213,6 @@ def _store_streams(ride_id: int, streams: dict, conn=None):
     if latlng_raw:
         if latlng_raw and isinstance(latlng_raw[0], (list, tuple)):
             latlng_pairs = latlng_raw  # already [lat, lng] pairs
-        # else: flat values or None — skip lat/lon
 
     n = len(time_data)
     rows = []
@@ -230,13 +250,7 @@ def _store_streams(ride_id: int, streams: dict, conn=None):
 
 def _backfill_start_location(ride_id: int, streams, conn=None):
     """Update start_lat/start_lon on ride from stream GPS data."""
-    stream_map = {}
-    if isinstance(streams, list):
-        for s in streams:
-            stream_map[s.get("type", "")] = s.get("data", [])
-    elif isinstance(streams, dict):
-        stream_map = streams
-
+    stream_map = _extract_streams(streams)
     latlng_raw = stream_map.get("latlng", [])
     if not latlng_raw:
         return
@@ -430,8 +444,99 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         # Backfill start_lat/start_lon from stream GPS data
                         _backfill_start_location(ride_db_id, streams, conn=conn)
                         log_lines.append(_tlog(f"  + stored stream data for {ride['date']} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
+
+                        # Step 3.A: Process ride samples for metrics and power bests
+                        stream_map = _extract_streams(streams)
+                        raw_powers = stream_map.get("watts", [])
+                        raw_hrs = stream_map.get("heartrate", [])
+                        raw_cadences = stream_map.get("cadence", [])
+
+                        # Fetch HR benchmarks for hrTSS fallback
+                        ride_date = ride["date"]
+                        lthr = get_latest_metric(conn, "lthr", ride_date)
+                        max_hr_setting = get_latest_metric(conn, "max_hr", ride_date)
+                        resting_hr = get_latest_metric(conn, "resting_hr", ride_date)
+
+                        # Use same logic as ingest.py for FTP
+                        from server.ingest import get_benchmark_for_date
+                        ftp = get_benchmark_for_date(conn, "ftp", ride_date)
+                        if ftp <= 0:
+                            ftp = ride.get("ftp") or 0
+
+                        metrics = await asyncio.to_thread(
+                            process_ride_samples,
+                            raw_powers,
+                            raw_hrs,
+                            raw_cadences,
+                            ftp,
+                            ride["duration_s"],
+                            lthr=lthr,
+                            max_hr=max_hr_setting,
+                            resting_hr=resting_hr,
+                        )
+
+                        # Step 3.B: Persist the calculated metrics
+                        if metrics["has_power_data"]:
+                            pb_map = {pb["duration_s"]: pb["power"] for pb in metrics["power_bests"]}
+                            conn.execute(
+                                """UPDATE rides SET 
+                                   normalized_power = ?, tss = ?, intensity_factor = ?, variability_index = ?,
+                                   avg_power = ?, avg_hr = ?, avg_cadence = ?,
+                                   best_1min_power = ?, best_5min_power = ?, best_20min_power = ?, best_60min_power = ?,
+                                   has_power_data = ?, data_status = ?
+                                   WHERE id = ?""",
+                                (
+                                    metrics["np_power"],
+                                    metrics["tss"],
+                                    metrics["intensity_factor"],
+                                    metrics["variability_index"],
+                                    metrics["avg_power"],
+                                    metrics["avg_hr"],
+                                    metrics["avg_cadence"],
+                                    pb_map.get(60),
+                                    pb_map.get(300),
+                                    pb_map.get(1200),
+                                    pb_map.get(3600),
+                                    True,
+                                    metrics["data_status"],
+                                    ride_db_id,
+                                ),
+                            )
+                        else:
+                            # Still update avg_hr and avg_cadence even if no power
+                            conn.execute(
+                                "UPDATE rides SET avg_hr = ?, avg_cadence = ? WHERE id = ?",
+                                (metrics["avg_hr"], metrics["avg_cadence"], ride_db_id),
+                            )
+                            if metrics["tss"] > 0:
+                                # hrTSS fallback
+                                conn.execute(
+                                    "UPDATE rides SET tss = ? WHERE id = ?",
+                                    (metrics["tss"], ride_db_id),
+                                )
+
+                        # Insert all power bests
+                        if metrics["power_bests"]:
+                            conn.executemany(
+                                "INSERT INTO power_bests (ride_id, date, duration_s, power, avg_hr, avg_cadence, start_offset_s) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                [
+                                    (
+                                        ride_db_id,
+                                        ride["date"],
+                                        pb["duration_s"],
+                                        pb["power"],
+                                        pb.get("avg_hr"),
+                                        pb.get("avg_cadence"),
+                                        pb.get("start_offset_s"),
+                                    )
+                                    for pb in metrics["power_bests"]
+                                ],
+                            )
+                        log_lines.append(_tlog(f"  + calculated metrics and {len(metrics['power_bests'])} power bests"))
                 except Exception as se:
-                    logger.warning("Could not fetch streams for %s: %s", icu_id, se)
+                    err = f"Could not fetch or process streams for {icu_id}: {se}"
+                    logger.warning(err)
+                    log_lines.append(_tlog(f"  ! {err}"))
 
                 # Fetch and store lap/interval data
                 try:

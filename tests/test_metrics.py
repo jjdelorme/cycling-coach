@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
-from server.metrics import calculate_np, calculate_tss, calculate_pmc, clean_ride_data
+from server.metrics import (
+    calculate_np, calculate_tss, calculate_pmc, clean_ride_data, process_ride_samples
+)
 
 def test_clean_ride_data_interpolation():
     """Verify linear interpolation fills small gaps (<10s) in power data."""
@@ -27,11 +29,12 @@ def test_clean_ride_data_interpolation():
 
 def test_clean_ride_data_outliers():
     """Verify power outliers (>2500W) are removed."""
-    power = np.array([100.0, 3000.0, 100.0])
+    # Need at least 5 elements for medfilt to be applied in clean_ride_data
+    power = np.array([100.0, 100.0, 3000.0, 100.0, 100.0])
     cleaned_p, _, _ = clean_ride_data(power)
-    # 3000 becomes 0, then medfilt([100, 0, 100], kernel_size=3)
-    # sorted(100, 0, 100) = [0, 100, 100]. Median = 100.
-    assert cleaned_p[1] == 100.0
+    # 3000 becomes 0, then medfilt([100, 100, 0, 100, 100], kernel_size=5)
+    # For the middle element: sorted([100, 100, 0, 100, 100]) -> [0, 100, 100, 100, 100]. Median = 100.
+    assert cleaned_p[2] == 100.0
     assert (cleaned_p <= 2500.0).all()
 
 def test_clean_ride_data_smoothing():
@@ -134,3 +137,43 @@ def test_calculate_pmc_with_initial_values():
     
     assert ctl_vals[0] == pytest.approx(expected_ctl)
     assert atl_vals[0] == pytest.approx(expected_atl)
+
+def test_process_ride_samples_structure():
+    """Verify process_ride_samples returns the correct dictionary structure and handles empty data."""
+    # Test with empty data
+    result = process_ride_samples([], [], [], ftp=250, duration_s=0)
+    
+    assert isinstance(result, dict)
+    expected_keys = {
+        "np_power", "tss", "avg_power", "intensity_factor", 
+        "variability_index", "has_power_data", "data_status", "power_bests"
+    }
+    assert expected_keys.issubset(result.keys())
+    assert result["has_power_data"] is False
+    assert isinstance(result["power_bests"], list)
+
+def test_process_ride_samples_logic():
+    """Verify process_ride_samples logic with dummy data."""
+    # This test will likely fail until Phase 2 is implemented, 
+    # but we define our expectations here.
+    raw_powers = [200.0] * 3600 # 1 hour at 200W
+    raw_hrs = [150.0] * 3600
+    raw_cadences = [90.0] * 3600
+    ftp = 200.0
+    duration_s = 3600.0
+    
+    result = process_ride_samples(raw_powers, raw_hrs, raw_cadences, ftp, duration_s)
+    
+    # We expect NP=200, TSS=100, IF=1.0, VI=1.0 for constant 200W at 200W FTP
+    assert result["np_power"] == pytest.approx(200.0)
+    assert result["tss"] == pytest.approx(100.0)
+    assert result["avg_power"] == pytest.approx(200.0)
+    assert result["intensity_factor"] == pytest.approx(1.0)
+    assert result["variability_index"] == pytest.approx(1.0)
+    assert result["has_power_data"] is True
+    
+    # Check power bests structure
+    # Expected: list of dicts like {"duration_s": 60, "power": 200.0}
+    assert len(result["power_bests"]) > 0
+    best_1min = next(b for b in result["power_bests"] if b["duration_s"] == 60)
+    assert best_1min["power"] == pytest.approx(200.0)
