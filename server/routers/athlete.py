@@ -31,4 +31,21 @@ async def update_setting(req: AthleteSettingUpdate, user: CurrentUser = Depends(
             detail=f"Invalid key. Must be one of: {', '.join(sorted(valid_keys))}",
         )
     set_athlete_setting(req.key, req.value)
+
+    # Sync with intervals.icu if applicable
+    if req.key == "ftp":
+        try:
+            from server.services.intervals_icu import update_ftp
+            update_ftp(int(req.value))
+        except (ValueError, Exception) as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to sync FTP to intervals.icu: %s", e)
+    elif req.key == "weight_kg":
+        try:
+            from server.services.intervals_icu import update_weight
+            update_weight(float(req.value))
+        except (ValueError, Exception) as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to sync weight to intervals.icu: %s", e)
+
     return {"status": "updated", "key": req.key}

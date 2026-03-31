@@ -343,6 +343,51 @@ def map_activity_to_ride(activity: dict) -> dict | None:
     return ride
 
 
+def update_ftp(ftp: int) -> dict:
+    """Update athlete FTP on intervals.icu.
+    Endpoint: PUT /api/v1/athlete/{athleteId}/sport-settings/Ride
+    Payload: {"ftp": value}
+    Note: Use 0 for {athleteId} per Intervals.icu API.
+    """
+    api_key, _ = _get_credentials()
+    if not api_key:
+        return {"status": "error", "message": "intervals.icu not configured"}
+
+    url = f"{BASE_URL}/api/v1/athlete/0/sport-settings/Ride"
+    payload = {"ftp": ftp}
+    resp = httpx.put(url, json=payload, auth=("API_KEY", api_key), timeout=15.0)
+
+    if resp.status_code in (200, 201):
+        return {"status": "success", "data": resp.json()}
+    else:
+        logger.error("intervals.icu FTP update failed: status=%s body=%s", resp.status_code, resp.text[:500])
+        return {"status": "error", "code": resp.status_code, "message": resp.text[:500]}
+
+
+def update_weight(weight: float, date: str = None) -> dict:
+    """Update athlete weight on intervals.icu.
+    Endpoint: PUT /api/v1/athlete/{athleteId}/wellness/{date}
+    Payload: {"weight": value}
+    Date Format: YYYY-MM-DD. Defaults to today.
+    """
+    api_key, athlete_id = _get_credentials()
+    if not (api_key and athlete_id):
+        return {"status": "error", "message": "intervals.icu not configured"}
+
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/wellness/{date}"
+    payload = {"weight": weight}
+    resp = httpx.put(url, json=payload, auth=("API_KEY", api_key), timeout=15.0)
+
+    if resp.status_code in (200, 201):
+        return {"status": "success", "data": resp.json()}
+    else:
+        logger.error("intervals.icu weight update failed: status=%s body=%s", resp.status_code, resp.text[:500])
+        return {"status": "error", "code": resp.status_code, "message": resp.text[:500]}
+
+
 def fetch_calendar_events(oldest: str, newest: str, category: str = "WORKOUT") -> list[dict]:
     """Fetch calendar events (planned workouts) from intervals.icu."""
     api_key, athlete_id = _get_credentials()
@@ -359,3 +404,19 @@ def fetch_calendar_events(oldest: str, newest: str, category: str = "WORKOUT") -
         raise RuntimeError(f"intervals.icu API error {resp.status_code}: {resp.text[:300]}")
 
     return resp.json()
+
+
+def find_matching_workout(date: str, name: str) -> int | None:
+    """Check Intervals.icu for an existing workout on the same date with the same name."""
+    try:
+        events = fetch_calendar_events(date, date)
+        for event in events:
+            # Check if it's a workout and has the same name
+            # Intervals.icu returns ISO timestamps for start_date_local, so we check if it starts with the date
+            if event.get("category") == "WORKOUT" and event.get("name") == name:
+                start_date = event.get("start_date_local", "")
+                if start_date.startswith(date):
+                    return event.get("id")
+    except Exception as e:
+        logger.warning("Error finding matching workout on Intervals.icu for %s on %s: %s", name, date, e)
+    return None

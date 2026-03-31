@@ -219,6 +219,6 @@ async def test_sync_generates_power_bests(db):
                 assert row["power"] == pytest.approx(200.0)
                 
             # Cleanup for this test
-            conn.execute("DELETE FROM power_bests")
-            conn.execute("DELETE FROM ride_records")
+            conn.execute("DELETE FROM power_bests WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_999')")
+            conn.execute("DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_999')")
             conn.execute("DELETE FROM rides WHERE filename = 'icu_icu_999'")

@@ -22,6 +22,7 @@ from server.services.intervals_icu import (
     fetch_activity_intervals,
     fetch_activity_streams,
     fetch_calendar_events,
+    find_matching_workout,
     is_configured,
     map_activity_to_ride,
     map_intervals_to_laps,
@@ -619,12 +620,20 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
 
         # Hash-based dedup: skip if unchanged and already synced
         current_hash = compute_sync_hash(w_name, w_date, w["workout_xml"], moving_time)
-        if w.get("sync_hash") == current_hash and w.get("icu_event_id"):
+        icu_event_id = w.get("icu_event_id")
+
+        if w.get("sync_hash") == current_hash and icu_event_id:
             skipped += 1
             detail = f"Skipped (unchanged): {w_date} {w_name}"
             logger.info(detail)
             log_lines.append(_tlog(detail))
             continue
+
+        # Check for existing event on Intervals.icu if we don't have an ID
+        if not icu_event_id:
+            icu_event_id = find_matching_workout(w_date, w_name)
+            if icu_event_id:
+                logger.info("Found existing Intervals.icu event %s matching '%s' on %s", icu_event_id, w_name, w_date)
 
         try:
             result = await asyncio.to_thread(
@@ -633,7 +642,7 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
                 name=w_name,
                 zwo_xml=w["workout_xml"],
                 moving_time_secs=moving_time,
-                icu_event_id=w.get("icu_event_id"),
+                icu_event_id=icu_event_id,
             )
             if result.get("status") == "success":
                 uploaded += 1

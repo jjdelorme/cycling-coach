@@ -940,7 +940,8 @@ def update_athlete_setting(key: str, value: str, date_set: str = "") -> dict:
 
     Use this when the athlete reports changes to measurable values. These settings are critical
     for metric calculations (TSS, IF, NP), workout power targets, zone calculations, 
-    and the Performance Management Chart (PMC). Each update creates a historical record.
+    and the Performance Management Chart (PMC). Each update creates a historical record and 
+    synchronizes FTP and Weight changes with Intervals.icu automatically.
 
     Args:
         key: Setting to update. One of: 'ftp', 'weight_kg', 'lthr', 'max_hr', 'resting_hr', 'age', 'gender'.
@@ -957,10 +958,27 @@ def update_athlete_setting(key: str, value: str, date_set: str = "") -> dict:
 
     set_athlete_setting(key, value, date_set)
 
+    # Sync with intervals.icu if applicable
+    from server.services.intervals_icu import update_ftp, update_weight
+    sync_status = "not_synced"
+    if key == "ftp":
+        try:
+            update_ftp(int(value))
+            sync_status = "synced"
+        except (ValueError, Exception):
+            sync_status = "sync_failed"
+    elif key == "weight_kg":
+        try:
+            update_weight(float(value), date_set)
+            sync_status = "synced"
+        except (ValueError, Exception):
+            sync_status = "sync_failed"
+
     return {
         "status": "success",
         "key": key,
         "value": value,
         "date_set": date_set or datetime.now().strftime("%Y-%m-%d"),
-        "message": f"Updated {key} to {value}. This structured benchmark will be used for future metric calculations and interval analysis.",
+        "sync_status": sync_status,
+        "message": f"Updated {key} to {value}. This structured benchmark will be used for future metric calculations and interval analysis. Changes were {'successfully' if sync_status == 'synced' else 'not'} pushed to Intervals.icu.",
     }

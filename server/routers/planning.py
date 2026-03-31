@@ -292,7 +292,7 @@ def download_workout(req: GenerateWorkoutRequest, user: CurrentUser = Depends(re
 @router.post("/workouts/{workout_id}/sync")
 def sync_workout_to_intervals(workout_id: int, user: CurrentUser = Depends(require_write)):
     """Push a planned workout to intervals.icu for Garmin sync."""
-    from server.services.intervals_icu import push_workout, is_configured
+    from server.services.intervals_icu import push_workout, is_configured, find_matching_workout
 
     if not is_configured():
         raise HTTPException(
@@ -316,13 +316,18 @@ def sync_workout_to_intervals(workout_id: int, user: CurrentUser = Depends(requi
 
         w_name = row["name"] or "Workout"
         moving_time = int(row["total_duration_s"] or 0)
+        icu_event_id = row.get("icu_event_id")
+
+        # Step 2.B Implementation: Check for existing event on Intervals.icu if we don't have an ID
+        if not icu_event_id:
+            icu_event_id = find_matching_workout(row["date"], w_name)
 
         result = push_workout(
             date=row["date"],
             name=w_name,
             zwo_xml=row["workout_xml"],
             moving_time_secs=moving_time,
-            icu_event_id=row.get("icu_event_id"),
+            icu_event_id=icu_event_id,
         )
 
         if result.get("error") or result.get("status") == "error":
