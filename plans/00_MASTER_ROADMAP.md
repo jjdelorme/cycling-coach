@@ -34,6 +34,6 @@ This document serves as the top-level view of all active, planned, and completed
   - *Status:* Completed ✅
   - *Goal:* Implement write-back capabilities for FTP, Weight, and Workouts to Intervals.icu, and resolve duplicate workout issues.
 
-- [ ] **Campaign 8: Delete Ride Feature** (`plans/feat_delete_ride.md`)
-  - *Status:* Planned
+- [x] **Campaign 8: Delete Ride Feature** (`plans/feat_delete_ride.md`)
+  - *Status:* Completed ✅
   - *Goal:* Full-stack capability to hard-delete rides and cascade DB deletions while recalculating PMC logic.

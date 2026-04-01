@@ -5,6 +5,7 @@ import {
   useRide, 
   useUpdateRideComments, 
   useUpdateRideTitle, 
+  useDeleteRide,
   useWorkoutByDate, 
   useUpdateWorkoutNotes, 
   useSendChat, 
@@ -34,7 +35,8 @@ import {
   Layers,
   List,
   RefreshCw,
-  Target
+  Target,
+  Trash2
 } from 'lucide-react'
 import SportIcon from '../components/SportIcon'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
@@ -87,10 +89,23 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   const { data: rides, isLoading: ridesLoading } = useRides(filterParams)
   const { data: ride, isLoading: rideLoading } = useRide(selectedRideId)
   const updateComments = useUpdateRideComments()
+  const deleteRideMutation = useDeleteRide()
   const sendChat = useSendChat()
 
   const rideDate = ride?.date?.slice(0, 10) ?? selectedDate
   const { data: plannedWorkout, isLoading: workoutLoading } = useWorkoutByDate(rideDate)
+
+  async function handleDeleteRide() {
+    if (selectedRideId == null) return
+    if (!window.confirm("Are you sure you want to delete this ride? This will permanently remove its data and recalculate your Fitness/Fatigue metrics from this date forward.")) return
+    
+    try {
+      await deleteRideMutation.mutateAsync(selectedRideId)
+      handleSetSelectedRideId(null)
+    } catch (e) {
+      alert("Failed to delete ride")
+    }
+  }
 
   useEffect(() => {
     if (ride) {
@@ -310,6 +325,15 @@ const syncSingleRide = useSyncSingleRide()
                     {syncSingleRide.isPending ? 'Syncing...' : 'Re-sync Ride'}
                   </button>
                 )}
+                <button
+                  onClick={handleDeleteRide}
+                  disabled={deleteRideMutation.isPending}
+                  className="ml-2 flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-red hover:bg-red/10 border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
+                  title="Delete Ride"
+                >
+                  <Trash2 size={12} className={deleteRideMutation.isPending ? 'animate-pulse' : ''} />
+                  {deleteRideMutation.isPending ? 'Deleting...' : 'Delete Ride'}
+                </button>
 
                     <div className="flex items-center gap-4 mt-2 text-text-muted text-xs font-medium">
                       <span className="flex items-center gap-1.5"><Clock size={14} className="text-accent" /> {startTime || 'No start time'}</span>

@@ -12,13 +12,13 @@
 *   **Risks/Edge Cases:** Ensuring cascading deletes for `ride_records`, `ride_laps`, and `power_bests` work correctly without orphaned rows. Recalculating PMC from the date of the deleted ride is required. We must explicitly *not* delete the raw JSON files from disk.
 
 ## 📋 Micro-Step Checklist
-- [ ] Phase 1: The Backend Endpoint & PMC Recalculation
-  - [ ] Step 1.A: Write Backend Tests for Ride Deletion
-  - [ ] Step 1.B: Implement `DELETE /api/rides/{ride_id}`
-- [ ] Phase 2: Frontend API & State Management
-  - [ ] Step 2.A: Add API call and React Query Mutation
-- [ ] Phase 3: UI Implementation
-  - [ ] Step 3.A: Add Delete Button and Confirmation Dialog to WorkoutViewer
+- [x] Phase 1: The Backend Endpoint & PMC Recalculation
+  - [x] Step 1.A: Write Backend Tests for Ride Deletion (✅ Completed: tests/test_delete_ride.py)
+  - [x] Step 1.B: Implement `DELETE /api/rides/{ride_id}` (✅ Completed: server/routers/rides.py)
+- [x] Phase 2: Frontend API & State Management
+  - [x] Step 2.A: Add API call and React Query Mutation (✅ Completed: frontend/src/lib/api.ts, frontend/src/hooks/useApi.ts)
+- [x] Phase 3: UI Implementation
+  - [x] Step 3.A: Add Delete Button and Confirmation Dialog to Ride Detail View (✅ Completed: frontend/src/pages/Rides.tsx)
 
 ## 📝 Step-by-Step Implementation Details
 

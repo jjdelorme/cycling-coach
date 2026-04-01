@@ -39,6 +39,23 @@ export function useUpdateRideTitle() {
   })
 }
 
+export function useDeleteRide() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.deleteRide(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['rides'] })
+      qc.invalidateQueries({ queryKey: ['pmc'] })
+      qc.invalidateQueries({ queryKey: ['weekly-summary'] })
+      qc.invalidateQueries({ queryKey: ['ride', id] })
+      qc.invalidateQueries({ queryKey: ['power-curve'] })
+      qc.invalidateQueries({ queryKey: ['efficiency'] })
+      qc.invalidateQueries({ queryKey: ['zones'] })
+      qc.invalidateQueries({ queryKey: ['ftp-history'] })
+    },
+  })
+}
+
 // PMC
 export function usePMC() {
   return useQuery({ queryKey: ['pmc'], queryFn: api.fetchPMC })

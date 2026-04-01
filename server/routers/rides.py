@@ -7,6 +7,7 @@ from typing import Optional
 from server.auth import CurrentUser, require_read, require_write
 from server.database import get_db
 from server.models.schemas import RideSummary, RideDetail, RideRecord, RideLap, WeeklySummary, MonthlySummary
+from server.ingest import compute_daily_pmc
 
 
 class RideCommentsUpdate(BaseModel):
@@ -30,15 +31,15 @@ def list_rides(
     query = "SELECT * FROM rides WHERE 1=1"
     params = []
     if start_date:
-        query += " AND date >= ?"
+        query += " AND date >= %s"
         params.append(start_date)
     if end_date:
-        query += " AND date <= ?"
+        query += " AND date <= %s"
         params.append(end_date)
     if sport:
-        query += " AND (sport = ? OR sub_sport = ?)"
+        query += " AND (sport = %s OR sub_sport = %s)"
         params.extend([sport, sport])
-    query += " ORDER BY date DESC LIMIT ?"
+    query += " ORDER BY date DESC LIMIT %s"
     params.append(limit)
 
     with get_db() as conn:
@@ -59,10 +60,10 @@ def weekly_summary(
     """
     params = []
     if start_date:
-        query += " AND date >= ?"
+        query += " AND date >= %s"
         params.append(start_date)
     if end_date:
-        query += " AND date <= ?"
+        query += " AND date <= %s"
         params.append(end_date)
     query += " ORDER BY date"
 
@@ -127,10 +128,10 @@ def monthly_summary(
     """
     params = []
     if start_date:
-        query += " AND date >= ?"
+        query += " AND date >= %s"
         params.append(start_date)
     if end_date:
-        query += " AND date <= ?"
+        query += " AND date <= %s"
         params.append(end_date)
     query += " GROUP BY month ORDER BY month"
 
@@ -142,17 +143,17 @@ def monthly_summary(
 @router.get("/{ride_id}", response_model=RideDetail)
 def get_ride(ride_id: int, user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
-        ride = conn.execute("SELECT * FROM rides WHERE id = ?", (ride_id,)).fetchone()
+        ride = conn.execute("SELECT * FROM rides WHERE id = %s", (ride_id,)).fetchone()
         if not ride:
             raise HTTPException(status_code=404, detail="Ride not found")
 
         records = conn.execute(
-            "SELECT timestamp_utc, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature FROM ride_records WHERE ride_id = ? ORDER BY id",
+            "SELECT timestamp_utc, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature FROM ride_records WHERE ride_id = %s ORDER BY id",
             (ride_id,),
         ).fetchall()
 
         laps = conn.execute(
-            "SELECT * FROM ride_laps WHERE ride_id = ? ORDER BY lap_index",
+            "SELECT * FROM ride_laps WHERE ride_id = %s ORDER BY lap_index",
             (ride_id,),
         ).fetchall()
 
@@ -166,11 +167,11 @@ def get_ride(ride_id: int, user: CurrentUser = Depends(require_read)):
 @router.put("/{ride_id}/comments")
 def update_ride_comments(ride_id: int, body: RideCommentsUpdate, user: CurrentUser = Depends(require_write)):
     with get_db() as conn:
-        ride = conn.execute("SELECT id FROM rides WHERE id = ?", (ride_id,)).fetchone()
+        ride = conn.execute("SELECT id FROM rides WHERE id = %s", (ride_id,)).fetchone()
         if not ride:
             raise HTTPException(status_code=404, detail="Ride not found")
         conn.execute(
-            "UPDATE rides SET post_ride_comments = ? WHERE id = ?",
+            "UPDATE rides SET post_ride_comments = %s WHERE id = %s",
             (body.post_ride_comments, ride_id),
         )
     return {"status": "ok"}
@@ -179,11 +180,35 @@ def update_ride_comments(ride_id: int, body: RideCommentsUpdate, user: CurrentUs
 @router.put("/{ride_id}/title")
 def update_ride_title(ride_id: int, body: RideTitleUpdate, user: CurrentUser = Depends(require_write)):
     with get_db() as conn:
-        ride = conn.execute("SELECT id FROM rides WHERE id = ?", (ride_id,)).fetchone()
+        ride = conn.execute("SELECT id FROM rides WHERE id = %s", (ride_id,)).fetchone()
         if not ride:
             raise HTTPException(status_code=404, detail="Ride not found")
         conn.execute(
-            "UPDATE rides SET title = ? WHERE id = ?",
+            "UPDATE rides SET title = %s WHERE id = %s",
             (body.title, ride_id),
         )
+    return {"status": "ok"}
+
+
+@router.delete("/{ride_id}")
+def delete_ride(ride_id: int, user: CurrentUser = Depends(require_write)):
+    with get_db() as conn:
+        # 1. Get ride date for PMC recalculation
+        ride = conn.execute("SELECT date FROM rides WHERE id = %s", (ride_id,)).fetchone()
+        if not ride:
+            raise HTTPException(status_code=404, detail="Ride not found")
+
+        ride_date = ride["date"]
+
+        # 2. Delete dependencies
+        conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_id,))
+        conn.execute("DELETE FROM ride_laps WHERE ride_id = %s", (ride_id,))
+        conn.execute("DELETE FROM power_bests WHERE ride_id = %s", (ride_id,))
+
+        # 3. Delete ride
+        conn.execute("DELETE FROM rides WHERE id = %s", (ride_id,))
+
+        # 4. Recalculate PMC
+        compute_daily_pmc(conn, since_date=ride_date)
+
     return {"status": "ok"}

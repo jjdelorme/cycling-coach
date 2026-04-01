@@ -80,6 +80,7 @@ export const updateRideComments = (id: number, body: { post_ride_comments?: stri
   put<{ status: string }>(`/api/rides/${id}/comments`, body)
 export const updateRideTitle = (id: number, body: { title?: string | null }) =>
   put<{ status: string }>(`/api/rides/${id}/title`, body)
+export const deleteRide = (id: number) => request<{ status: string }>(`/api/rides/${id}`, { method: 'DELETE' })
 
 // PMC
 export const fetchPMC = () => get<PMCEntry[]>('/api/pmc')
