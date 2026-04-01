@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useRides, useDeleteWorkout } from '../hooks/useApi'
 import { fetchWeekPlan } from '../lib/api'
-import { fmtDuration, fmtDistance } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtSport } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useQuery } from '@tanstack/react-query'
 import { 
@@ -231,8 +231,8 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-green/10 rounded-lg"><SportIcon sport={r.sport} size={20} className="text-green" /></div>
                         <div>
-                          <h4 className="font-bold text-lg text-text leading-none">{r.title || r.sport || 'Completed Activity'}</h4>
-                          <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{r.sub_sport || r.sport || 'Cycling'}</span>
+                          <h4 className="font-bold text-lg text-text leading-none">{r.title || fmtSport(r.sport)}</h4>
+                          <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{fmtSport(r.sub_sport || r.sport)}</span>
                         </div>
                       </div>
                       <button onClick={() => onRideSelect(r.id)} className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:opacity-90 transition-all shadow-lg shadow-accent/20">
@@ -262,7 +262,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                         <div className="p-2 bg-yellow/10 rounded-lg"><Zap size={20} className="text-yellow" /></div>
                         <div>
                           <h4 className="font-bold text-lg text-text leading-none">{w.name || 'Planned Workout'}</h4>
-                          <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{w.sport || 'Planned'} Session</span>
+                          <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{fmtSport(w.sport)} Session</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -281,7 +281,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
                       <MiniMetric label="Target Duration" value={fmtDuration(w.total_duration_s)} icon={Clock} color="text-text" />
                       <MiniMetric label="Est. TSS" value={String(Math.round(Number(w.planned_tss)))} icon={Zap} color="text-yellow" />
-                      <MiniMetric label="Sport" value={w.sport || 'Cycling'} icon={(props: any) => <SportIcon sport={w.sport} {...props} />} color="text-text" />
+                      <MiniMetric label="Sport" value={fmtSport(w.sport)} icon={(props: any) => <SportIcon sport={w.sport} {...props} />} color="text-text" />
                     </div>
                     {w.coach_notes && (
                       <div className="mt-4 flex gap-3 p-4 bg-surface-low rounded-xl border border-border">

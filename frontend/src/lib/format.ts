@@ -63,6 +63,37 @@ export function timeAgo(date: Date): string {
   return `${days}d ago`
 }
 
+const SPORT_NAMES: Record<string, string> = {
+  ride: 'Ride',
+  cycling: 'Ride',
+  virtualride: 'Virtual Ride',
+  mountainbikeride: 'Mountain Bike',
+  gravelride: 'Gravel Ride',
+  ebikeride: 'E-Bike Ride',
+  emountainbikeride: 'E-Mountain Bike',
+  run: 'Run',
+  trailrun: 'Trail Run',
+  virtualrun: 'Virtual Run',
+  swim: 'Swim',
+  openwaterswim: 'Swim',
+  hike: 'Hike',
+  walk: 'Walk',
+  weighttraining: 'Weight Training',
+  strength_training: 'Weight Training',
+  yoga: 'Yoga',
+}
+
+export function fmtSport(sport?: string | null): string {
+  if (!sport) return 'Activity'
+  const mapped = SPORT_NAMES[sport.toLowerCase()]
+  if (mapped) return mapped
+  // Title-case: split camelCase then capitalize each word
+  return sport
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
+
 export function zoneColor(pct: number, alpha = 1): string {
   if (pct < 0.56) return `rgba(126, 200, 227, ${alpha})`
   if (pct < 0.76) return `rgba(0, 212, 170, ${alpha})`

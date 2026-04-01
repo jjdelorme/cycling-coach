@@ -11,7 +11,7 @@ import {
   useSendChat, 
   useActivityDates 
 } from '../hooks/useApi'
-import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, fmtSport } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useQueryClient } from '@tanstack/react-query'
 import { 
@@ -231,7 +231,7 @@ const syncSingleRide = useSyncSingleRide()
       return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     })()
 
-    const displayTitle = ride?.title || ride?.sport || 'Cycling'
+    const displayTitle = ride?.title || fmtSport(ride?.sport)
 
     return (
       <div className="space-y-6 pb-12">
@@ -590,8 +590,8 @@ const syncSingleRide = useSyncSingleRide()
                         <div className="flex items-center gap-2">
                           <SportIcon sport={r.sport} size={16} />
                           <div>
-                            <span className="font-bold">{r.title || r.sport || '--'}</span>
-                            {r.sub_sport && <span className="block text-[10px] text-text-muted uppercase tracking-tighter">{r.sub_sport}</span>}
+                            <span className="font-bold">{r.title || fmtSport(r.sport)}</span>
+                            {r.sub_sport && <span className="block text-[10px] text-text-muted uppercase tracking-tighter">{fmtSport(r.sub_sport)}</span>}
                           </div>
                         </div>
                       </td>
@@ -622,7 +622,7 @@ const syncSingleRide = useSyncSingleRide()
                       <SportIcon sport={r.sport} size={20} className="text-accent" />
                       <div>
                         <p className="text-[10px] font-bold text-accent uppercase tracking-tighter mb-0.5">{r.date?.slice(0, 10)}</p>
-                        <h3 className="font-bold text-text">{r.title || r.sport || '--'}</h3>
+                        <h3 className="font-bold text-text">{r.title || fmtSport(r.sport)}</h3>
                       </div>
                     </div>
                     <div className="text-right">

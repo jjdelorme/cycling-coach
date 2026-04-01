@@ -14,7 +14,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { usePMC, useRides, useWeeklySummary } from '../hooks/useApi'
 import { fetchWeekPlan } from '../lib/api'
-import { fmtDuration, fmtDistance, fmtWeight } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtWeight, fmtSport } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
 import { 
@@ -26,6 +26,7 @@ import {
   ChevronRight
 } from 'lucide-react'
 import SportIcon from '../components/SportIcon'
+import { isoWeekToMonday, buildPlannedByMonday } from '../lib/chart-helpers'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
 
@@ -42,7 +43,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
   const cc = useChartColors()
 
   // Compute Monday dates for this week + next 3
-  const { planMondays } = useMemo(() => {
+  const { planMondays, thisMonday } = useMemo(() => {
     const now = new Date()
     const dow = now.getDay()
     const thisMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (dow === 0 ? 6 : dow - 1))
@@ -53,7 +54,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
       m.setDate(m.getDate() + i * 7)
       mondays.push(fmt(m))
     }
-    return { planMondays: mondays }
+    return { planMondays: mondays, thisMonday: fmt(thisMon) }
   }, [])
 
   // Fetch planned workouts for this week + next 3 weeks
@@ -61,6 +62,12 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
     queryKey: ['planned-weeks', planMondays],
     queryFn: () => Promise.all(planMondays.map((m) => fetchWeekPlan(m))),
   })
+
+  // Aggregate planned TSS/hours by week monday
+  const plannedByMonday = useMemo(
+    () => buildPlannedByMonday(planMondays, plannedWeeks ?? []),
+    [planMondays, plannedWeeks],
+  )
 
   // Find next upcoming workout (today if no ride yet, otherwise tomorrow+)
   const today = new Date().toISOString().slice(0, 10)
@@ -209,7 +216,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
               <div className="cursor-pointer group" onClick={() => onRideSelect?.(latestRide.id)}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold text-text group-hover:text-accent transition-colors">
-                    {latestRide.title || latestRide.sub_sport || latestRide.sport || 'Ride'}
+                    {latestRide.title || fmtSport(latestRide.sub_sport) || fmtSport(latestRide.sport)}
                   </h3>
                   <span className="text-xs font-medium text-text-muted">
                     {latestRide.isToday ? 'Today' : latestRide.date}
@@ -256,55 +263,169 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
         <div className="bg-surface rounded-xl border border-border p-5 shadow-sm">
           <h2 className="text-sm font-bold text-text uppercase tracking-wider mb-6">Weekly Training Load</h2>
           <div className="h-80">
-            {weekly && weekly.length > 0 ? (
-              <Bar 
-                data={{
-                  labels: weekly.slice(-12).map(w => w.week.slice(5)),
-                  datasets: [
-                    { 
-                      label: 'TSS', 
-                      data: weekly.slice(-12).map(w => w.tss), 
-                      backgroundColor: 'rgba(233, 69, 96, 0.7)', 
-                      borderRadius: 4,
-                      yAxisID: 'y'
-                    },
-                    { 
-                      label: 'Hours', 
-                      data: weekly.slice(-12).map(w => w.duration_h), 
-                      backgroundColor: 'rgba(0, 212, 170, 0.7)', 
-                      borderRadius: 4,
-                      yAxisID: 'y1'
-                    }
-                  ]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  scales: {
-                    x: { grid: { display: false }, ticks: { color: cc.tickColor } },
-                    y: { 
-                      position: 'left',
-                      title: { display: true, text: 'TSS', color: cc.tickColor, font: { size: 10, weight: 'bold' } },
-                      ticks: { color: cc.tickColor }, 
-                      grid: { color: 'rgba(148, 163, 184, 0.1)' } 
-                    },
-                    y1: { 
-                      position: 'right',
-                      title: { display: true, text: 'Hours', color: cc.tickColor, font: { size: 10, weight: 'bold' } },
-                      ticks: { color: cc.tickColor }, 
-                      grid: { drawOnChartArea: false } 
-                    }
-                  },
-                  plugins: { 
-                    legend: { 
-                      position: 'top',
-                      align: 'end',
-                      labels: { color: cc.legendColor, boxWidth: 12, font: { size: 11 } } 
-                    } 
+            {weekly && weekly.length > 0 ? (() => {
+              // Build unified week list: last 12 actuals + up to 3 future planned weeks
+              const actualWeeks = weekly.slice(-12)
+              const actualWeekSet = new Set(actualWeeks.map(w => isoWeekToMonday(w.week)))
+              const futureWeeks: { week: string; monday: string }[] = []
+              for (let i = 1; i <= 3; i++) {
+                const monday = planMondays[i]
+                if (monday && !actualWeekSet.has(monday) && plannedByMonday.has(monday)) {
+                  const d = new Date(monday + 'T00:00:00')
+                  const jan1 = new Date(d.getFullYear(), 0, 1)
+                  const dayOfYear = Math.floor((d.getTime() - jan1.getTime()) / 86400000)
+                  const weekNum = Math.ceil((dayOfYear + jan1.getDay() + 1) / 7)
+                  futureWeeks.push({ week: `W${String(weekNum).padStart(2, '0')}`, monday })
+                }
+              }
+
+              const weekLabels = [
+                ...actualWeeks.map(w => w.week.slice(5)),
+                ...futureWeeks.map(w => w.week),
+              ]
+              const weekMondays = [
+                ...actualWeeks.map(w => isoWeekToMonday(w.week)),
+                ...futureWeeks.map(w => w.monday),
+              ]
+              const thisWeekIdx = weekMondays.indexOf(thisMonday)
+              const thisWeekPlan = plannedByMonday.get(thisMonday)
+
+              // Per-bar colors: solid for actuals, faded for future planned-only
+              const tssColors = weekMondays.map(m =>
+                m > thisMonday ? 'rgba(233, 69, 96, 0.25)' : 'rgba(233, 69, 96, 0.7)'
+              )
+              const hoursColors = weekMondays.map(m =>
+                m > thisMonday ? 'rgba(0, 212, 170, 0.25)' : 'rgba(0, 212, 170, 0.7)'
+              )
+
+              // Data: actuals + future planned values
+              const tssData = [
+                ...actualWeeks.map(w => w.tss),
+                ...futureWeeks.map(fw => plannedByMonday.get(fw.monday)?.tss ?? 0),
+              ]
+              const hoursData = [
+                ...actualWeeks.map(w => w.duration_h),
+                ...futureWeeks.map(fw => plannedByMonday.get(fw.monday)?.hours ?? 0),
+              ]
+
+              // Custom plugin: draw ghost bars behind actuals for current week
+              const plannedOverlayPlugin = {
+                id: 'plannedOverlay',
+                beforeDatasetsDraw(chart: ChartJS) {
+                  if (thisWeekIdx < 0 || !thisWeekPlan) return
+                  const { ctx } = chart
+                  const tssMeta = chart.getDatasetMeta(0) // TSS dataset
+                  const hrMeta = chart.getDatasetMeta(1)  // Hours dataset
+
+                  // Draw planned TSS ghost bar
+                  if (thisWeekPlan.tss > 0 && tssMeta.data[thisWeekIdx]) {
+                    const bar = tssMeta.data[thisWeekIdx] as any
+                    const yScale = chart.scales.y
+                    const plannedY = yScale.getPixelForValue(thisWeekPlan.tss)
+                    const baseY = yScale.getPixelForValue(0)
+                    ctx.save()
+                    ctx.fillStyle = 'rgba(233, 69, 96, 0.12)'
+                    ctx.strokeStyle = 'rgba(233, 69, 96, 0.4)'
+                    ctx.lineWidth = 1.5
+                    ctx.setLineDash([4, 4])
+                    const x = bar.x - bar.width / 2
+                    ctx.fillRect(x, plannedY, bar.width, baseY - plannedY)
+                    ctx.strokeRect(x, plannedY, bar.width, baseY - plannedY)
+                    ctx.restore()
                   }
-                }}
-              />
-            ) : <p className="text-text-muted text-sm py-8 italic">No weekly data available.</p>}
+
+                  // Draw planned Hours ghost bar
+                  if (thisWeekPlan.hours > 0 && hrMeta.data[thisWeekIdx]) {
+                    const bar = hrMeta.data[thisWeekIdx] as any
+                    const yScale = chart.scales.y1
+                    const plannedY = yScale.getPixelForValue(thisWeekPlan.hours)
+                    const baseY = yScale.getPixelForValue(0)
+                    ctx.save()
+                    ctx.fillStyle = 'rgba(0, 212, 170, 0.12)'
+                    ctx.strokeStyle = 'rgba(0, 212, 170, 0.4)'
+                    ctx.lineWidth = 1.5
+                    ctx.setLineDash([4, 4])
+                    const x = bar.x - bar.width / 2
+                    ctx.fillRect(x, plannedY, bar.width, baseY - plannedY)
+                    ctx.strokeRect(x, plannedY, bar.width, baseY - plannedY)
+                    ctx.restore()
+                  }
+                },
+              }
+
+              return (
+                <Bar
+                  plugins={[plannedOverlayPlugin]}
+                  data={{
+                    labels: weekLabels,
+                    datasets: [
+                      {
+                        label: 'TSS',
+                        data: tssData,
+                        backgroundColor: tssColors,
+                        borderRadius: 4,
+                        yAxisID: 'y',
+                      },
+                      {
+                        label: 'Hours',
+                        data: hoursData,
+                        backgroundColor: hoursColors,
+                        borderRadius: 4,
+                        yAxisID: 'y1',
+                      },
+                    ],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                      x: {
+                        grid: { display: false },
+                        ticks: {
+                          color: (ctx) => ctx.index === thisWeekIdx ? '#4a9eff' : cc.tickColor,
+                          font: (ctx) => ({ weight: ctx.index === thisWeekIdx ? 'bold' as const : 'normal' as const }),
+                        },
+                      },
+                      y: {
+                        position: 'left',
+                        title: { display: true, text: 'TSS', color: cc.tickColor, font: { size: 10, weight: 'bold' } },
+                        ticks: { color: cc.tickColor },
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                      },
+                      y1: {
+                        position: 'right',
+                        title: { display: true, text: 'Hours', color: cc.tickColor, font: { size: 10, weight: 'bold' } },
+                        ticks: { color: cc.tickColor },
+                        grid: { drawOnChartArea: false },
+                      },
+                    },
+                    plugins: {
+                      legend: {
+                        position: 'top',
+                        align: 'end',
+                        labels: { color: cc.legendColor, boxWidth: 12, font: { size: 11 } },
+                      },
+                      tooltip: {
+                        callbacks: {
+                          label: (ctx) => {
+                            const monday = weekMondays[ctx.dataIndex]
+                            const label = ctx.dataset.label ?? ''
+                            const val = ctx.parsed.y ?? 0
+                            if (monday === thisMonday && thisWeekPlan) {
+                              if (label === 'TSS') return `TSS: ${Math.round(val)} / ${Math.round(thisWeekPlan.tss)} planned`
+                              if (label === 'Hours') return `Hours: ${val.toFixed(1)} / ${thisWeekPlan.hours.toFixed(1)} planned`
+                            }
+                            if (label === 'TSS') return `TSS: ${Math.round(val)}`
+                            if (label === 'Hours') return `Hours: ${val.toFixed(1)}`
+                            return `${label}: ${val}`
+                          },
+                        },
+                      },
+                    },
+                  }}
+                />
+              )
+            })() : <p className="text-text-muted text-sm py-8 italic">No weekly data available.</p>}
           </div>
         </div>
       </div>
@@ -336,7 +457,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
                   <td className="py-3 px-5 font-medium">{ride.date}</td>
                   <td className="py-3 px-5 text-text-muted flex items-center gap-2">
                     <SportIcon sport={ride.sport} size={14} />
-                    {ride.sub_sport || ride.sport || '--'}
+                    {fmtSport(ride.sub_sport || ride.sport)}
                   </td>
                   <td className="py-3 px-5 text-right font-mono">{fmtDuration(ride.duration_s)}</td>
                   <td className="py-3 px-5 text-right font-mono">{fmtDistance(ride.distance_m, units)}</td>
