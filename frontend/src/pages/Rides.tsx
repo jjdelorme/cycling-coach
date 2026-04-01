@@ -315,27 +315,29 @@ const syncSingleRide = useSyncSingleRide()
                         <Edit3 size={16} />
                       </button>
                     </h1>
-                {ride?.filename?.startsWith('icu_') && (
-                  <button
-                    onClick={() => syncSingleRide.mutate(ride.filename!.replace('icu_', ''))}
-                    disabled={syncSingleRide.isPending}
-                    className="ml-4 flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-text-muted hover:text-accent border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
-                  >
-                    <RefreshCw size={12} className={syncSingleRide.isPending ? 'animate-spin' : ''} />
-                    {syncSingleRide.isPending ? 'Syncing...' : 'Re-sync Ride'}
-                  </button>
-                )}
-                <button
-                  onClick={handleDeleteRide}
-                  disabled={deleteRideMutation.isPending}
-                  className="ml-2 flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-red hover:bg-red/10 border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
-                  title="Delete Ride"
-                >
-                  <Trash2 size={12} className={deleteRideMutation.isPending ? 'animate-pulse' : ''} />
-                  {deleteRideMutation.isPending ? 'Deleting...' : 'Delete Ride'}
-                </button>
+                    <div className="flex items-center gap-2 mt-3">
+                      {ride?.filename?.startsWith('icu_') && (
+                        <button
+                          onClick={() => syncSingleRide.mutate(ride.filename!.replace('icu_', ''))}
+                          disabled={syncSingleRide.isPending}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-text-muted hover:text-accent border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
+                        >
+                          <RefreshCw size={12} className={syncSingleRide.isPending ? 'animate-spin' : ''} />
+                          {syncSingleRide.isPending ? 'Syncing...' : 'Re-sync Ride'}
+                        </button>
+                      )}
+                      <button
+                        onClick={handleDeleteRide}
+                        disabled={deleteRideMutation.isPending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-red hover:bg-red/10 border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
+                        title="Delete Ride"
+                      >
+                        <Trash2 size={12} className={deleteRideMutation.isPending ? 'animate-pulse' : ''} />
+                        {deleteRideMutation.isPending ? 'Deleting...' : 'Delete Ride'}
+                      </button>
+                    </div>
 
-                    <div className="flex items-center gap-4 mt-2 text-text-muted text-xs font-medium">
+                    <div className="flex items-center gap-4 mt-3 text-text-muted text-xs font-medium">
                       <span className="flex items-center gap-1.5"><Clock size={14} className="text-accent" /> {startTime || 'No start time'}</span>
                       {locationName && <span className="flex items-center gap-1.5"><MapPin size={14} className="text-accent" /> {locationName}</span>}
                     </div>
