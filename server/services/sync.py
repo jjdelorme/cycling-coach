@@ -928,15 +928,14 @@ def sync_single_ride_background(icu_id: str) -> str:
             await import_specific_activity(icu_id)
         except Exception as e:
             logger.exception("Single ride sync failed")
-            _update_sync_run(sync_id, status="error", message=str(e))
+            _update_sync_run(sync_id, status="failed", errors=str(e), completed_at=_now_iso())
         else:
-            _update_sync_run(sync_id, status="success", message=f"Successfully re-synced {icu_id}")
+            _update_sync_run(sync_id, status="completed", log=f"Successfully re-synced {icu_id}", completed_at=_now_iso())
 
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(_run())
     except RuntimeError:
         asyncio.run(_run())
-    
-    return sync_id
 
+    return sync_id

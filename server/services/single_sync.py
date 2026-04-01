@@ -20,24 +20,23 @@ logger = logging.getLogger(__name__)
 async def import_specific_activity(icu_id):
     if not is_configured():
         logger.error("Intervals.icu is not configured.")
-        return
+        raise ValueError("Intervals.icu is not configured.")
 
     api_key, athlete_id = _get_credentials()
-    
+
     url = f"https://intervals.icu/api/v1/activity/{icu_id}"
     logger.info(f"Fetching activity {icu_id}...")
     resp = httpx.get(url, auth=("API_KEY", api_key), timeout=10.0)
     if resp.status_code != 200:
         logger.error(f"Failed to fetch activity {icu_id}: {resp.status_code} {resp.text}")
-        return
-        
+        raise ValueError(f"Failed to fetch activity {icu_id}: {resp.status_code}")
+
     activity = resp.json()
     ride_data = map_activity_to_ride(activity)
-    
+
     if not ride_data:
         logger.error(f"Activity {icu_id} could not be mapped to a ride.")
-        return
-        
+        raise ValueError(f"Activity {icu_id} could not be mapped to a ride.")        
     target_date = ride_data["date"]
     logger.info(f"Mapped activity to {target_date}, sport: {ride_data['sport']}")
     

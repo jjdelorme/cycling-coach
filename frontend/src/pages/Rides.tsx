@@ -317,14 +317,26 @@ const syncSingleRide = useSyncSingleRide()
                     </h1>
                     <div className="flex items-center gap-2 mt-3">
                       {ride?.filename?.startsWith('icu_') && (
-                        <button
-                          onClick={() => syncSingleRide.mutate(ride.filename!.replace('icu_', ''))}
-                          disabled={syncSingleRide.isPending}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-text-muted hover:text-accent border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
-                        >
-                          <RefreshCw size={12} className={syncSingleRide.isPending ? 'animate-spin' : ''} />
-                          {syncSingleRide.isPending ? 'Syncing...' : 'Re-sync Ride'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => syncSingleRide.mutate(ride.filename!.replace('icu_', ''))}
+                            disabled={syncSingleRide.isPending}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-surface text-[10px] font-bold text-text-muted hover:text-accent border border-border rounded-lg transition-colors uppercase tracking-widest disabled:opacity-50"
+                          >
+                            <RefreshCw size={12} className={syncSingleRide.isPending ? 'animate-spin' : ''} />
+                            {syncSingleRide.isPending ? 'Syncing...' : 'Re-sync Ride'}
+                          </button>
+                          {syncSingleRide.isError && (
+                            <span className="text-red text-[10px] font-bold px-2 py-1 bg-red/10 rounded-lg max-w-[200px] truncate" title={syncSingleRide.error?.message || 'Sync failed'}>
+                              Error
+                            </span>
+                          )}
+                          {syncSingleRide.isSuccess && (
+                            <span className="text-green text-[10px] font-bold px-2 py-1 bg-green/10 rounded-lg">
+                              Synced!
+                            </span>
+                          )}
+                        </div>
                       )}
                       <button
                         onClick={handleDeleteRide}

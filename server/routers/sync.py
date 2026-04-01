@@ -77,6 +77,15 @@ async def sync_history_endpoint(limit: Optional[int] = Query(20, ge=1, le=100), 
     return get_sync_history(limit)
 
 
+@router.post("/ride/{icu_id}")
+async def sync_single_ride(icu_id: str, user: CurrentUser = Depends(require_write)):
+    """Start a background sync for a single ride."""
+    if not is_configured():
+        raise HTTPException(status_code=400, detail="intervals.icu not configured")
+    
+    sync_id = sync_single_ride_background(icu_id)
+    return {"status": "started", "sync_id": sync_id}
+
 @router.post("/backfill-streams")
 async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200), user: CurrentUser = Depends(require_write)):
     """Backfill per-second stream data for rides synced from intervals.icu that are missing records."""
