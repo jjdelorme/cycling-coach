@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from server.database import get_db
 from server.services.intervals_icu import _get_credentials, fetch_activity_fit_laps, fetch_activity_streams, is_configured, map_activity_to_ride
-from server.services.sync import _extract_streams, _store_laps, _store_streams, _backfill_start_location
+from server.services.sync import _enrich_laps_with_np, _extract_streams, _store_laps, _store_streams, _backfill_start_location
 from server.metrics import process_ride_samples
 from server.queries import get_latest_metric
 from server.ingest import get_benchmark_for_date
@@ -85,14 +85,14 @@ async def import_specific_activity(icu_id):
             
         logger.info("Fetching streams...")
         streams = fetch_activity_streams(icu_id)
+        sport = ride_data.get("sport", "").lower()
+        is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
+        stream_map = {}
         if streams:
             logger.info("Storing streams...")
             _store_streams(ride_id, streams, conn=conn)
             _backfill_start_location(ride_id, streams, conn=conn)
-            
-            sport = ride_data.get("sport", "").lower()
-            is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
-            
+
             stream_map = _extract_streams(streams)
             raw_powers = stream_map.get("watts", []) if is_cycling else []
             raw_hrs = stream_map.get("heartrate", [])
@@ -162,6 +162,9 @@ async def import_specific_activity(icu_id):
             conn.execute("DELETE FROM ride_laps WHERE ride_id = %(id)s", {"id": ride_id})
             laps = fetch_activity_fit_laps(icu_id)
             if laps:
+                # Calculate NP per lap from stream power data
+                if streams and is_cycling and stream_map:
+                    _enrich_laps_with_np(laps, stream_map)
                 _store_laps(ride_id, laps, conn=conn)
                 logger.info(f"Stored {len(laps)} device laps for {icu_id}")
         except Exception as e:

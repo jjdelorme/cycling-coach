@@ -265,6 +265,27 @@ def parse_ride_json(filepath, conn=None):
             "avg_temperature": lap.get("avg_temperature"),
         })
 
+    # Calculate NP per lap from per-second power data
+    if has_power_data and powers and lap_rows:
+        import numpy as np_lib
+        power_arr = np_lib.array(powers, dtype=float)
+        offset = 0
+        for lap_row in lap_rows:
+            duration = lap_row.get("total_timer_time")
+            if not duration or duration <= 0:
+                offset += int(duration or 0)
+                continue
+            if lap_row.get("normalized_power"):
+                offset += int(duration)
+                continue
+            end = offset + int(duration)
+            lap_power = power_arr[offset:end]
+            if len(lap_power) > 0:
+                np_val = calculate_np(lap_power)
+                if np_val and np_val > 0:
+                    lap_row["normalized_power"] = int(round(np_val))
+            offset = end
+
     return ride, record_rows, power_bests, lap_rows
 
 

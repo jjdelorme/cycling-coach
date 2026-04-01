@@ -8,6 +8,7 @@ from server.services.intervals_icu import (
     fetch_activity_fit_laps,
     map_activity_to_ride,
 )
+from server.services.sync import _enrich_laps_with_np
 
 
 class TestSemicirclesToDegrees:
@@ -241,6 +242,119 @@ class TestFetchActivityFitLaps:
         assert len(laps) == 1
         assert laps[0]["intensity"] is None
         assert laps[0]["lap_trigger"] is None
+
+
+class TestEnrichLapsWithNP:
+    """Tests for calculating NP per lap from stream power data."""
+
+    def _make_lap(self, duration, normalized_power=None):
+        return {
+            "lap_index": 0,
+            "start_time": None,
+            "total_timer_time": duration,
+            "total_elapsed_time": duration,
+            "total_distance": None,
+            "avg_power": 200,
+            "normalized_power": normalized_power,
+            "max_power": 300,
+            "avg_hr": None,
+            "max_hr": None,
+            "avg_cadence": None,
+            "max_cadence": None,
+            "avg_speed": None,
+            "max_speed": None,
+            "total_ascent": None,
+            "total_descent": None,
+            "total_calories": None,
+            "total_work": None,
+            "intensity": None,
+            "lap_trigger": None,
+            "wkt_step_index": None,
+            "start_lat": None,
+            "start_lon": None,
+            "end_lat": None,
+            "end_lon": None,
+            "avg_temperature": None,
+        }
+
+    def test_calculates_np_for_laps(self):
+        """NP is computed from stream power data when missing from source."""
+        # 120 seconds of steady 200w power
+        stream_map = {
+            "time": list(range(120)),
+            "watts": [200] * 120,
+        }
+        laps = [self._make_lap(60), self._make_lap(60)]
+        laps[0]["lap_index"] = 0
+        laps[1]["lap_index"] = 1
+
+        _enrich_laps_with_np(laps, stream_map)
+
+        # Steady power → NP ≈ avg power
+        assert laps[0]["normalized_power"] == 200
+        assert laps[1]["normalized_power"] == 200
+
+    def test_preserves_existing_np(self):
+        """Laps that already have NP from source data are not overwritten."""
+        stream_map = {
+            "time": list(range(60)),
+            "watts": [200] * 60,
+        }
+        laps = [self._make_lap(60, normalized_power=185)]
+
+        _enrich_laps_with_np(laps, stream_map)
+
+        assert laps[0]["normalized_power"] == 185
+
+    def test_variable_power_np_exceeds_average(self):
+        """NP should be higher than average power for variable efforts."""
+        # Alternating blocks of 100w and 300w (60s each) for 240s total
+        # Blocks longer than the 30s rolling window so variability shows up in NP
+        watts = [100] * 60 + [300] * 60 + [100] * 60 + [300] * 60
+        stream_map = {
+            "time": list(range(240)),
+            "watts": watts,
+        }
+        laps = [self._make_lap(240)]
+
+        _enrich_laps_with_np(laps, stream_map)
+
+        # Average is 200, NP should be higher due to variability
+        assert laps[0]["normalized_power"] is not None
+        assert laps[0]["normalized_power"] > 200
+
+    def test_no_watts_stream(self):
+        """No crash when watts stream is missing."""
+        stream_map = {"time": list(range(60)), "watts": []}
+        laps = [self._make_lap(60)]
+
+        _enrich_laps_with_np(laps, stream_map)
+
+        assert laps[0]["normalized_power"] is None
+
+    def test_mismatched_stream_lengths(self):
+        """No crash when time and watts arrays differ in length."""
+        stream_map = {"time": list(range(60)), "watts": [200] * 30}
+        laps = [self._make_lap(60)]
+
+        _enrich_laps_with_np(laps, stream_map)
+
+        # Should bail out — lengths don't match
+        assert laps[0]["normalized_power"] is None
+
+    def test_zero_duration_lap_skipped(self):
+        """Laps with zero or missing duration are skipped without error."""
+        stream_map = {
+            "time": list(range(60)),
+            "watts": [200] * 60,
+        }
+        laps = [self._make_lap(0), self._make_lap(60)]
+        laps[1]["lap_index"] = 1
+
+        _enrich_laps_with_np(laps, stream_map)
+
+        assert laps[0]["normalized_power"] is None
+        assert laps[1]["normalized_power"] == 200
 
 
 class TestMapActivityToRideTitle:

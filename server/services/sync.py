@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from server.database import get_db
-from server.metrics import process_ride_samples
+from server.metrics import calculate_np, process_ride_samples
 from server.queries import get_latest_metric
 from server.services.intervals_icu import (
     compute_sync_hash,
@@ -165,6 +165,51 @@ async def _broadcast(sync_id: str, message: dict):
 # ---------------------------------------------------------------------------
 # Core sync logic
 # ---------------------------------------------------------------------------
+
+
+def _enrich_laps_with_np(laps: list[dict], stream_map: dict[str, list]) -> None:
+    """Calculate NP for each lap using stream power data.
+
+    Slices the watts stream by lap boundaries (using cumulative timer times)
+    and computes NP for any lap missing it.
+    """
+    import numpy as np
+
+    watts = stream_map.get("watts", [])
+    time_data = stream_map.get("time", [])
+    if not watts or not time_data or len(watts) != len(time_data):
+        return
+
+    power_arr = np.array(watts, dtype=float)
+    time_arr = np.array(time_data, dtype=float)
+
+    # Build lap boundaries from cumulative timer times
+    offset = 0.0
+    for lap in laps:
+        duration = lap.get("total_timer_time")
+        if not duration or duration <= 0:
+            offset += duration or 0
+            continue
+
+        # Already has NP from source data — skip
+        if lap.get("normalized_power"):
+            offset += duration
+            continue
+
+        lap_start = offset
+        lap_end = offset + duration
+
+        # Select samples within this lap's time window
+        mask = (time_arr >= lap_start) & (time_arr < lap_end)
+        lap_power = power_arr[mask]
+
+        if len(lap_power) > 0:
+            np_val = calculate_np(lap_power)
+            if np_val and np_val > 0:
+                lap["normalized_power"] = int(round(np_val))
+
+        offset = lap_end
+
 
 def _extract_streams(streams: dict | list) -> dict[str, list]:
     """Normalize intervals.icu stream data into a dict of lists.
@@ -436,6 +481,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
             # Fetch and store per-second stream data
             if ride_db_id:
                 icu_id = activity.get("id", "")
+                sport = ride.get("sport", "").lower()
+                is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
+                stream_map = {}
                 try:
                     t_stream = time.monotonic()
                     streams = await asyncio.to_thread(fetch_activity_streams, icu_id)
@@ -446,9 +494,6 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         log_lines.append(_tlog(f"  + stored stream data for {ride['date']} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
 
                         # Step 3.A: Process ride samples for metrics and power bests
-                        sport = ride.get("sport", "").lower()
-                        is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
-                        
                         stream_map = _extract_streams(streams)
                         raw_powers = stream_map.get("watts", []) if is_cycling else []
                         raw_hrs = stream_map.get("heartrate", [])
@@ -551,6 +596,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                 try:
                     laps = await asyncio.to_thread(fetch_activity_fit_laps, icu_id)
                     if laps:
+                        # Calculate NP per lap from stream power data
+                        if is_cycling and stream_map:
+                            _enrich_laps_with_np(laps, stream_map)
                         _store_laps(ride_db_id, laps, conn=conn)
                         log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride['date']}"))
                 except Exception as le:
