@@ -123,6 +123,7 @@ class MonthlySummary(BaseModel):
 class PowerBestEntry(BaseModel):
     duration_s: int
     power: float
+    avg_hr: Optional[float] = None
     date: str
     ride_id: int
 

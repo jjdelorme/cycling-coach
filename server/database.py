@@ -495,7 +495,8 @@ def init_db():
         "ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_hr INTEGER",
         "ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_cadence INTEGER",
         "ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS start_offset_s INTEGER",
-        "CREATE INDEX IF NOT EXISTS idx_power_bests_composite ON power_bests(duration_s, date DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_power_bests_composite ON power_bests(duration_s, date DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_power_bests_duration_power ON power_bests(duration_s, power DESC, date DESC)"
     ]
     for stmt in v152_migrations:
         try:

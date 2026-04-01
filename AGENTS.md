@@ -6,7 +6,7 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 ## Development Safety & Mandates
 
 - **DATABASE PROTECTION:** NEVER write sample, test, or dummy data to the production database.
-- **LOCAL DEVELOPMENT:** Always use the local Podman-managed PostgreSQL container (`podman-compose up -d`) for development and testing.
+- **LOCAL DEVELOPMENT:** Always use the local Podman-managed PostgreSQL container (`podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine`) for development and testing.
 - **ENVIRONMENT VERIFICATION:** Before running any script or command that modifies the database, verify that `DATABASE_URL` is pointing to `localhost` or the intended local development instance.
 
 ## Tech Stack
@@ -15,25 +15,26 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 - **AI Coaching**: Google ADK with Gemini via Vertex AI (Application Default Credentials)
 - **Testing**: pytest
 - **Package management**: pip + requirements.txt
-- **Containers**: Podman (not Docker) — use `podman` and `podman-compose` commands
+- **Containers**: Podman (not Docker) — use `podman` commands
 
 ## Data Sources
 - Raw data in GCS: `gs://jasondel-coach-data` (fit/, json/, planned_workouts/)
 - PostgreSQL DB is always rebuildable from GCS JSON files
-- Local dev uses Podman-managed Postgres (`podman-compose up -d`)
+- Local dev uses Podman-managed Postgres (`podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine`)
 - Ride JSON files have: session, sport, user_profile, record (per-second data)
 
 ## Project Structure
 - `server/` — FastAPI backend
 - `frontend/` — React/Vite frontend SPA
-- `tests/` — pytest tests
+- `tests/` — pytest tests (see Testing section below)
 - `data/` — Local data files (gitignored)
 - `scripts/` — One-off data processing scripts
 - `analysis/` — Season analysis outputs
 - `plans/` — Build plans
 
 ## Commands
-- `podman-compose up -d` — start local Postgres
+- `source venv/bin/activate` — activate Python venv (**always do this first**)
+- `podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine` — start local Postgres
 - `pip install -r requirements.txt` — install backend deps
 - `cd frontend && npm install` — install frontend deps
 - `python -m server.ingest` — ingest data from JSON files into Postgres
@@ -41,8 +42,41 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 - `uvicorn server.main:app --reload` — run backend dev server only
 - `cd frontend && npm run dev` — run frontend dev server only (Vite)
 - `cd frontend && npm run build` — production frontend build
-- `pytest` — run all tests
-- `pytest tests/test_database.py -v` — run specific test file
+
+## Testing
+
+Tests are split into **unit** and **integration** tests. Unit tests never touch a database. Integration tests require a dedicated test database container.
+
+```
+tests/
+├── conftest.py          # Shared config (disables Google auth)
+├── unit/                # Fast, no database, no external services
+│   └── test_*.py
+└── integration/         # Requires test database container
+    └── test_*.py
+```
+
+### Running Tests
+
+Activate the venv first: `source venv/bin/activate`
+
+- `pytest` — run **unit tests only** (safe, no database needed)
+- `./scripts/run_integration_tests.sh` — run **integration tests** (starts a disposable Postgres container on port 5433, runs tests, tears it down)
+- `./scripts/run_integration_tests.sh -v` — verbose integration tests (extra args are passed to pytest)
+- `pytest tests/integration/ tests/unit/` — run **all tests** (requires test DB to be running)
+
+### Test Database
+
+Integration tests use a dedicated Postgres container (`coach-test-db`) on **port 5433**, completely isolated from the dev database on port 5432. The container uses a tmpfs mount — data is disposable.
+
+To manage the test database manually:
+- `podman run -d --name coach-test-db -p 5433:5432 -e POSTGRES_DB=coach_test -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=dev -e POSTGRES_HOST_AUTH_METHOD=trust --tmpfs /var/lib/postgresql/data docker.io/library/postgres:16-alpine` — start test DB
+- `podman rm -f coach-test-db` — stop and remove test DB
+
+### Writing Tests
+
+- **Unit tests** (`tests/unit/`): Pure logic, mocked dependencies. No imports from `server.database`.
+- **Integration tests** (`tests/integration/`): Use the shared `client` and `db_conn` fixtures from `tests/integration/conftest.py`. Do NOT call `init_db()` (handled by session fixture). Do NOT use `TRUNCATE` or destructive cleanup — the test database is disposable.
 
 ### Versioning
 The `VERSION` file is **not checked into git**. It is auto-generated from git tags:

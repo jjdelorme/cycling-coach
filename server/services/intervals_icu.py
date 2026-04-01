@@ -2,7 +2,10 @@
 
 import hashlib
 import logging
+import os
+import tempfile
 from datetime import datetime, timedelta
+import fitparse
 import httpx
 
 from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID
@@ -192,81 +195,91 @@ def fetch_activity_streams(activity_id: str) -> dict:
     return resp.json()
 
 
-def fetch_activity_intervals(activity_id: str) -> list[dict]:
-    """Fetch lap/interval data for an activity from intervals.icu.
 
-    Returns list of interval dicts with power, HR, cadence, etc.
+def _semicircles_to_degrees(val):
+    """Convert Garmin semicircle coordinates to decimal degrees, or return None."""
+    if val is None:
+        return None
+    if abs(val) > 180:
+        return val * (180 / 2**31)
+    return val
+
+
+def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
+    """Download the original FIT file from intervals.icu and extract device laps.
+
+    Returns the actual device-recorded laps (e.g. manual lap presses on a Garmin)
+    by parsing the original FIT file.
     """
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
         raise RuntimeError("intervals.icu not configured")
 
-    url = f"{BASE_URL}/api/v1/activity/{activity_id}/intervals"
-
-    resp = httpx.get(url, auth=("API_KEY", api_key), timeout=30.0)
+    url = f"{BASE_URL}/api/v1/activity/{activity_id}/file"
+    resp = httpx.get(url, auth=("API_KEY", api_key), timeout=60.0)
 
     if resp.status_code != 200:
-        logger.error("Failed to fetch intervals for %s: status=%s", activity_id, resp.status_code)
+        logger.warning("Could not download FIT file for %s: status=%s", activity_id, resp.status_code)
         return []
 
-    data = resp.json()
-    # API returns {"icu_intervals": [...], ...}
-    if isinstance(data, dict):
-        return data.get("icu_intervals", [])
-    return data if isinstance(data, list) else []
+    fd, tmp_path = tempfile.mkstemp(suffix=".fit")
+    try:
+        os.write(fd, resp.content)
+        os.close(fd)
 
+        fitfile = fitparse.FitFile(tmp_path)
+        fit_laps = list(fitfile.get_messages("lap"))
+    except Exception as e:
+        logger.warning("Failed to parse FIT file for %s: %s", activity_id, e)
+        return []
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
-def map_intervals_to_laps(intervals: list[dict]) -> list[dict]:
-    """Map intervals.icu interval data to our ride_laps schema."""
     laps = []
-    for i, iv in enumerate(intervals):
-        # intervals.icu uses type field: "RECOVERY", "WORK", "ACTIVE", etc.
-        iv_type = (iv.get("type") or "").upper()
+    for i, lap in enumerate(fit_laps):
+        fields = {f.name: f.value for f in lap.fields}
 
-        # Map type to intensity
-        if iv_type in ("REST", "RECOVERY"):
-            intensity = "rest"
-        elif iv_type in ("WORK", "SPRINT", "ACTIVE"):
-            intensity = "active"
-        else:
-            intensity = "active" if iv.get("average_watts") else None
+        intensity = fields.get("intensity")
+        if not isinstance(intensity, str):
+            intensity = None
 
-        # Map type to lap_trigger
-        lap_trigger = iv_type.lower() if iv_type else None
-
-        # avg_cadence from icu is a float, round it
-        avg_cad = iv.get("average_cadence")
-        if avg_cad is not None:
-            avg_cad = round(avg_cad)
+        lap_trigger = fields.get("lap_trigger")
+        if not isinstance(lap_trigger, str):
+            lap_trigger = None
 
         laps.append({
-            "lap_index": i,
-            "start_time": None,  # icu intervals use start_index (seconds), not timestamps
-            "total_timer_time": iv.get("moving_time"),
-            "total_elapsed_time": iv.get("elapsed_time"),
-            "total_distance": iv.get("distance"),
-            "avg_power": iv.get("average_watts"),
-            "normalized_power": iv.get("weighted_average_watts"),
-            "max_power": iv.get("max_watts"),
-            "avg_hr": iv.get("average_heartrate"),
-            "max_hr": iv.get("max_heartrate"),
-            "avg_cadence": avg_cad,
-            "max_cadence": iv.get("max_cadence"),
-            "avg_speed": iv.get("average_speed"),
-            "max_speed": iv.get("max_speed"),
-            "total_ascent": iv.get("total_elevation_gain"),
-            "total_descent": None,
-            "total_calories": None,
-            "total_work": iv.get("joules"),
+            "lap_index": fields.get("message_index", i),
+            "start_time": str(fields["start_time"]) if fields.get("start_time") else None,
+            "total_timer_time": fields.get("total_timer_time"),
+            "total_elapsed_time": fields.get("total_elapsed_time"),
+            "total_distance": fields.get("total_distance"),
+            "avg_power": fields.get("avg_power"),
+            "normalized_power": fields.get("Normalized Power"),
+            "max_power": fields.get("max_power"),
+            "avg_hr": fields.get("avg_heart_rate"),
+            "max_hr": fields.get("max_heart_rate"),
+            "avg_cadence": fields.get("avg_cadence"),
+            "max_cadence": fields.get("max_cadence"),
+            "avg_speed": fields.get("enhanced_avg_speed"),
+            "max_speed": fields.get("enhanced_max_speed"),
+            "total_ascent": fields.get("total_ascent"),
+            "total_descent": fields.get("total_descent"),
+            "total_calories": fields.get("total_calories"),
+            "total_work": fields.get("total_work"),
             "intensity": intensity,
             "lap_trigger": lap_trigger,
-            "wkt_step_index": None,
-            "start_lat": None,
-            "start_lon": None,
-            "end_lat": None,
-            "end_lon": None,
-            "avg_temperature": iv.get("average_temp"),
+            "wkt_step_index": fields.get("wkt_step_index"),
+            "start_lat": _semicircles_to_degrees(fields.get("start_position_lat")),
+            "start_lon": _semicircles_to_degrees(fields.get("start_position_long")),
+            "end_lat": _semicircles_to_degrees(fields.get("end_position_lat")),
+            "end_lon": _semicircles_to_degrees(fields.get("end_position_long")),
+            "avg_temperature": fields.get("avg_temperature"),
         })
+
+    logger.info("Extracted %d device laps from FIT file for %s", len(laps), activity_id)
     return laps
 
 
@@ -296,6 +309,7 @@ def map_activity_to_ride(activity: dict) -> dict | None:
     ride = {
         "date": date,
         "start_time": start_date,
+        "title": activity.get("name"),
         "filename": f"icu_{icu_id}",
         "sport": sport,
         "sub_sport": (activity.get("sub_type") or "").lower(),

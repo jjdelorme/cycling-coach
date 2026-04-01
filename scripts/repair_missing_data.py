@@ -9,7 +9,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from server.database import get_db
 from server.services.intervals_icu import fetch_activities, fetch_activity_streams, map_activity_to_ride, is_configured
-from server.services.sync import _store_streams, _extract_streams, _backfill_start_location, _store_laps, map_intervals_to_laps, fetch_activity_intervals
+from server.services.intervals_icu import fetch_activity_fit_laps
+from server.services.sync import _store_streams, _extract_streams, _backfill_start_location, _store_laps
 from server.metrics import process_ride_samples
 from server.queries import get_latest_metric
 from server.ingest import get_benchmark_for_date, compute_daily_pmc
@@ -142,12 +143,10 @@ async def repair_missing_data():
                             [(ride_id, date, pb["duration_s"], pb["power"], pb.get("avg_hr"), pb.get("avg_cadence"), pb.get("start_offset_s")) for pb in metrics["power_bests"]]
                         )
                 
-                # Fetch and store laps
-                intervals = await asyncio.to_thread(fetch_activity_intervals, icu_id)
-                if intervals:
-                    laps = map_intervals_to_laps(intervals)
-                    if laps:
-                        _store_laps(ride_id, laps, conn=conn)
+                # Fetch and store device laps from FIT file
+                laps = await asyncio.to_thread(fetch_activity_fit_laps, icu_id)
+                if laps:
+                    _store_laps(ride_id, laps, conn=conn)
 
                 conn.commit()
                 repaired += 1

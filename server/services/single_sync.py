@@ -6,8 +6,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from server.database import get_db
-from server.services.intervals_icu import _get_credentials, fetch_activity_streams, is_configured, map_activity_to_ride
-from server.services.sync import _extract_streams, _store_streams, _backfill_start_location
+from server.services.intervals_icu import _get_credentials, fetch_activity_fit_laps, fetch_activity_streams, is_configured, map_activity_to_ride
+from server.services.sync import _extract_streams, _store_laps, _store_streams, _backfill_start_location
 from server.metrics import process_ride_samples
 from server.queries import get_latest_metric
 from server.ingest import get_benchmark_for_date
@@ -156,7 +156,17 @@ async def import_specific_activity(icu_id):
         else:
             logger.warning("No streams available.")
             logger.info(f"Done processing {icu_id}. Final data: Sport={ride_data.get('sport')}, TSS={ride_data.get('tss')}")
-            
+
+        # Fetch and store device laps from FIT file
+        try:
+            conn.execute("DELETE FROM ride_laps WHERE ride_id = %(id)s", {"id": ride_id})
+            laps = fetch_activity_fit_laps(icu_id)
+            if laps:
+                _store_laps(ride_id, laps, conn=conn)
+                logger.info(f"Stored {len(laps)} device laps for {icu_id}")
+        except Exception as e:
+            logger.warning(f"Could not fetch laps for {icu_id}: {e}")
+
         conn.commit()
 
 if __name__ == "__main__":

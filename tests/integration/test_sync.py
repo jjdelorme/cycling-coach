@@ -166,7 +166,7 @@ async def test_sync_generates_power_bests():
     
     with patch("server.services.sync.fetch_activities", return_value=[mock_activity]), \
          patch("server.services.sync.fetch_activity_streams", return_value=mock_streams), \
-         patch("server.services.sync.fetch_activity_intervals", return_value=[]), \
+         patch("server.services.sync.fetch_activity_fit_laps", return_value=[]), \
          patch("server.services.sync.get_watermark", return_value=None), \
          patch("server.services.sync.set_watermark"), \
          patch("server.services.sync._broadcast"):
@@ -208,3 +208,128 @@ async def test_sync_generates_power_bests():
             conn.execute("DELETE FROM power_bests WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_999')")
             conn.execute("DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_999')")
             conn.execute("DELETE FROM rides WHERE filename = 'icu_icu_999'")
+
+@pytest.mark.asyncio
+async def test_sync_processes_fit_laps():
+    """Verify that a sync run fetches and persists FIT laps."""
+    from server.services.sync import _download_rides
+    
+    # Mock data for a single ride
+    mock_activity = {
+        "id": "icu_888",
+        "start_date_local": "2026-03-25T09:00:00",
+        "type": "Ride",
+        "moving_time": 1800,
+        "distance": 15000,
+        "average_watts": 250,
+        "icu_ftp": 250,
+    }
+    
+    # Mock streams
+    mock_streams = {
+        "time": list(range(1800)),
+        "watts": [250.0] * 1800,
+    }
+    
+    # Mock laps
+    mock_laps = [
+        {
+            "lap_index": 0,
+            "start_time": "2026-03-25T09:00:00Z",
+            "total_timer_time": 900.0,
+            "total_elapsed_time": 905.0,
+            "total_distance": 7500.0,
+            "avg_power": 240.0,
+            "normalized_power": 245.0,
+            "max_power": 400.0,
+            "avg_hr": 150.0,
+            "max_hr": 160.0,
+            "avg_cadence": 90.0,
+            "max_cadence": 100.0,
+            "avg_speed": 8.33,
+            "max_speed": 12.0,
+            "total_ascent": 50.0,
+            "total_descent": 10.0,
+            "total_calories": 400,
+            "total_work": 216000,
+            "intensity": 0.96,
+            "lap_trigger": "manual",
+            "wkt_step_index": None,
+            "start_lat": 45.0,
+            "start_lon": -122.0,
+            "end_lat": 45.1,
+            "end_lon": -122.1,
+            "avg_temperature": 20.0,
+        },
+        {
+            "lap_index": 1,
+            "start_time": "2026-03-25T09:15:05Z",
+            "total_timer_time": 900.0,
+            "total_elapsed_time": 900.0,
+            "total_distance": 7500.0,
+            "avg_power": 260.0,
+            "normalized_power": 265.0,
+            "max_power": 450.0,
+            "avg_hr": 160.0,
+            "max_hr": 170.0,
+            "avg_cadence": 95.0,
+            "max_cadence": 110.0,
+            "avg_speed": 8.33,
+            "max_speed": 13.0,
+            "total_ascent": 20.0,
+            "total_descent": 60.0,
+            "total_calories": 450,
+            "total_work": 234000,
+            "intensity": 1.04,
+            "lap_trigger": "manual",
+            "wkt_step_index": None,
+            "start_lat": 45.1,
+            "start_lon": -122.1,
+            "end_lat": 45.2,
+            "end_lon": -122.2,
+            "avg_temperature": 21.0,
+        }
+    ]
+    
+    with patch("server.services.sync.fetch_activities", return_value=[mock_activity]), \
+         patch("server.services.sync.fetch_activity_streams", return_value=mock_streams), \
+         patch("server.services.sync.fetch_activity_fit_laps", return_value=mock_laps), \
+         patch("server.services.sync.get_watermark", return_value=None), \
+         patch("server.services.sync.set_watermark"), \
+         patch("server.services.sync._broadcast"):
+        
+        sync_id = "test-laps-1"
+        log_lines = []
+        
+        with get_db() as conn:
+            # Clear existing data for this mock ride if it exists
+            conn.execute("DELETE FROM ride_laps WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_888')")
+            conn.execute("DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename = 'icu_icu_888')")
+            conn.execute("DELETE FROM rides WHERE filename = 'icu_icu_888'")
+            
+            # Run the download
+            downloaded, skipped, earliest = await _download_rides(sync_id, log_lines, conn)
+            assert downloaded == 1
+            
+            # Get the inserted ride's ID
+            ride_row = conn.execute("SELECT id FROM rides WHERE filename = 'icu_icu_888'").fetchone()
+            assert ride_row is not None
+            ride_db_id = ride_row["id"]
+            
+            # Verify ride_laps were created for THIS ride
+            rows = conn.execute("SELECT * FROM ride_laps WHERE ride_id = %s ORDER BY lap_index", (ride_db_id,)).fetchall()
+            assert len(rows) == 2, "Laps were not created for the synced ride!"
+            
+            assert rows[0]["lap_index"] == 0
+            assert rows[0]["avg_power"] == 240.0
+            assert rows[0]["start_lat"] == 45.0
+            
+            assert rows[1]["lap_index"] == 1
+            assert rows[1]["avg_power"] == 260.0
+            assert rows[1]["end_lon"] == -122.2
+            
+            # Cleanup for this test
+            conn.execute("DELETE FROM power_bests WHERE ride_id = %s", (ride_db_id,))
+            conn.execute("DELETE FROM ride_laps WHERE ride_id = %s", (ride_db_id,))
+            conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_db_id,))
+            conn.execute("DELETE FROM rides WHERE id = %s", (ride_db_id,))

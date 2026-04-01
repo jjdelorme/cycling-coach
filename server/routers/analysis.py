@@ -22,7 +22,7 @@ def power_curve(
         rows = get_power_bests_rows(conn, start_date, end_date)
 
     return [
-        {"duration_s": r["duration_s"], "power": r["power"], "date": r["date"], "ride_id": r["ride_id"]}
+        {"duration_s": r["duration_s"], "power": r["power"], "avg_hr": r["avg_hr"], "date": r["date"], "ride_id": r["ride_id"]}
         for r in rows
     ]
 
@@ -60,6 +60,7 @@ def zone_distribution(
         FROM ride_records rr
         JOIN rides r ON rr.ride_id = r.id
         WHERE rr.power IS NOT NULL AND rr.power > 0 AND r.ftp > 0
+          AND rr.power <= 2000 AND rr.power <= (r.ftp * 5)
     """
     params = []
     if start_date:
@@ -112,11 +113,24 @@ def efficiency_factor(
     end_date: Optional[str] = Query(None),
     user: CurrentUser = Depends(require_read),
 ):
-    """Efficiency Factor (NP/avgHR) over time."""
+    """Efficiency Factor (NP/avgHR) over time with 30-day rolling average.
+
+    Filters for cycling sports and endurance rides (duration >= 30min, IF 0.5-0.8).
+    """
     query = """
-        SELECT id, date, normalized_power, avg_hr, duration_s, sub_sport
+        SELECT id, date, normalized_power, avg_hr, duration_s, sub_sport,
+               (CAST(normalized_power AS FLOAT) / avg_hr) as ef,
+               AVG(CAST(normalized_power AS FLOAT) / avg_hr) OVER (
+                   ORDER BY CAST(date AS DATE)
+                   RANGE BETWEEN INTERVAL '30 days' PRECEDING AND CURRENT ROW
+               ) as rolling_ef
         FROM rides
         WHERE normalized_power > 0 AND avg_hr > 0
+          AND sport IN ('ride', 'ebikeride', 'emountainbikeride', 'gravelride',
+                        'mountainbikeride', 'trackride', 'velomobile', 'virtualride',
+                        'handcycle', 'cycling')
+          AND duration_s >= 1800
+          AND intensity_factor BETWEEN 0.5 AND 0.8
     """
     params = []
     if start_date:
@@ -134,7 +148,8 @@ def efficiency_factor(
         {
             "date": r["date"],
             "ride_id": r["id"],
-            "ef": round(r["normalized_power"] / r["avg_hr"], 3),
+            "ef": round(r["ef"], 3),
+            "rolling_ef": round(r["rolling_ef"], 3) if r["rolling_ef"] else None,
             "np": r["normalized_power"],
             "avg_hr": r["avg_hr"],
             "duration_s": r["duration_s"],

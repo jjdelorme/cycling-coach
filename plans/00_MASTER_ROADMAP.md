@@ -40,4 +40,4 @@ This document serves as the top-level view of all active, planned, and completed
 
 - [ ] **Campaign 9: UI Maintenance & Infrastructure** (`plans/v1.5.2-09-ui-maintenance.md`)
   - *Status:* Planned
-  - *Goal:* Calendar highlight regression fix, dev build version string, and UI version footer.
+  - *Goal:* Distinct calendar hover/selection color, dev build version string, and UI version footer.

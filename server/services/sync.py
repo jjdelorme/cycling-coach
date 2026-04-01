@@ -19,13 +19,12 @@ from server.queries import get_latest_metric
 from server.services.intervals_icu import (
     compute_sync_hash,
     fetch_activities,
-    fetch_activity_intervals,
+    fetch_activity_fit_laps,
     fetch_activity_streams,
     fetch_calendar_events,
     find_matching_workout,
     is_configured,
     map_activity_to_ride,
-    map_intervals_to_laps,
     push_workout,
 )
 
@@ -548,16 +547,14 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                     logger.warning(err)
                     log_lines.append(_tlog(f"  ! {err}"))
 
-                # Fetch and store lap/interval data
+                # Fetch and store device laps from FIT file
                 try:
-                    intervals = await asyncio.to_thread(fetch_activity_intervals, icu_id)
-                    if intervals:
-                        laps = map_intervals_to_laps(intervals)
-                        if laps:
-                            _store_laps(ride_db_id, laps, conn=conn)
-                            log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride['date']}"))
+                    laps = await asyncio.to_thread(fetch_activity_fit_laps, icu_id)
+                    if laps:
+                        _store_laps(ride_db_id, laps, conn=conn)
+                        log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride['date']}"))
                 except Exception as le:
-                    logger.warning("Could not fetch intervals for %s: %s", icu_id, le)
+                    logger.warning("Could not fetch laps for %s: %s", icu_id, le)
 
         except Exception as e:
             err = f"Error inserting ride {ride['filename']}: {e}"
@@ -705,12 +702,10 @@ def backfill_laps_from_icu() -> dict:
             continue
         icu_id = ride["filename"].replace("icu_", "")
         try:
-            intervals = fetch_activity_intervals(icu_id)
-            if intervals:
-                laps = map_intervals_to_laps(intervals)
-                if laps:
-                    _store_laps(ride["id"], laps)
-                    backfilled += 1
+            laps = fetch_activity_fit_laps(icu_id)
+            if laps:
+                _store_laps(ride["id"], laps)
+                backfilled += 1
         except Exception as e:
             logger.warning("Could not backfill laps for %s: %s", ride["filename"], e)
             errors += 1

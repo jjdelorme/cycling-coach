@@ -64,29 +64,24 @@ def get_pmc_row_for_date(conn, date: str) -> dict | None:
 def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Get best power at each standard duration, optionally filtered by date range.
 
-    Returns list of dicts with: duration_s, power, date, ride_id.
+    Returns list of dicts with: duration_s, power, avg_hr, date, ride_id.
+    Uses DISTINCT ON to pick the single best row per duration.
     """
     if start_date or end_date:
         sd = start_date or "2000-01-01"
         ed = end_date or datetime.now().strftime("%Y-%m-%d")
         rows = conn.execute(
-            """SELECT pb.duration_s, pb.power, pb.date, pb.ride_id
-               FROM power_bests pb
-               JOIN (SELECT duration_s, MAX(power) as max_power
-                     FROM power_bests WHERE date >= %s AND date <= %s
-                     GROUP BY duration_s) m
-                 ON pb.duration_s = m.duration_s AND pb.power = m.max_power
-               WHERE pb.date >= %s AND pb.date <= %s
-               ORDER BY pb.duration_s""",
-            (sd, ed, sd, ed),
+            """SELECT DISTINCT ON (duration_s) duration_s, power, avg_hr, date, ride_id
+               FROM power_bests
+               WHERE date >= %s AND date <= %s
+               ORDER BY duration_s, power DESC, date DESC""",
+            (sd, ed),
         ).fetchall()
     else:
         rows = conn.execute(
-            """SELECT pb.duration_s, pb.power, pb.date, pb.ride_id
-               FROM power_bests pb
-               JOIN (SELECT duration_s, MAX(power) as max_power FROM power_bests GROUP BY duration_s) m
-                 ON pb.duration_s = m.duration_s AND pb.power = m.max_power
-               ORDER BY pb.duration_s"""
+            """SELECT DISTINCT ON (duration_s) duration_s, power, avg_hr, date, ride_id
+               FROM power_bests
+               ORDER BY duration_s, power DESC, date DESC"""
         ).fetchall()
     return [dict(r) for r in rows]
 
