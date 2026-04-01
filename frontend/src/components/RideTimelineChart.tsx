@@ -74,13 +74,29 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
 
   const { chartData, stepIndexMap, lapIndexMap, downsampleStep } = useMemo(() => {
     const maxPoints = 600
-    const step = Math.max(1, Math.floor(records.length / maxPoints))
-    const sampled = records.filter((_, i) => i % step === 0)
-    const labels = sampled.map((_, i) => { const s = i * step, m = Math.floor(s / 60), h = Math.floor(m / 60); return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` })
+    const plannedOnly = records.length === 0 && workout?.steps && workout.steps.length > 0
+
+    // For planned-only workouts, synthesize one data point per second from steps
+    let sampled: typeof records
+    let step: number
+    let labels: string[]
+
+    if (plannedOnly) {
+      const totalSeconds = workout!.steps.reduce((sum, s) => sum + s.duration_s, 0)
+      step = Math.max(1, Math.floor(totalSeconds / maxPoints))
+      const pointCount = Math.ceil(totalSeconds / step)
+      sampled = Array.from({ length: pointCount }, () => ({}))
+      labels = sampled.map((_, i) => { const s = i * step, m = Math.floor(s / 60), h = Math.floor(m / 60); return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` })
+    } else {
+      step = Math.max(1, Math.floor(records.length / maxPoints))
+      sampled = records.filter((_, i) => i % step === 0)
+      labels = sampled.map((_, i) => { const s = i * step, m = Math.floor(s / 60), h = Math.floor(m / 60); return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` })
+    }
+
     const datasets: any[] = []
-    
+
     const sMap = workout?.steps ? buildStepIndexMap(sampled.length, step, workout.steps) : []
-    const lMap = buildLapIndexMap(sampled.length, step, records, laps)
+    const lMap = plannedOnly ? [] : buildLapIndexMap(sampled.length, step, records, laps)
 
     if (workout?.steps) {
       datasets.push({
