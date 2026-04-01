@@ -177,7 +177,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                 className={`min-h-[100px] md:min-h-[130px] p-2 cursor-pointer transition-all relative group
                   ${isCM ? 'bg-surface' : 'bg-bg opacity-40'}
                   ${isT ? 'after:absolute after:inset-0 after:ring-2 after:ring-accent after:ring-inset' : ''}
-                  ${isS ? 'bg-surface-low' : 'hover:bg-surface-high'}
+                  ${isS ? 'bg-yellow/10 ring-1 ring-yellow/30 ring-inset' : 'hover:bg-yellow/5'}
                 `}
               >
                 <div className={`text-xs font-bold mb-1 ${isT ? 'text-accent' : isCM ? 'text-text' : 'text-text-muted'}`}>
