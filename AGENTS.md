@@ -5,6 +5,7 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 
 ## Development Safety & Mandates
 
+- **GIT COMMITS:** NEVER stage or commit changes to version control unless explicitly instructed to do so by the user.
 - **DATABASE PROTECTION:** NEVER write sample, test, or dummy data to the production database.
 - **LOCAL DEVELOPMENT:** Always use the local Podman-managed PostgreSQL container (`podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine`) for development and testing.
 - **ENVIRONMENT VERIFICATION:** Before running any script or command that modifies the database, verify that `DATABASE_URL` is pointing to `localhost` or the intended local development instance.
