@@ -79,10 +79,10 @@ To manage the test database manually:
 - **Integration tests** (`tests/integration/`): Use the shared `client` and `db_conn` fixtures from `tests/integration/conftest.py`. Do NOT call `init_db()` (handled by session fixture). Do NOT use `TRUNCATE` or destructive cleanup — the test database is disposable.
 
 ### Versioning
-The `VERSION` file is **not checked into git**. It is auto-generated from git tags:
-- **Production**: Cloud Build reads `$TAG_NAME` and passes it as a Docker build-arg
-- **Local dev**: `./scripts/dev.sh` generates it before starting servers
-- **Without the script**: backend shows "dev", frontend shows "development"
+The `VERSION` file is **not checked into git**.
+- **Production**: Cloud Build reads `$TAG_NAME`, writes it to the `VERSION` file, and passes it as a Docker build-arg. Both Vite and FastAPI will read this file if it exists.
+- **Local dev / Local builds**: If the `VERSION` file is missing, both Vite (`frontend/vite.config.ts`) and FastAPI (`server/main.py`) will automatically execute `git describe --tags --always` to determine the correct version.
+- **Fallback**: If both the file is missing and the git command fails, the backend shows "dev" and the frontend shows "development".
 
 ## Deployment
 

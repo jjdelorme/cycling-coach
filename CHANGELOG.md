@@ -20,6 +20,7 @@ This release encompasses major architectural and feature enhancements, advancing
 - Expanded database schema for robust power analytics and data cleaning.
 - Refactored testing infrastructure into distinctly separated unit and integration tests.
 - Added comprehensive `README.md` with systems of record and screenshots.
+- Replaced static `VERSION` file management; FastAPI and Vite now dynamically resolve the version directly from Git tags.
 
 ### Fixes
 - Fixed calculation of Normalized Power (NP) per lap from stream power data.

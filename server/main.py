@@ -3,6 +3,7 @@
 import logging
 import os
 import time
+import subprocess
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,10 +28,15 @@ logger = logging.getLogger(__name__)
 
 def _read_version() -> str:
     version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
-    try:
-        with open(version_file) as f:
+    if os.path.exists(version_file):
+        with open(version_file, "r") as f:
             return f.read().strip()
-    except FileNotFoundError:
+    try:
+        return subprocess.check_output(
+            ["git", "describe", "--tags", "--always"], 
+            text=True, stderr=subprocess.DEVNULL
+        ).strip().lstrip('v')
+    except Exception:
         return "dev"
 
 APP_VERSION = _read_version()
