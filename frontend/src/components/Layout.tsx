@@ -132,6 +132,11 @@ export default function Layout({ activeTab, onTabChange, viewContext, children }
         )}
       </div>
 
+      {/* Version indicator */}
+      <span className="hidden md:block fixed bottom-1 right-2 text-[10px] text-text-muted/40 select-none pointer-events-none z-50">
+        v{__APP_VERSION__}
+      </span>
+
       {/* Bottom nav - mobile */}
       <nav className="md:hidden flex border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]">
         {tabs.map(t => (
