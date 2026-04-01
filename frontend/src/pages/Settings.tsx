@@ -211,7 +211,10 @@ export default function Settings() {
       workouts_skipped?: number
     }) => {
       if (status.detail) {
-        setSyncLogs((prev) => [...prev, status.detail!])
+        setSyncLogs((prev) => {
+          if (prev.length > 0 && prev[prev.length - 1] === status.detail) return prev;
+          return [...prev, status.detail!];
+        })
       }
 
       if (status.phase === 'downloading_rides') setSyncProgress(30)
@@ -243,14 +246,16 @@ export default function Settings() {
   const handleSync = async () => {
     setSyncing(true)
     setSyncProgress(5)
-    setSyncLogs([])
+    setSyncLogs(['Initializing sync...'])
     setSyncResult(null)
 
     try {
       const { sync_id, ws_url } = await startSync()
       let wsConnected = false
       try {
-        const ws = new WebSocket(ws_url)
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const absoluteWsUrl = `${protocol}//${window.location.host}${ws_url}`;
+        const ws = new WebSocket(absoluteWsUrl)
         wsRef.current = ws
         ws.onopen = () => { wsConnected = true }
         ws.onmessage = (event) => {
@@ -258,7 +263,10 @@ export default function Settings() {
             const data = JSON.parse(event.data)
             handleSyncStatus(data)
           } catch {
-            setSyncLogs((prev) => [...prev, event.data])
+            setSyncLogs((prev) => {
+              if (prev.length > 0 && prev[prev.length - 1] === event.data) return prev;
+              return [...prev, event.data];
+            })
           }
         }
         ws.onerror = () => { if (!wsConnected) startPolling(sync_id) }
