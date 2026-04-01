@@ -38,6 +38,10 @@ This document serves as the top-level view of all active, planned, and completed
   - *Status:* Completed ✅
   - *Goal:* Full-stack capability to hard-delete rides and cascade DB deletions while recalculating PMC logic.
 
-- [ ] **Campaign 9: UI Maintenance & Infrastructure** (`plans/v1.5.2-09-ui-maintenance.md`)
-  - *Status:* Planned
+- [x] **Campaign 9: UI Maintenance & Infrastructure** (`plans/v1.5.2-09-ui-maintenance.md`)
+- *Status:* Completed ✅
   - *Goal:* Distinct calendar hover/selection color, dev build version string, and UI version footer.
+
+- [ ] **Campaign 10: Frontend Testing Infrastructure** (`plans/feat_frontend_unit_tests.md`)
+  - *Status:* Planned
+  - *Goal:* Establish comprehensive unit and integration testing suite for React frontend to prevent regressions.
