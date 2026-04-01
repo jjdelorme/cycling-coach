@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 
-from server.database import init_db, get_db
+from server.database import get_db
 from server.ingest import (
     parse_ride_json,
     parse_zwo,
@@ -83,7 +83,6 @@ def test_parse_zwo(tmp_path):
 
 
 def test_ingest_rides(tmp_path):
-    init_db()
     test_fname = "test_ingest_unique_abc123.json"
     ride_data = {
         "session": [
@@ -121,7 +120,6 @@ def test_ingest_rides(tmp_path):
 
 def test_incremental_ingestion(tmp_path):
     """Verify re-running ingestion doesn't create duplicates."""
-    init_db()
     ride_data = {
         "session": [{"start_time": "2025-06-01T10:00:00", "total_timer_time": 3600, "avg_power": 180, "threshold_power": 250}],
         "sport": [{"sport": "cycling", "sub_sport": "road"}],
@@ -147,7 +145,6 @@ def test_incremental_ingestion(tmp_path):
 
 def test_compute_daily_pmc():
     """Verify compute_daily_pmc produces results from existing ride data."""
-    init_db()
     with get_db() as conn:
         compute_daily_pmc(conn)
         metrics = conn.execute("SELECT * FROM daily_metrics ORDER BY date LIMIT 5").fetchall()

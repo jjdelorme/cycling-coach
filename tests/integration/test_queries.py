@@ -1,13 +1,11 @@
 """Tests for data-access queries."""
 
 import pytest
-from server.database import get_db, init_db
+from server.database import get_db
 from server.queries import get_latest_metric
 
 def test_get_latest_metric():
     """Test historical and fallback lookups for athlete metrics."""
-    # Ensure DB is initialized
-    init_db()
     
     with get_db() as conn:
         # Use a unique key for testing to avoid wiping real data

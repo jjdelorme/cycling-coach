@@ -3,14 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from server.database import init_db, get_db
-
-
-@pytest.fixture
-def db_conn():
-    init_db()
-    with get_db() as conn:
-        yield conn
+from server.database import get_db
 
 
 def test_executemany_batch_matches_row_by_row(db_conn):

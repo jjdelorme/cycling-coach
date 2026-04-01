@@ -3,16 +3,6 @@
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from server.database import init_db
-
-
-@pytest.fixture(scope="module")
-def client():
-    init_db()
-    from fastapi.testclient import TestClient
-    from server.main import app
-    return TestClient(app)
-
 
 def test_chat_endpoint_mocked(client):
     """Test chat endpoint with mocked LLM response."""

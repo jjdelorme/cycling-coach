@@ -1,14 +1,7 @@
 """Tests for ride deletion."""
 
 import pytest
-from fastapi.testclient import TestClient
-from server.database import get_db, init_db
-
-@pytest.fixture(scope="module")
-def client():
-    init_db()
-    from server.main import app
-    return TestClient(app)
+from server.database import get_db
 
 def test_delete_ride(client):
     # 1. Get a ride to delete

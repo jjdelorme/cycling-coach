@@ -1,10 +1,9 @@
 """Tests for database schema and basic operations."""
 
-from server.database import init_db, get_db
+from server.database import get_db
 
 
 def test_schema_creation():
-    init_db()
     with get_db() as conn:
         tables = [
             row["tablename"]

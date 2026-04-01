@@ -1,12 +1,10 @@
 """Tests for v1.5.2 database schema extensions."""
 
 import pytest
-from server.database import get_db, init_db
+from server.database import get_db
 
 def test_rides_new_columns():
     """Test that new columns in rides table work as expected."""
-    # Ensure DB is initialized
-    init_db()
     
     with get_db() as conn:
         # Insert a ride with new columns
@@ -30,9 +28,6 @@ def test_rides_new_columns():
 
 def test_power_bests_new_columns():
     """Test that new columns in power_bests table work as expected."""
-    # Ensure DB is initialized
-    init_db()
-    
     with get_db() as conn:
         # Need a ride first for the foreign key
         conn.execute(

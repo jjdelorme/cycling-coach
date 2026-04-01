@@ -4,13 +4,6 @@ import os
 import pytest
 from unittest.mock import patch, AsyncMock
 
-from server.database import init_db
-
-
-@pytest.fixture(autouse=True)
-def ensure_db():
-    init_db()
-
 
 # --- DbSessionService tests ---
 
@@ -160,7 +153,6 @@ async def test_memory_deduplication():
 def client():
     from fastapi.testclient import TestClient
     from server.main import app
-    init_db()
     return TestClient(app)
 
 

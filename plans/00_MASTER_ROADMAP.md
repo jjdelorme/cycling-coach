@@ -21,8 +21,8 @@ This document serves as the top-level view of all active, planned, and completed
 - [x] **Campaign 3: Dynamic Agent Intelligence** (`plans/v1.5.2-03-agent-intelligence.md`)
   - *Status:* Completed ✅
   - *Goal:* Tool-based metric retrieval and dynamic prompt injection to ensure the AI uses live DB state.
-- [ ] **Campaign 4: Enhanced Analysis API** (`plans/v1.5.2-04-analysis-api.md`)
-  - *Status:* Planned
+- [x] **Campaign 4: Enhanced Analysis API** (`plans/v1.5.2-04-analysis-api.md`)
+  - *Status:* Completed ✅
   - *Goal:* Delivery of Aggregated Power Curves, Time-in-Zones, and Efficiency Trends APIs.
 - [ ] **Campaign 5: Dashboard & UI Restoration** (`plans/v1.5.2-05-dashboard-restoration.md`)
   - *Status:* Planned
@@ -37,3 +37,7 @@ This document serves as the top-level view of all active, planned, and completed
 - [x] **Campaign 8: Delete Ride Feature** (`plans/feat_delete_ride.md`)
   - *Status:* Completed ✅
   - *Goal:* Full-stack capability to hard-delete rides and cascade DB deletions while recalculating PMC logic.
+
+- [ ] **Campaign 9: UI Maintenance & Infrastructure** (`plans/v1.5.2-09-ui-maintenance.md`)
+  - *Status:* Planned
+  - *Goal:* Calendar highlight regression fix, dev build version string, and UI version footer.

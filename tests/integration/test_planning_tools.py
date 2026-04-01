@@ -2,12 +2,7 @@
 
 import pytest
 
-from server.database import init_db, get_db
-
-
-@pytest.fixture(autouse=True)
-def setup_db():
-    init_db()
+from server.database import get_db
 
 
 def test_generate_weekly_plan():
@@ -97,7 +92,7 @@ def test_adjust_phase_not_found():
 def test_get_week_summary():
     from server.coaching.planning_tools import get_week_summary
 
-    result = get_week_summary("2025-08-15")
+    result = get_week_summary("2026-03-16")
     assert "planned_workouts" in result
     assert "actual_rides" in result
-    assert result["rides_count"] > 0  # Should have rides in August 2025
+    assert result["rides_count"] > 0  # Should have rides in this week

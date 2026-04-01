@@ -2,25 +2,11 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from fastapi.testclient import TestClient
 
-from server.database import init_db, get_db
-from server.main import app
+from server.database import get_db
 
 
-@pytest.fixture
-def client():
-    init_db()
-    yield TestClient(app)
-
-
-@pytest.fixture
-def db():
-    init_db()
-    yield
-
-
-def test_sync_tables_created(db):
+def test_sync_tables_created():
     """Verify sync tables exist in the schema."""
     with get_db() as conn:
         tables = [
@@ -33,7 +19,7 @@ def test_sync_tables_created(db):
     assert "sync_watermarks" in tables
 
 
-def test_sync_watermarks(db):
+def test_sync_watermarks():
     """Test watermark get/set operations."""
     from server.services.sync import get_watermark, set_watermark
 
@@ -131,7 +117,7 @@ def test_map_activity_to_ride_missing_data():
     assert map_activity_to_ride({"id": "abc"}) is None
 
 
-def test_sync_run_persistence(db):
+def test_sync_run_persistence():
     """Test creating and querying sync runs in the database."""
     from server.services.sync import _create_sync_run, get_sync_run, get_sync_history, _update_sync_run
 
@@ -155,7 +141,7 @@ def test_sync_run_persistence(db):
         conn.execute("DELETE FROM sync_runs WHERE id = 'test-123'")
 
 @pytest.mark.asyncio
-async def test_sync_generates_power_bests(db):
+async def test_sync_generates_power_bests():
     """Verify that a sync run calculates and persists power bests."""
     from server.services.sync import _download_rides
     

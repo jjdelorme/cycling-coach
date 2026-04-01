@@ -2,14 +2,6 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from fastapi.testclient import TestClient
-from server.main import app
-from server.database import init_db
-
-@pytest.fixture
-def client():
-    init_db()
-    return TestClient(app)
 
 def test_router_update_ftp_triggers_sync(client):
     """Verify that updating FTP via the router calls update_ftp."""

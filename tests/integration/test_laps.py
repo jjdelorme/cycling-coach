@@ -2,11 +2,9 @@
 
 import json
 import pytest
-from fastapi.testclient import TestClient
 
-from server.database import init_db, get_db
+from server.database import get_db
 from server.ingest import parse_ride_json, _semicircles_to_degrees, ingest_rides, backfill_laps
-from server.main import app
 
 
 def _make_ride_json(laps=None, records=None):
@@ -147,7 +145,6 @@ class TestLapExtraction:
 class TestBackfillLaps:
     def test_backfill_laps(self, tmp_path):
         """Ingest ride, delete laps, backfill, verify restored."""
-        init_db()
 
         laps = [
             {"message_index": 0, "intensity": "active", "total_timer_time": 600, "avg_power": 150},
@@ -193,7 +190,8 @@ class TestBackfillLaps:
 class TestAPILaps:
     @pytest.fixture
     def client(self):
-        init_db()
+        from fastapi.testclient import TestClient
+        from server.main import app
         yield TestClient(app)
 
     def test_ride_detail_includes_laps(self, client, tmp_path):

@@ -7,11 +7,9 @@ import sys
 
 import jwt
 import pytest
-from fastapi.testclient import TestClient
 
 from server.auth import create_api_token, verify_app_token
 from server.config import JWT_SECRET
-from server.database import init_db
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +61,7 @@ class TestCreateApiToken:
 class TestApiTokenWithEndpoints:
     @pytest.fixture(scope="class")
     def client(self):
-        init_db()
+        from fastapi.testclient import TestClient
         from server.main import app
         return TestClient(app)
 
