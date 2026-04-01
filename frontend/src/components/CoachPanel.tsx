@@ -50,6 +50,7 @@ export default function CoachPanel({ onClose, viewContext }: Props) {
   const [input, setInput] = useState('')
   const [sessionId, setSessionId] = useState<string | undefined>()
   const [loadingSession, setLoadingSession] = useState(false)
+  const [showAllSessions, setShowAllSessions] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const chat = useSendChat()
@@ -115,8 +116,8 @@ export default function CoachPanel({ onClose, viewContext }: Props) {
             <History size={12} />
             <span className="text-[10px] font-bold uppercase tracking-widest">Recent Sessions</span>
           </div>
-          <div className="space-y-2">
-            {sessions.slice(0, 4).map(s => (
+          <div className={`space-y-2 ${showAllSessions ? 'max-h-60 overflow-y-auto pr-1' : ''}`}>
+            {sessions.slice(0, showAllSessions ? undefined : 4).map(s => (
               <button
                 key={s.session_id}
                 onClick={async () => {
@@ -142,6 +143,14 @@ export default function CoachPanel({ onClose, viewContext }: Props) {
               </button>
             ))}
           </div>
+          {sessions.length > 4 && (
+            <button
+              onClick={() => setShowAllSessions(prev => !prev)}
+              className="w-full text-center text-[10px] font-bold uppercase tracking-widest text-text-muted hover:text-accent mt-3 py-1 transition-colors"
+            >
+              {showAllSessions ? 'Show Less' : 'Show More'}
+            </button>
+          )}
         </div>
       )}
 
