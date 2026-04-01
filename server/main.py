@@ -33,7 +33,7 @@ def _read_version() -> str:
             return f.read().strip()
     try:
         return subprocess.check_output(
-            ["git", "describe", "--tags", "--always"], 
+            ["git", "describe", "--tags", "--always", "--dirty"], 
             text=True, stderr=subprocess.DEVNULL
         ).strip().lstrip('v')
     except Exception:

@@ -12,7 +12,7 @@ if (fs.existsSync(versionFile)) {
   version = fs.readFileSync(versionFile, 'utf-8').trim()
 } else {
   try {
-    version = execSync('git describe --tags --always').toString().trim().replace(/^v/, '')
+    version = execSync('git describe --tags --always --dirty').toString().trim().replace(/^v/, '')
   } catch (e) {
     console.warn('Could not determine version from git, falling back to "development"')
   }
