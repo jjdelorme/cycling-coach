@@ -376,13 +376,25 @@ const syncSingleRide = useSyncSingleRide()
                 ? Math.sqrt(plannedTss / (plannedDur / 3600) / 100)
                 : undefined
 
+              const plannedAvgPower = pw?.steps?.length ? (() => {
+                let ws = 0
+                let totalDur = 0
+                for (const s of pw.steps) {
+                  ws += s.power_watts * s.duration_s
+                  totalDur += s.duration_s
+                }
+                return totalDur > 0 ? Math.round(ws / totalDur) : undefined
+              })() : undefined
+
+              const plannedNP = plannedIF && pw?.ftp ? Math.round(plannedIF * pw.ftp) : undefined
+
               return (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
                   <MetricCard label="Duration" value={fmtDuration(ride.duration_s)} planned={plannedDur ? fmtDuration(plannedDur) : null} icon={Clock} color="text-text" />
                   <MetricCard label="Distance" value={fmtDistance(ride.distance_m, units)} icon={TrendingUp} color="text-text" />
                   <MetricCard label="TSS" value={ride.tss?.toFixed(0) ?? '--'} planned={plannedTss ? plannedTss.toFixed(0) : null} icon={Zap} color="text-accent" />
-                  <MetricCard label="Avg Power" value={ride.avg_power ? `${ride.avg_power}w` : '--'} icon={Activity} color="text-blue" />
-                  <MetricCard label="NP" value={ride.normalized_power ? `${ride.normalized_power}w` : '--'} icon={ArrowUpRight} color="text-blue" />
+                  <MetricCard label="Avg Power" value={ride.avg_power ? `${ride.avg_power}w` : '--'} planned={plannedAvgPower ? `${plannedAvgPower}w` : null} icon={Activity} color="text-blue" />
+                  <MetricCard label="NP" value={ride.normalized_power ? `${ride.normalized_power}w` : '--'} planned={plannedNP ? `${plannedNP}w` : null} icon={ArrowUpRight} color="text-blue" />
                   <MetricCard label="Avg HR" value={ride.avg_hr ? `${ride.avg_hr}bpm` : '--'} higherIsBetter={false} icon={Heart} color="text-red" />
                   <MetricCard label="IF" value={ride.intensity_factor?.toFixed(2) ?? '--'} planned={plannedIF ? plannedIF.toFixed(2) : null} icon={Layers} color="text-text" />
                   <MetricCard label="Ascent" value={fmtElevation(ride.total_ascent, units)} icon={TrendingUp} color="text-green" />
@@ -417,6 +429,7 @@ const syncSingleRide = useSyncSingleRide()
                 {plannedWorkout && plannedWorkout.steps && plannedWorkout.steps.length > 0 && (
                   <WorkoutStepsTable
                     steps={plannedWorkout.steps}
+                    records={ride.records}
                     highlightedStep={hoveredStep ?? selectedStep}
                     selectedStep={selectedStep}
                     onHover={setHoveredStep}
@@ -766,13 +779,16 @@ function LapsTable({ laps, highlightedLap, selectedLap, onHover, onSelect }: {
   )
 }
 
-function WorkoutStepsTable({ steps, highlightedStep, selectedStep, onHover, onSelect }: { 
+function WorkoutStepsTable({ steps, records, highlightedStep, selectedStep, onHover, onSelect }: { 
   steps: WorkoutStep[]; 
+  records?: { power?: number, timestamp_utc?: string }[];
   highlightedStep: number | null; 
   selectedStep: number | null;
   onHover: (index: number | null) => void;
   onSelect: (index: number | null) => void;
 }) {
+  const hasRecords = records && records.length > 0;
+  
   return (
     <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
       <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-2">
@@ -788,6 +804,8 @@ function WorkoutStepsTable({ steps, highlightedStep, selectedStep, onHover, onSe
               <th className="py-3 px-5">Time</th>
               <th className="py-3 px-5">Duration</th>
               <th className="py-3 px-5 text-right">Target Power</th>
+              {hasRecords && <th className="py-3 px-5 text-right">Actual Power</th>}
+              {hasRecords && <th className="py-3 px-5 text-right w-24">Diff</th>}
             </tr>
           </thead>
           <tbody onMouseLeave={() => onHover(null)} className="divide-y divide-border/50">
@@ -795,6 +813,31 @@ function WorkoutStepsTable({ steps, highlightedStep, selectedStep, onHover, onSe
               const isH = highlightedStep === i
               const isS = selectedStep === i
               const isD = highlightedStep != null && highlightedStep !== i
+              
+              let actualPower: number | null = null
+              let powerDiff: number | null = null
+              let diffPct = 0
+              let diffColor = 'text-text-muted'
+              
+              if (hasRecords) {
+                // Approximate step matching using index = seconds
+                // This assumes 1 record per second starting at time 0
+                // For a more robust approach, we could use timestamps if we assume alignment
+                const startIdx = step.start_s
+                const endIdx = step.start_s + step.duration_s
+                const stepRecords = records!.slice(startIdx, endIdx).filter(r => r.power != null)
+                if (stepRecords.length > 0) {
+                  const sum = stepRecords.reduce((acc, r) => acc + (r.power || 0), 0)
+                  actualPower = Math.round(sum / stepRecords.length)
+                  powerDiff = actualPower - step.power_watts
+                  diffPct = step.power_watts > 0 ? (powerDiff / step.power_watts) * 100 : 0
+                  
+                  if (Math.abs(diffPct) <= 5) diffColor = 'text-green'
+                  else if (powerDiff > 0) diffColor = 'text-yellow'
+                  else diffColor = 'text-red'
+                }
+              }
+
               return (
                 <tr key={i} onMouseEnter={() => onHover(i)} onClick={() => onSelect(isS ? null : i)} className={`cursor-pointer transition-all duration-200 ${isS ? 'bg-accent/10' : isH ? 'bg-accent/5' : isD ? 'opacity-30 grayscale' : 'hover:bg-surface2/30'}`}>
                   <td className="py-3 px-5"><div className="w-full h-1.5 rounded-full shadow-[0_0_8px] shadow-current" style={{ backgroundColor: zoneColor(step.power_pct), color: zoneColor(step.power_pct) }} /></td>
@@ -802,6 +845,16 @@ function WorkoutStepsTable({ steps, highlightedStep, selectedStep, onHover, onSe
                   <td className="py-3 px-5 font-mono text-xs text-text-muted">{fmtTime(step.start_s)} - {fmtTime(step.start_s + step.duration_s)}</td>
                   <td className="py-3 px-5 font-bold text-text">{fmtTime(step.duration_s)}</td>
                   <td className="py-3 px-5 text-right font-mono font-bold text-blue">{step.power_watts}w <span className="text-[10px] text-text-muted opacity-50 ml-1">({Math.round(step.power_pct * 100)}%)</span></td>
+                  {hasRecords && (
+                    <td className="py-3 px-5 text-right font-mono font-bold text-text">
+                      {actualPower !== null ? `${actualPower}w` : '--'}
+                    </td>
+                  )}
+                  {hasRecords && (
+                    <td className={`py-3 px-5 text-right font-mono font-bold text-xs ${diffColor}`}>
+                      {powerDiff !== null ? `${powerDiff > 0 ? '+' : ''}${powerDiff}w` : '--'}
+                    </td>
+                  )}
                 </tr>
               )
             })}

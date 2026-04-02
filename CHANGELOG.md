@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.6.2] - 2026-04-02
+
+### Features & Enhancements
+- **Workouts:** Added side-by-side Actual vs. Planned comparisons for Avg Power and NP on ride summaries.
+- **Workouts:** Extended the ride timeline chart to visualize uncompleted segments of planned workouts.
+- **Workouts:** Added "Actual Power" and target difference to individual intervals on the workout step table.
+
 ## [v1.6.0] - 2026-04-01
 
 This release encompasses major architectural and feature enhancements, advancing the platform far beyond a minor fix.

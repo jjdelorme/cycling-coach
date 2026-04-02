@@ -76,22 +76,33 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
     const maxPoints = 600
     const plannedOnly = records.length === 0 && workout?.steps && workout.steps.length > 0
 
-    // For planned-only workouts, synthesize one data point per second from steps
-    let sampled: typeof records
+    let sampled: any[]
     let step: number
     let labels: string[]
 
+    const actualDuration = records.length
+    const plannedDuration = workout?.steps?.reduce((sum, s) => sum + s.duration_s, 0) || 0
+    const maxDuration = Math.max(actualDuration, plannedDuration)
+
     if (plannedOnly) {
-      const totalSeconds = workout!.steps.reduce((sum, s) => sum + s.duration_s, 0)
-      step = Math.max(1, Math.floor(totalSeconds / maxPoints))
-      const pointCount = Math.ceil(totalSeconds / step)
+      step = Math.max(1, Math.floor(plannedDuration / maxPoints))
+      const pointCount = Math.ceil(plannedDuration / step)
       sampled = Array.from({ length: pointCount }, () => ({}))
-      labels = sampled.map((_, i) => { const s = i * step, m = Math.floor(s / 60), h = Math.floor(m / 60); return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` })
     } else {
-      step = Math.max(1, Math.floor(records.length / maxPoints))
-      sampled = records.filter((_, i) => i % step === 0)
-      labels = sampled.map((_, i) => { const s = i * step, m = Math.floor(s / 60), h = Math.floor(m / 60); return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` })
+      step = Math.max(1, Math.floor(maxDuration / maxPoints))
+      const pointCount = Math.ceil(maxDuration / step)
+      sampled = Array.from({ length: pointCount }, (_, i) => {
+        const recordIndex = i * step
+        return recordIndex < records.length ? records[recordIndex] : {}
+      })
     }
+    
+    labels = sampled.map((_, i) => { 
+      const s = i * step
+      const m = Math.floor(s / 60)
+      const h = Math.floor(m / 60)
+      return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` 
+    })
 
     const datasets: any[] = []
 
