@@ -49,3 +49,40 @@ export function buildPlannedByMonday(
   }
   return map
 }
+
+export interface ChartSampleData<T> {
+  sampled: T[]
+  step: number
+  maxDuration: number
+}
+
+/**
+ * Calculates sampling for charting based on max of actual and planned durations.
+ */
+export function calculateChartSampling<T extends { timestamp_utc?: string }>(
+  records: T[],
+  plannedDuration: number,
+  maxPoints: number = 600
+): ChartSampleData<T> {
+  const actualDuration = records.length
+  const maxDuration = Math.max(actualDuration, plannedDuration)
+  const plannedOnly = actualDuration === 0 && plannedDuration > 0
+  
+  let step: number
+  let sampled: T[]
+
+  if (plannedOnly) {
+    step = Math.max(1, Math.floor(plannedDuration / maxPoints))
+    const pointCount = Math.ceil(plannedDuration / step)
+    sampled = Array.from({ length: pointCount }, () => ({} as T))
+  } else {
+    step = Math.max(1, Math.floor(maxDuration / maxPoints))
+    const pointCount = Math.ceil(maxDuration / step)
+    sampled = Array.from({ length: pointCount }, (_, i) => {
+      const recordIndex = i * step
+      return recordIndex < records.length ? records[recordIndex] : ({} as T)
+    })
+  }
+
+  return { sampled, step, maxDuration }
+}

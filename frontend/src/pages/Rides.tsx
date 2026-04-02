@@ -41,6 +41,7 @@ import {
 import SportIcon from '../components/SportIcon'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import RideTimelineChart from '../components/RideTimelineChart'
+import { calculateStepActuals } from '../lib/workout-utils'
 
 interface Props {
   initialRideId?: number
@@ -102,7 +103,7 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
     try {
       await deleteRideMutation.mutateAsync(selectedRideId)
       handleSetSelectedRideId(null)
-    } catch (e) {
+    } catch {
       alert("Failed to delete ride")
     }
   }
@@ -112,7 +113,7 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
       setPostRideNotes(ride.post_ride_comments ?? '')
       setNotesDirty(false)
     }
-  }, [ride?.id, ride?.post_ride_comments])
+  }, [ride])
 
   useEffect(() => {
     if (initialRideId != null) {
@@ -676,7 +677,7 @@ function MetricCard({ label, value, planned, higherIsBetter = true, icon: Icon, 
   value: string
   planned?: string | null
   higherIsBetter?: boolean
-  icon: any
+  icon: React.ElementType
   color?: string
 }) {
   let indicator: 'above' | 'below' | 'match' | null = null
@@ -814,29 +815,9 @@ function WorkoutStepsTable({ steps, records, highlightedStep, selectedStep, onHo
               const isS = selectedStep === i
               const isD = highlightedStep != null && highlightedStep !== i
               
-              let actualPower: number | null = null
-              let powerDiff: number | null = null
-              let diffPct = 0
-              let diffColor = 'text-text-muted'
-              
-              if (hasRecords) {
-                // Approximate step matching using index = seconds
-                // This assumes 1 record per second starting at time 0
-                // For a more robust approach, we could use timestamps if we assume alignment
-                const startIdx = step.start_s
-                const endIdx = step.start_s + step.duration_s
-                const stepRecords = records!.slice(startIdx, endIdx).filter(r => r.power != null)
-                if (stepRecords.length > 0) {
-                  const sum = stepRecords.reduce((acc, r) => acc + (r.power || 0), 0)
-                  actualPower = Math.round(sum / stepRecords.length)
-                  powerDiff = actualPower - step.power_watts
-                  diffPct = step.power_watts > 0 ? (powerDiff / step.power_watts) * 100 : 0
-                  
-                  if (Math.abs(diffPct) <= 5) diffColor = 'text-green'
-                  else if (powerDiff > 0) diffColor = 'text-yellow'
-                  else diffColor = 'text-red'
-                }
-              }
+              const { actualPower, powerDiff, diffColor } = hasRecords 
+                ? calculateStepActuals(step, records!)
+                : { actualPower: null, powerDiff: null, diffColor: 'text-text-muted' }
 
               return (
                 <tr key={i} onMouseEnter={() => onHover(i)} onClick={() => onSelect(isS ? null : i)} className={`cursor-pointer transition-all duration-200 ${isS ? 'bg-accent/10' : isH ? 'bg-accent/5' : isD ? 'opacity-30 grayscale' : 'hover:bg-surface2/30'}`}>

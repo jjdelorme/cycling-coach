@@ -5,6 +5,7 @@ import { zoneColor, fmtTime } from '../lib/format'
 import { useChartColors } from '../lib/theme'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import { ChartJS } from '../lib/charts'
+import { calculateChartSampling } from '../lib/chart-helpers'
 
 function buildStepIndexMap(sampleCount: number, downsampleStep: number, steps: WorkoutStep[]): number[] {
   const map: number[] = []
@@ -20,7 +21,7 @@ function buildStepIndexMap(sampleCount: number, downsampleStep: number, steps: W
   return map
 }
 
-function buildLapIndexMap(sampleCount: number, downsampleStep: number, records: any[], laps: RideLap[]): number[] {
+function buildLapIndexMap(sampleCount: number, downsampleStep: number, records: { timestamp_utc?: string }[], laps: RideLap[]): number[] {
   const firstRecordTs = records[0]?.timestamp_utc
   const firstLapTs = laps[0]?.start_time
   
@@ -76,35 +77,17 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
     const maxPoints = 600
     const plannedOnly = records.length === 0 && workout?.steps && workout.steps.length > 0
 
-    let sampled: any[]
-    let step: number
-    let labels: string[]
-
-    const actualDuration = records.length
     const plannedDuration = workout?.steps?.reduce((sum, s) => sum + s.duration_s, 0) || 0
-    const maxDuration = Math.max(actualDuration, plannedDuration)
-
-    if (plannedOnly) {
-      step = Math.max(1, Math.floor(plannedDuration / maxPoints))
-      const pointCount = Math.ceil(plannedDuration / step)
-      sampled = Array.from({ length: pointCount }, () => ({}))
-    } else {
-      step = Math.max(1, Math.floor(maxDuration / maxPoints))
-      const pointCount = Math.ceil(maxDuration / step)
-      sampled = Array.from({ length: pointCount }, (_, i) => {
-        const recordIndex = i * step
-        return recordIndex < records.length ? records[recordIndex] : {}
-      })
-    }
+    const { sampled, step } = calculateChartSampling(records, plannedDuration, maxPoints)
     
-    labels = sampled.map((_, i) => { 
+    const labels = sampled.map((_, i) => { 
       const s = i * step
       const m = Math.floor(s / 60)
       const h = Math.floor(m / 60)
       return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}` : `${m}m` 
     })
 
-    const datasets: any[] = []
+    const datasets: import('chart.js').ChartDataset<'line'>[] = []
 
     const sMap = workout?.steps ? buildStepIndexMap(sampled.length, step, workout.steps) : []
     const lMap = plannedOnly ? [] : buildLapIndexMap(sampled.length, step, records, laps)
@@ -163,7 +146,7 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
 
   const selectionPlugin = useMemo(() => ({
     id: 'selectionPlugin',
-    afterDraw(chart: any) {
+    afterDraw(chart: ChartJS<'line'>) {
       const sel = selectionDataMap.get(chart)
       if (!sel || sel.startIdx == null || sel.endIdx == null || sel.state === 'idle') return
       const { ctx, chartArea, scales } = chart
@@ -211,7 +194,7 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
               y1: { type: 'linear', position: 'right', title: { display: true, text: 'HR (BPM)', color: 'rgba(233, 69, 96, 0.8)', font: { size: 9, weight: 'bold' } }, ticks: { color: 'rgba(233, 69, 96, 0.7)', font: { size: 10 } }, grid: { display: false } },
               y2: { type: 'linear', display: false, min: 0, max: 200 }
             }
-          } as any} />
+          } as import('react-chartjs-2').ChartProps<"line">["options"]} />
         </div>
         {selectionStats && (
           <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-4 pt-4 border-t border-border animate-in fade-in zoom-in duration-300">

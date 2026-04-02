@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isoWeekToMonday, buildPlannedByMonday } from './chart-helpers'
+import { isoWeekToMonday, buildPlannedByMonday, calculateChartSampling } from './chart-helpers'
 
 describe('isoWeekToMonday', () => {
   it('converts a standard ISO week to Monday date', () => {
@@ -54,5 +54,51 @@ describe('buildPlannedByMonday', () => {
     const result = buildPlannedByMonday(mondays, weekPlans)
     expect(result.size).toBe(1)
     expect(result.get('2026-03-30')).toEqual({ tss: 100, hours: 1 })
+  })
+})
+
+describe('calculateChartSampling', () => {
+  const records = Array.from({ length: 1000 }, (_, i) => ({ timestamp_utc: `2024-01-01T00:00:${i}Z`, power: i }))
+
+  it('samples correctly when records are longer than planned', () => {
+    const plannedDuration = 500
+    const maxPoints = 100
+    const { sampled, step, maxDuration } = calculateChartSampling(records, plannedDuration, maxPoints)
+
+    expect(maxDuration).toBe(1000)
+    expect(step).toBe(10)
+    expect(sampled.length).toBe(100)
+    expect(sampled[0].power).toBe(0)
+    expect(sampled[1].power).toBe(10)
+  })
+
+  it('samples correctly when planned is longer than actual', () => {
+    const plannedDuration = 2000
+    const maxPoints = 200
+    const { sampled, step, maxDuration } = calculateChartSampling(records, plannedDuration, maxPoints)
+
+    expect(maxDuration).toBe(2000)
+    expect(step).toBe(10)
+    expect(sampled.length).toBe(200)
+    expect(sampled[0].power).toBe(0)
+    expect(sampled[99].power).toBe(990)
+    expect(sampled[100]).toEqual({})
+  })
+
+  it('handles planned only case', () => {
+    const plannedDuration = 1000
+    const maxPoints = 100
+    const { sampled, step, maxDuration } = calculateChartSampling([], plannedDuration, maxPoints)
+
+    expect(maxDuration).toBe(1000)
+    expect(step).toBe(10)
+    expect(sampled.length).toBe(100)
+    expect(sampled[0]).toEqual({})
+  })
+
+  it('uses default maxPoints if not provided', () => {
+    const { sampled, step } = calculateChartSampling(records, 0)
+    expect(step).toBe(Math.floor(1000 / 600))
+    expect(sampled.length).toBe(Math.ceil(1000 / step))
   })
 })
