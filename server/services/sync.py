@@ -685,7 +685,7 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
 
         # Check for existing event on Intervals.icu if we don't have an ID
         if not icu_event_id:
-            icu_event_id = find_matching_workout(w_date, w_name)
+            icu_event_id = await asyncio.to_thread(find_matching_workout, w_date, w_name)
             if icu_event_id:
                 logger.info("Found existing Intervals.icu event %s matching '%s' on %s", icu_event_id, w_name, w_date)
 
