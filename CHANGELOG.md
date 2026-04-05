@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.0] - 2026-04-05
+
+### Fixes
+- **UI:** Formatted interval lap duration consistently with planned intervals.
+- **UI:** Fixed ride navigation buttons.
+- **API:** Added error handling to the `activity-dates` endpoint.
+
 ## [v1.6.3] - 2026-04-05
 
 ### Features & Enhancements
