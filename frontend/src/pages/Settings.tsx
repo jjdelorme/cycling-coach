@@ -26,7 +26,8 @@ import {
   Trash2,
   Info,
   Sun,
-  Moon
+  Moon,
+  ChevronDown
 } from 'lucide-react'
 
 type Tab = 'athlete' | 'coach' | 'system'
@@ -95,6 +96,7 @@ export default function Settings() {
   const [syncProgress, setSyncProgress] = useState(0)
   const [syncLogs, setSyncLogs] = useState<string[]>([])
   const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [showSyncLog, setShowSyncLog] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -254,6 +256,7 @@ export default function Settings() {
     setSyncProgress(5)
     setSyncLogs(['Initializing sync...'])
     setSyncResult(null)
+    setShowSyncLog(false)
 
     try {
       const { sync_id, ws_url } = await startSync()
@@ -639,8 +642,20 @@ export default function Settings() {
                     </div>
                   )}
                   {syncResult && !syncing && (
-                    <div className={`mt-4 p-3 rounded-lg flex items-center gap-2 text-xs font-bold ${syncResult.startsWith('Done') ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>
-                      <Info size={14} /> {syncResult.toUpperCase()}
+                    <div className="mt-4 space-y-1">
+                      <button
+                        onClick={() => setShowSyncLog(v => !v)}
+                        className={`w-full p-3 rounded-lg flex items-center gap-2 text-xs font-bold text-left ${syncResult.startsWith('Done') ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}
+                      >
+                        <Info size={14} />
+                        <span className="flex-1">{syncResult.toUpperCase()}</span>
+                        <ChevronDown size={14} className={`transition-transform ${showSyncLog ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showSyncLog && syncLogs.length > 0 && (
+                        <div className="bg-bg rounded-lg border border-border p-3 text-[10px] text-text-muted font-mono max-h-48 overflow-y-auto leading-relaxed">
+                          {syncLogs.map((line, i) => <div key={i} className="mb-1">{line}</div>)}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
