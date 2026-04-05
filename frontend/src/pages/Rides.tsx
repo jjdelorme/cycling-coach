@@ -743,7 +743,6 @@ function LapsTable({ laps, highlightedLap, selectedLap, onHover, onSelect }: {
   onSelect: (index: number | null) => void;
 }) {
   const units = useUnits()
-  const fmtLap = (s?: number) => { if (!s) return '-'; const m = Math.floor(s / 60); return `${m}:${Math.round(s % 60).toString().padStart(2, '0')}` }
   return (
     <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
       <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-2">
@@ -780,7 +779,7 @@ function LapsTable({ laps, highlightedLap, selectedLap, onHover, onSelect }: {
                   className={`text-text transition-all duration-200 cursor-pointer ${isS ? 'bg-accent/10' : isH ? 'bg-accent/5' : isD ? 'opacity-30 grayscale' : 'hover:bg-surface2/30'} ${isRest && !isH && !isS ? 'opacity-50' : ''}`}
                 >
                   <td className="py-2.5 px-5 font-mono text-text-muted">{lap.lap_index + 1}</td>
-                  <td className="py-2.5 px-5 font-bold">{fmtLap(lap.total_timer_time)}</td>
+                  <td className="py-2.5 px-5 font-bold">{lap.total_timer_time != null ? fmtTime(lap.total_timer_time) : '-'}</td>
                   <td className="py-2.5 px-5 text-text-muted">{lap.total_distance ? fmtDistance(lap.total_distance, units) : '-'}</td>
                   <td className="py-2.5 px-5 text-right font-bold text-blue">{lap.avg_power ?? '-'}{lap.avg_power ? 'w' : ''}</td>
                   <td className="py-2.5 px-5 text-right text-text-muted">{lap.normalized_power ?? '-'}{lap.normalized_power ? 'w' : ''}</td>
