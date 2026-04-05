@@ -93,7 +93,8 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   const deleteRideMutation = useDeleteRide()
   const sendChat = useSendChat()
 
-  const rideDate = ride?.date?.slice(0, 10) ?? selectedDate
+  // Only use ride.date if we're actually viewing a ride (not stale data when selectedRideId is null)
+  const rideDate = (selectedRideId !== null && ride?.date) ? ride.date.slice(0, 10) : selectedDate
   const { data: plannedWorkout, isLoading: workoutLoading } = useWorkoutByDate(rideDate)
 
   async function handleDeleteRide() {
@@ -209,13 +210,30 @@ const syncSingleRide = useSyncSingleRide()
     }
   }, [activityDates, currentDate])
 
-  function navigateToDate(date: string) {
-    const rideOnDate = rides?.find(r => r.date?.slice(0, 10) === date)
-    if (rideOnDate) {
-      handleSetSelectedRideId(rideOnDate.id)
-    } else {
-      handleSetSelectedDate(date)
+  async function navigateToDate(date: string) {
+    // Check filtered list first (fast path)
+    const rideInList = rides?.find(r => r.date?.slice(0, 10) === date)
+    if (rideInList) {
+      handleSetSelectedRideId(rideInList.id)
+      return
     }
+
+    // Not in filtered list - fetch rides for this specific date
+    try {
+      const response = await fetch(`/api/rides?start_date=${date}&end_date=${date}`)
+      if (response.ok) {
+        const ridesOnDate = await response.json()
+        if (ridesOnDate && ridesOnDate.length > 0) {
+          handleSetSelectedRideId(ridesOnDate[0].id)
+          return
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch ride for date:', err)
+    }
+
+    // No ride found - navigate by date (will show planned workout or "no activity")
+    handleSetSelectedDate(date)
   }
 
   if (showDetail) {
