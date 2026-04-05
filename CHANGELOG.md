@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.6.3] - 2026-04-05
+
+### Features & Enhancements
+- **Syncing:** Added `_download_planned_workouts` phase to import missing Intervals.icu calendar events into the local database.
+- **Syncing:** Added an expandable and scrollable log view to the sync result banner for detailed status feedback.
+- **Infrastructure:** Introduced a test deployment pipeline for automated branch-based builds.
+
+### Fixes
+- **Syncing:** Fixed a potential background sync hang by correctly using `asyncio.get_running_loop()`.
+- **Syncing:** Optimized sync performance by batch-fetching Intervals.icu calendar events, eliminating N+1 API calls.
+- **Syncing:** Improved the sync summary to correctly count and report downloaded workouts.
+- **Syncing:** Prevented event loop blocking during workout deduplication tasks.
+- **UI:** Improved component typing and test coverage for planned workout comparisons.
+
 ## [v1.6.2] - 2026-04-02
 
 ### Features & Enhancements
