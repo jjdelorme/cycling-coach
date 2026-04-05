@@ -217,6 +217,7 @@ export interface SyncOverview {
     completed_at?: string
     rides_downloaded?: number
     rides_skipped?: number
+    workouts_downloaded?: number
     workouts_uploaded?: number
     workouts_skipped?: number
   }
@@ -233,6 +234,7 @@ export interface SyncStatus {
   detail?: string
   rides_downloaded?: number
   rides_skipped?: number
+  workouts_downloaded?: number
   workouts_uploaded?: number
   workouts_skipped?: number
   type?: string

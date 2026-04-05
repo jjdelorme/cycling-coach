@@ -207,6 +207,7 @@ export default function Settings() {
       detail?: string
       rides_downloaded?: number
       rides_skipped?: number
+      workouts_downloaded?: number
       workouts_uploaded?: number
       workouts_skipped?: number
     }) => {
@@ -229,8 +230,13 @@ export default function Settings() {
 
         if (status.status === 'completed') {
           const rides = status.rides_downloaded ?? 0
-          const workouts = status.workouts_uploaded ?? 0
-          setSyncResult(`Done — ${rides} rides, ${workouts} workouts synced`)
+          const imported = status.workouts_downloaded ?? 0
+          const uploaded = status.workouts_uploaded ?? 0
+          const workoutParts = []
+          if (imported > 0) workoutParts.push(`${imported} imported from intervals.icu`)
+          if (uploaded > 0) workoutParts.push(`${uploaded} uploaded`)
+          if (workoutParts.length === 0) workoutParts.push('0 workouts synced')
+          setSyncResult(`Done — ${rides} rides, ${workoutParts.join(', ')}`)
         } else {
           setSyncResult(status.detail ?? 'Sync failed')
         }

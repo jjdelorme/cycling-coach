@@ -971,6 +971,7 @@ async def run_sync(sync_id: str | None = None) -> str:
         "sync_id": sync_id,
         "rides_downloaded": rides_dl,
         "rides_skipped": rides_skip,
+        "workouts_downloaded": wo_dl,
         "workouts_uploaded": wo_up,
         "workouts_skipped": wo_skip,
         "errors": errors or None,
