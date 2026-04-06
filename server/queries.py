@@ -41,7 +41,7 @@ def get_current_ftp(conn) -> int:
     row = conn.execute(
         "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
     ).fetchone()
-    return row["ftp"] if row else 261
+    return row["ftp"] if row else 0
 
 
 def get_current_pmc_row(conn) -> dict | None:

@@ -101,7 +101,7 @@ def _build_zwo_xml(name, description, steps, ftp, duration_minutes=None):
     return xml_str.strip()
 
 
-def generate_zwo(template_key, duration_minutes=60, ftp=261):
+def generate_zwo(template_key, duration_minutes=60, ftp=0):
     """Generate a ZWO XML string from a database template.
 
     Args:
@@ -120,7 +120,7 @@ def generate_zwo(template_key, duration_minutes=60, ftp=261):
     return xml_str, tmpl["name"]
 
 
-def generate_custom_zwo(name, description, steps, ftp=261):
+def generate_custom_zwo(name, description, steps, ftp=0):
     """Generate a ZWO XML string from custom step definitions.
 
     Args:

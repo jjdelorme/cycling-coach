@@ -11,6 +11,7 @@ from server.database import get_db, get_athlete_setting
 from server.models.schemas import PlannedWorkout, PeriodizationPhase
 from server.queries import get_current_ftp as _get_current_ftp_with_conn, get_periodization_phases, get_week_planned_and_actual
 from server.services.workout_generator import generate_zwo, list_templates, get_template
+from server.zones import power_zone_label
 
 
 def _get_current_ftp() -> int:
@@ -261,7 +262,7 @@ def get_template_detail(template_id: int, user: CurrentUser = Depends(require_re
 class GenerateWorkoutRequest(BaseModel):
     workout_type: str
     duration_minutes: int = 60
-    ftp: int = 261
+    ftp: int = 0
 
 
 @router.post("/workouts/generate")
@@ -350,7 +351,7 @@ def integration_status(user: CurrentUser = Depends(require_read)):
     return {"intervals_icu": is_configured()}
 
 
-def _parse_zwo_steps(xml_str: str, ftp: int = 261) -> list[dict]:
+def _parse_zwo_steps(xml_str: str, ftp: int = 0) -> list[dict]:
     """Parse ZWO XML into a list of workout steps with absolute watts."""
     try:
         root = ET.fromstring(xml_str)
@@ -421,7 +422,7 @@ def _parse_zwo_steps(xml_str: str, ftp: int = 261) -> list[dict]:
             
             steps.append({
                 "type": tag,
-                "label": _zone_label(pct) if tag != "FreeRide" else "Free Ride",
+                "label": power_zone_label(pct) if tag != "FreeRide" else "Free Ride",
                 "duration_s": dur,
                 "start_s": elapsed,
                 "power_pct": pct,
@@ -431,21 +432,6 @@ def _parse_zwo_steps(xml_str: str, ftp: int = 261) -> list[dict]:
 
     return steps
 
-
-def _zone_label(pct: float) -> str:
-    """Return a human-readable zone label for a given FTP percentage."""
-    if pct < 0.56:
-        return "Z1 Recovery"
-    elif pct < 0.76:
-        return "Z2 Endurance"
-    elif pct < 0.91:
-        return "Z3 Tempo / Sweet Spot"
-    elif pct < 1.06:
-        return "Z4 Threshold"
-    elif pct < 1.21:
-        return "Z5 VO2max"
-    else:
-        return "Z6 Anaerobic"
 
 
 @router.delete("/workouts/{workout_id}")
@@ -576,7 +562,7 @@ def download_planned_workout(workout_id: int, fmt: str = "tcx", user: CurrentUse
         ftp_row = conn.execute(
             "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
         ).fetchone()
-    ftp = ftp_row["ftp"] if ftp_row else 261
+    ftp = ftp_row["ftp"] if ftp_row else 0
 
     safe_name = (row["name"] or "workout").lower().replace(" ", "_").replace("/", "_")
 

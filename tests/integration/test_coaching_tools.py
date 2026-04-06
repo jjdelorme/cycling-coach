@@ -251,6 +251,36 @@ def test_get_planned_workout_for_ride_structure():
     assert "tss" in result["actual"]
 
 
+def test_get_upcoming_workouts_returns_coach_notes_field(db_conn):
+    """get_upcoming_workouts includes coach_notes in results."""
+    from datetime import datetime, timedelta
+    from server.coaching.tools import get_upcoming_workouts
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    db_conn.execute(
+        "INSERT INTO planned_workouts (date, name, sport, total_duration_s, coach_notes) VALUES (%s, %s, %s, %s, %s)",
+        (tomorrow, "Test Workout", "bike", 3600, "Ride easy, RPE 3"),
+    )
+    results = get_upcoming_workouts(days_ahead=7)
+    matching = [r for r in results if r["date"] == tomorrow]
+    assert len(matching) == 1
+    assert matching[0]["coach_notes"] == "Ride easy, RPE 3"
+
+
+def test_get_upcoming_workouts_coach_notes_none_when_unset(db_conn):
+    """get_upcoming_workouts returns None coach_notes when unset."""
+    from datetime import datetime, timedelta
+    from server.coaching.tools import get_upcoming_workouts
+    day_after = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+    db_conn.execute(
+        "INSERT INTO planned_workouts (date, name, sport, total_duration_s) VALUES (%s, %s, %s, %s)",
+        (day_after, "Test Workout 2", "bike", 3600),
+    )
+    results = get_upcoming_workouts(days_ahead=7)
+    matching = [r for r in results if r["date"] == day_after]
+    assert len(matching) == 1
+    assert matching[0]["coach_notes"] is None
+
+
 def test_best_effort_index_tracking():
     """Verify start_offset_s points to the actual best window."""
     from server.coaching.tools import get_ride_analysis, get_ride_records_window

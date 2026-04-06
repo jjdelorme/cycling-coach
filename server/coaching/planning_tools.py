@@ -48,124 +48,12 @@ def replan_missed_day(missed_date: str, new_target_date: str) -> dict:
         "status": "success",
         "message": f"Moved {len(workouts)} workout(s) from {missed_date} to {new_target_date}",
         "workouts_moved": moved_names,
+        "coach_notes_hint": "Consider calling set_workout_coach_notes to update the notes if they reference the original date or day-of-week context.",
     }
     if existing:
         result["swapped_with"] = [dict(w)["name"] for w in existing]
 
     return result
-
-
-def generate_weekly_plan(start_date: str, focus: str = "base", hours: float = 12.0) -> dict:
-    """Generate a week of planned workouts and save them to the database.
-
-    Args:
-        start_date: Monday of the week to plan (YYYY-MM-DD).
-        focus: Training focus - 'base', 'build', 'peak', or 'recovery'.
-        hours: Target weekly hours.
-
-    Returns:
-        The generated weekly plan with workout details.
-    """
-    dt = datetime.fromisoformat(start_date)
-    # Ensure it's a Monday
-    if dt.weekday() != 0:
-        dt = dt - timedelta(days=dt.weekday())
-
-    # Define weekly templates based on focus
-    templates = {
-        "base": [
-            ("recovery", 60),        # Mon: recovery or off
-            ("z2_endurance", 90),     # Tue: Z2 endurance
-            ("z2_endurance", 90),     # Wed: Z2 endurance
-            ("sweetspot_3x15", 75),   # Thu: sweet spot
-            None,                      # Fri: off
-            ("z2_endurance", 180),    # Sat: long ride
-            ("z2_endurance", 120),    # Sun: endurance
-        ],
-        "build": [
-            ("recovery", 60),            # Mon: recovery
-            ("threshold_2x20", 90),      # Tue: threshold
-            ("z2_endurance", 90),         # Wed: easy
-            ("vo2max_4x4", 75),           # Thu: VO2max
-            ("recovery", 45),            # Fri: easy spin
-            ("z2_endurance", 240),        # Sat: long MTB
-            ("z2_endurance", 150),        # Sun: endurance
-        ],
-        "peak": [
-            ("recovery", 60),             # Mon: recovery
-            ("threshold_2x20", 90),       # Tue: threshold
-            ("z2_endurance", 75),          # Wed: easy
-            ("vo2max_4x4", 75),            # Thu: VO2max
-            None,                           # Fri: off
-            ("race_simulation", 180),      # Sat: race sim
-            ("z2_endurance", 120),         # Sun: endurance
-        ],
-        "recovery": [
-            None,                          # Mon: off
-            ("recovery", 45),             # Tue: easy spin
-            ("z2_endurance", 60),          # Wed: easy
-            None,                          # Thu: off
-            ("recovery", 45),             # Fri: easy spin
-            ("z2_endurance", 90),          # Sat: easy ride
-            None,                          # Sun: off
-        ],
-    }
-
-    week_template = templates.get(focus, templates["base"])
-
-    # Scale durations to match target hours
-    total_planned_min = sum(d for t in week_template if t for _, d in [t])
-    scale = (hours * 60) / total_planned_min if total_planned_min > 0 else 1.0
-
-    workouts_created = []
-
-    with get_db() as conn:
-        ftp = get_current_ftp(conn)
-
-        for day_offset, template in enumerate(week_template):
-            if template is None:
-                continue
-
-            workout_type, base_duration = template
-            duration = max(30, round(base_duration * scale))
-            date_str = (dt + timedelta(days=day_offset)).strftime("%Y-%m-%d")
-
-            # Remove any existing workout on this date (collect stale event ID)
-            old_row = conn.execute(
-                "SELECT icu_event_id FROM planned_workouts WHERE date = ? AND icu_event_id IS NOT NULL",
-                (date_str,),
-            ).fetchone()
-            if old_row:
-                try:
-                    delete_event(old_row["icu_event_id"])
-                except Exception:
-                    pass
-            conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date_str,))
-
-            # Generate ZWO
-            xml_str, name = generate_zwo(workout_type, duration, ftp)
-            tss = calculate_planned_tss(xml_str)
-
-            conn.execute(
-                "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (?, ?, ?, ?, ?, ?)",
-                (date_str, name, "bike", duration * 60, tss, xml_str),
-            )
-
-            workouts_created.append({
-                "date": date_str,
-                "day": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day_offset],
-                "name": name,
-                "duration_min": duration,
-            })
-
-    return {
-        "status": "success",
-        "week_start": dt.strftime("%Y-%m-%d"),
-        "focus": focus,
-        "target_hours": hours,
-        "ftp": ftp,
-        "workouts": workouts_created,
-    }
 
 
 def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
@@ -225,201 +113,139 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
         "adjusted_phases": adjusted,
         "note": "Periodization dates updated. Existing planned workouts were NOT changed. "
                 "Ask the athlete if they'd like you to regenerate workouts for the affected date range "
-                "using regenerate_phase_workouts.",
+                "using generate_week_from_spec.",
     }
 
 
-def regenerate_phase_workouts(start_date: str = "", end_date: str = "") -> dict:
-    """Regenerate planned workouts for a date range based on the periodization phases.
+def generate_week_from_spec(workouts: list[dict]) -> dict:
+    """Create multiple planned workouts from an agent-provided specification.
 
-    Looks up which phase each week falls in and generates appropriate workouts
-    using 3-week build / 1-week recovery cycles within each phase. Replaces any
-    existing planned workouts in the date range.
+    The agent decides WHAT to prescribe based on athlete data (CTL/ATL/TSB,
+    recent ride quality, phase goals). This function just persists those decisions
+    efficiently in a single DB transaction.
+
+    Use this when planning a full week or multi-day block. For a single day,
+    use replace_workout instead.
+
+    Each workout in the list can be one of three modes:
+    1. **Template mode**: Provide 'workout_type' (template key) and optionally 'duration_minutes'.
+    2. **Custom mode**: Provide 'name', 'steps', and optionally 'description'.
+    3. **Rest day**: Provide only 'date' (or set workout_type='rest') to clear that day.
 
     Args:
-        start_date: Start date (YYYY-MM-DD). Defaults to today.
-        end_date: End date (YYYY-MM-DD). Defaults to end of last periodization phase.
+        workouts: List of workout spec dicts. Each dict:
+            - date (str, required): YYYY-MM-DD
+            - workout_type (str, optional): Template key for template mode, or 'rest'
+            - duration_minutes (int, optional): Duration override for template mode
+            - name (str, optional): Workout name for custom mode
+            - description (str, optional): Workout description for custom mode (also stored as coach_notes)
+            - steps (list[dict], optional): Step dicts for custom mode
+            - coach_notes (str, optional): Pre-ride coaching note for the athlete.
+              IMPORTANT: Always provide this — notes should reference the athlete's
+              current TSB, recent training load, and specific execution cues.
 
     Returns:
-        Summary of generated workouts by week and phase.
+        Dict with created workouts, rest days, and any errors per date.
     """
-    if not start_date:
-        start_date = datetime.now().strftime("%Y-%m-%d")
+    from server.services.intervals_icu import delete_event
 
-    # Weekly templates by focus (same as generate_weekly_plan)
-    templates = {
-        "base": [
-            ("recovery", 60),
-            ("z2_endurance", 90),
-            ("z2_endurance", 90),
-            ("sweetspot_3x15", 75),
-            None,
-            ("z2_endurance", 180),
-            ("z2_endurance", 120),
-        ],
-        "build": [
-            ("recovery", 60),
-            ("threshold_2x20", 90),
-            ("z2_endurance", 90),
-            ("vo2max_4x4", 75),
-            ("recovery", 45),
-            ("z2_endurance", 240),
-            ("z2_endurance", 150),
-        ],
-        "peak": [
-            ("recovery", 60),
-            ("threshold_2x20", 90),
-            ("z2_endurance", 75),
-            ("vo2max_4x4", 75),
-            None,
-            ("race_simulation", 180),
-            ("z2_endurance", 120),
-        ],
-        "recovery": [
-            None,
-            ("recovery", 45),
-            ("z2_endurance", 60),
-            None,
-            ("recovery", 45),
-            ("z2_endurance", 90),
-            None,
-        ],
-    }
-
-    # Map phase names to focus types
-    phase_focus_map = {
-        "base rebuild": "base",
-        "build 1": "build",
-        "build 2": "build",
-        "peak": "peak",
-        "taper": "recovery",
-    }
+    created = []
+    rest_days = []
+    errors = []
 
     with get_db() as conn:
-        phases = get_periodization_phases(conn)
-
-        if not phases:
-            return {"status": "error", "message": "No periodization phases defined."}
-
-        if not end_date:
-            end_date = phases[-1]["end_date"]
-
         ftp = get_current_ftp(conn)
 
-        def get_phase_for_date(d_str):
-            for p in phases:
-                if p["start_date"] <= d_str <= p["end_date"]:
-                    return p
-            return None
-
-        # Collect stale event IDs before deleting workouts
-        stale_events = conn.execute(
-            "SELECT icu_event_id FROM planned_workouts WHERE date >= ? AND date <= ? AND icu_event_id IS NOT NULL",
-            (start_date, end_date),
-        ).fetchall()
-        stale_event_ids = [r["icu_event_id"] for r in stale_events]
-
-        # Delete existing planned workouts in the range
-        conn.execute(
-            "DELETE FROM planned_workouts WHERE date >= ? AND date <= ?",
-            (start_date, end_date),
-        )
-
-        # Iterate week by week
-        dt = datetime.fromisoformat(start_date)
-        dt = dt - timedelta(days=dt.weekday())  # Align to Monday
-        end_dt = datetime.fromisoformat(end_date)
-
-        weeks_generated = []
-
-        while dt <= end_dt:
-            week_start = dt.strftime("%Y-%m-%d")
-            mid_week = (dt + timedelta(days=3)).strftime("%Y-%m-%d")
-            phase = get_phase_for_date(mid_week)
-
-            if not phase:
-                dt += timedelta(days=7)
+        for spec in workouts:
+            date = spec.get("date")
+            if not date:
+                errors.append({"error": "Missing 'date' field", "spec": spec})
                 continue
 
-            phase_name = phase["name"]
-            focus = phase_focus_map.get(phase_name.lower(), "base")
-            hours_low = phase["hours_per_week_low"] or 10
-            hours_high = phase["hours_per_week_high"] or 14
-            target_hours = (hours_low + hours_high) / 2
+            workout_type = spec.get("workout_type", "")
+            name = spec.get("name", "")
+            description = spec.get("description", "")
+            steps = spec.get("steps", [])
+            coach_notes = spec.get("coach_notes") or description or None
+            duration_minutes = spec.get("duration_minutes", 0)
 
-            # 3-week build / 1-week recovery cycle within each phase
-            phase_start = datetime.fromisoformat(phase["start_date"])
-            # Align phase start to its Monday for consistent week counting
-            phase_monday = phase_start - timedelta(days=phase_start.weekday())
-            weeks_into_phase = max(0, (dt - phase_monday).days // 7)
-            cycle_week = weeks_into_phase % 4  # 0, 1, 2 = build; 3 = recovery
+            # Collect stale event ID before replacing
+            old_row = conn.execute(
+                "SELECT name, icu_event_id FROM planned_workouts WHERE date = ?", (date,)
+            ).fetchone()
+            old_event_id = old_row["icu_event_id"] if old_row else None
 
-            if cycle_week == 3:
-                week_focus = "recovery"
-                week_hours = hours_low * 0.6
-            elif cycle_week == 0:
-                week_focus = focus
-                week_hours = hours_low
-            elif cycle_week == 1:
-                week_focus = focus
-                week_hours = target_hours
-            else:
-                week_focus = focus
-                week_hours = hours_high
+            # Rest day: clear the date
+            if workout_type == "rest" or (not workout_type and not name and not steps):
+                conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date,))
+                if old_event_id:
+                    try:
+                        delete_event(old_event_id)
+                    except Exception:
+                        pass
+                rest_days.append(date)
+                continue
 
-            # Generate workouts for this week inline
-            week_template = templates.get(week_focus, templates["base"])
-            total_planned_min = sum(d for t in week_template if t for _, d in [t])
-            scale = (week_hours * 60) / total_planned_min if total_planned_min > 0 else 1.0
+            try:
+                # Custom mode
+                if steps and name:
+                    xml_str, workout_name = generate_custom_zwo(name, description or "", steps, ftp)
+                    total_s = 0
+                    for s in steps:
+                        if s.get("type") == "Intervals":
+                            total_s += s.get("repeat", 1) * (s.get("on_duration_seconds", 0) + s.get("off_duration_seconds", 0))
+                        else:
+                            total_s += s.get("duration_seconds", 0)
+                    duration_minutes = max(1, round(total_s / 60))
 
-            workout_count = 0
-            for day_offset, tmpl in enumerate(week_template):
-                if tmpl is None:
+                # Template mode
+                elif workout_type:
+                    tmpl = get_template(workout_type)
+                    if not tmpl:
+                        available = [t["key"] for t in _list_templates()]
+                        errors.append({
+                            "date": date,
+                            "error": f"Unknown workout_type '{workout_type}'. Available: {', '.join(sorted(available))}",
+                        })
+                        continue
+                    if duration_minutes <= 0:
+                        total_s = 0
+                        for s in tmpl["steps"]:
+                            if s["type"] in ("Intervals", "IntervalsT"):
+                                total_s += s.get("repeat", 1) * (s.get("on_duration_seconds", s.get("on_duration", 0)) + s.get("off_duration_seconds", s.get("off_duration", 0)))
+                            else:
+                                total_s += s.get("duration_seconds", s.get("duration", 0)) or 0
+                        duration_minutes = max(30, round(total_s / 60))
+                    xml_str, workout_name = generate_zwo(workout_type, duration_minutes, ftp)
+                else:
+                    errors.append({"date": date, "error": "Provide workout_type (template) or name+steps (custom)."})
                     continue
 
-                workout_type, base_duration = tmpl
-                duration = max(30, round(base_duration * scale))
-                date_str = (dt + timedelta(days=day_offset)).strftime("%Y-%m-%d")
-
-                # Only generate within the requested range
-                if date_str < start_date or date_str > end_date:
-                    continue
-
-                conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date_str,))
-                xml_str, name = generate_zwo(workout_type, duration, ftp)
+                conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date,))
                 tss = calculate_planned_tss(xml_str)
                 conn.execute(
-                    "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (?, ?, ?, ?, ?, ?)",
-                    (date_str, name, "bike", duration * 60, tss, xml_str),
+                    "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml, coach_notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (date, workout_name, "bike", duration_minutes * 60, tss, xml_str, coach_notes),
                 )
-                workout_count += 1
+                created.append({"date": date, "name": workout_name, "duration_min": duration_minutes, "tss": round(tss or 0)})
 
-            weeks_generated.append({
-                "week_start": week_start,
-                "phase": phase_name,
-                "focus": week_focus,
-                "hours": round(week_hours, 1),
-                "cycle_week": cycle_week + 1,
-                "is_recovery": cycle_week == 3,
-                "workouts": workout_count,
-            })
+                if old_event_id:
+                    try:
+                        delete_event(old_event_id)
+                    except Exception:
+                        pass
 
-            dt += timedelta(days=7)
-
-    # Clean up stale events on intervals.icu (best-effort, after DB commit)
-    for eid in stale_event_ids:
-        try:
-            delete_event(eid)
-        except Exception:
-            pass
+            except Exception as e:
+                errors.append({"date": date, "error": str(e)})
 
     return {
-        "status": "success",
-        "start_date": start_date,
-        "end_date": end_date,
-        "ftp": ftp,
-        "weeks_generated": len(weeks_generated),
-        "summary": weeks_generated,
+        "status": "success" if not errors else "partial",
+        "ftp_used": ftp,
+        "created": created,
+        "rest_days": rest_days,
+        "errors": errors,
+        "total_workouts": len(created),
+        "message": f"Created {len(created)} workout(s), {len(rest_days)} rest day(s)" + (f", {len(errors)} error(s)" if errors else ""),
     }
 
 
@@ -525,9 +351,14 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
 
         conn.execute("DELETE FROM planned_workouts WHERE date = ?", (date,))
         tss = calculate_planned_tss(xml_str)
+        # Custom mode: description becomes coach_notes. Template mode: notes are agent-provided.
+        if steps and name:
+            insert_notes = description or None
+        else:
+            insert_notes = None
         conn.execute(
-            "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml) VALUES (?, ?, ?, ?, ?, ?)",
-            (date, workout_name, "bike", duration_minutes * 60, tss, xml_str),
+            "INSERT INTO planned_workouts (date, name, sport, total_duration_s, planned_tss, workout_xml, coach_notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (date, workout_name, "bike", duration_minutes * 60, tss, xml_str, insert_notes),
         )
 
     # Clean up stale event on intervals.icu
@@ -545,6 +376,8 @@ def replace_workout(date: str, workout_type: str = "", duration_minutes: int = 0
         "new_workout": workout_name,
         "duration_min": duration_minutes,
         "ftp": ftp,
+        "coach_notes_set": bool(insert_notes),
+        "coach_notes_hint": "Call set_workout_coach_notes with personalized notes referencing the athlete's current TSB and recent training.",
     }
 
 
@@ -908,23 +741,23 @@ def set_ride_coach_comments(date: str, comments: str) -> dict:
 
 
 def update_coach_settings(section: str, new_value: str) -> dict:
-    """Update qualitative coaching configuration settings like goals, principles, or coach behavior.
+    """Update qualitative coaching configuration settings like athlete goals or coaching principles.
 
-    Use this when the athlete tells you about changes to their qualitative profile (new goals, 
-    target events, strengths, limiters) or when they want to adjust coaching style or principles.
+    Use this when the athlete tells you about changes to their qualitative profile (new goals,
+    target events, strengths, limiters) or when they want to adjust coaching focus.
 
-    For structured numeric values like FTP, Weight, or Heart Rate, use update_athlete_setting instead.
+    Note: coach_role and plan_management can only be edited by an administrator via the settings UI.
 
     Args:
-        section: Which setting to update. One of: 'athlete_profile', 'coaching_principles', 'coach_role', 'plan_management'.
-        new_value: The full new value for that section. For athlete_profile and coaching_principles, use bullet points starting with '- '.
+        section: Which setting to update. One of: 'athlete_profile', 'coaching_principles'.
+        new_value: The full new value for that section. Use bullet points starting with '- '.
 
     Returns:
         Status of the update.
     """
-    valid_sections = {"athlete_profile", "coaching_principles", "coach_role", "plan_management"}
+    valid_sections = {"athlete_profile", "coaching_principles"}
     if section not in valid_sections:
-        return {"status": "error", "message": f"Invalid section '{section}'. Must be one of: {', '.join(sorted(valid_sections))}"}
+        return {"status": "error", "message": f"Invalid section '{section}'. Must be one of: {', '.join(sorted(valid_sections))}. (coach_role and plan_management can only be edited by an administrator.)"}
 
     set_setting(section, new_value)
 

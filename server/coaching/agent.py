@@ -28,9 +28,8 @@ from server.coaching.tools import (
 )
 from server.coaching.planning_tools import (
     replan_missed_day,
-    generate_weekly_plan,
+    generate_week_from_spec,
     adjust_phase,
-    regenerate_phase_workouts,
     replace_workout,
     list_workout_templates,
     save_workout_template,
@@ -52,9 +51,8 @@ _runner = None
 # Write tools that require readwrite/admin role
 _WRITE_TOOLS = {
     replan_missed_day,
-    generate_weekly_plan,
+    generate_week_from_spec,
     adjust_phase,
-    regenerate_phase_workouts,
     replace_workout,
     save_workout_template,
     sync_workouts_to_garmin,
@@ -137,6 +135,27 @@ def _build_system_instruction(ctx) -> str:
     else:
         benchmarks_text += "\n- CTL/ATL/TSB: No data available"
 
+    # Add last 7 days of rides for immediate adaptive context
+    from datetime import timedelta
+    seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+    with get_db() as conn:
+        recent_rides = conn.execute(
+            """SELECT date, sub_sport, duration_s, tss, normalized_power
+               FROM rides WHERE date >= ? ORDER BY date DESC LIMIT 7""",
+            (seven_days_ago,),
+        ).fetchall()
+
+    if recent_rides:
+        recent_lines = "\n".join([
+            f"  - {r['date']}: {r['sub_sport'] or 'ride'}, "
+            f"{round((r['duration_s'] or 0)/3600, 1)}h, "
+            f"TSS {r['tss'] or '?'}, NP {r['normalized_power'] or '?'}w"
+            for r in recent_rides
+        ])
+        recent_context = f"\n\nRECENT TRAINING (last 7 days — use this for adaptive decisions):\n{recent_lines}"
+    else:
+        recent_context = "\n\nRECENT TRAINING: No rides in last 7 days."
+
     return f"""You are an expert cycling coach working with a specific athlete.
 
 TODAY'S DATE: {today_str} ({today_iso})
@@ -156,8 +175,13 @@ YOUR ROLE:
 
 When analyzing a ride, use get_planned_workout_for_ride to compare what was planned vs what actually happened. Flag significant deviations in duration or TSS and suggest adjustments to the remaining week if needed.
 
+COACH NOTES — MANDATORY:
+Whenever you create or modify a planned workout (via replace_workout or generate_week_from_spec), you MUST provide personalized coaching notes. For replace_workout, call set_workout_coach_notes after creating the workout. For generate_week_from_spec, include coach_notes in each workout spec.
+
+Write notes that are specific and actionable. Example of a GOOD note: "Recovery spin after Tuesday's hard threshold work — keep HR under 130bpm, cadence 90+, avoid any climbs. Goal is to flush the legs, not to train." Example of a BAD note: "Easy ride today." Never leave notes generic or blank when you have context about the athlete's recent training, upcoming events, or current form.
+
 PLAN MANAGEMENT:
-{settings['plan_management']}"""
+{settings['plan_management']}{recent_context}"""
 
 
 def _get_effective_model() -> str:

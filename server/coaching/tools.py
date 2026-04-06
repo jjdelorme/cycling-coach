@@ -4,6 +4,7 @@ import math
 from datetime import datetime, timedelta
 from server.database import get_db, get_athlete_setting, get_all_athlete_settings
 from server.queries import get_current_pmc_row, get_pmc_row_for_date, get_power_bests_rows, get_ftp_history_rows, get_periodization_phases
+from server.zones import compute_power_zones, compute_hr_zones
 
 
 # ---------------------------------------------------------------------------
@@ -12,6 +13,13 @@ from server.queries import get_current_pmc_row, get_pmc_row_for_date, get_power_
 
 _DURATION_LABELS = {5: "5s", 30: "30s", 60: "1min", 300: "5min", 1200: "20min", 3600: "60min"}
 _BEST_EFFORT_DURATIONS = [5, 30, 60, 300, 1200, 3600]
+
+
+def _wrap_athlete_data(value):
+    """Wrap athlete-provided text to mark it as data, not instructions."""
+    if value is None:
+        return None
+    return f"[ATHLETE DATA: {value}]"
 
 
 def _resolve_ride_id(conn, date: str):
@@ -42,70 +50,6 @@ def _compute_rolling_best_with_index(values: list, window_s: int):
             best_start = i - window_s + 1
     return round(best_sum / window_s), best_start
 
-
-def _compute_power_zones(powers: list, ftp: int) -> dict:
-    """Compute power zone distribution matching server/routers/analysis.py."""
-    zone_defs = [
-        ("Z1", "Active Recovery", "<55%", 0, 0.55),
-        ("Z2", "Endurance", "55-75%", 0.55, 0.75),
-        ("Z3", "Tempo", "75-90%", 0.75, 0.90),
-        ("Z4", "Threshold", "90-105%", 0.90, 1.05),
-        ("Z5", "VO2max", "105-120%", 1.05, 1.20),
-        ("Z6", "Anaerobic", ">120%", 1.20, float("inf")),
-    ]
-    counts = {z[0]: 0 for z in zone_defs}
-    coasting = 0
-    total = 0
-    for p in powers:
-        if p is None or p == 0:
-            coasting += 1
-            continue
-        total += 1
-        for name, _, _, lo, hi in zone_defs:
-            if ftp * lo <= p < ftp * hi:
-                counts[name] += 1
-                break
-
-    zones = []
-    for name, label, rng, _, _ in zone_defs:
-        secs = counts[name]
-        pct = round(100 * secs / total, 1) if total > 0 else 0
-        zones.append({"zone": name, "label": label, "range": rng, "seconds": secs, "pct": pct})
-
-    return {"ftp_used": ftp, "zones": zones, "coasting_seconds": coasting}
-
-
-def _compute_hr_zones(heart_rates: list, lthr: int) -> dict | None:
-    """Compute HR zone distribution."""
-    if not lthr or lthr <= 0:
-        return None
-    zone_defs = [
-        ("Z1", "Recovery", "<81%", 0, 0.81),
-        ("Z2", "Aerobic", "81-89%", 0.81, 0.89),
-        ("Z3", "Tempo", "89-93%", 0.89, 0.93),
-        ("Z4", "Threshold", "93-99%", 0.93, 0.99),
-        ("Z5", "VO2max", ">99%", 0.99, float("inf")),
-    ]
-    counts = {z[0]: 0 for z in zone_defs}
-    total = 0
-    for hr in heart_rates:
-        if hr is None or hr == 0:
-            continue
-        total += 1
-        for name, _, _, lo, hi in zone_defs:
-            if lthr * lo <= hr < lthr * hi:
-                counts[name] += 1
-                break
-
-    if total == 0:
-        return None
-
-    zones = []
-    for name, label, rng, _, _ in zone_defs:
-        secs = counts[name]
-        pct = round(100 * secs / total, 1) if total > 0 else 0
-        zones.append({"zone": name, "label": label, "range": rng, "seconds": secs, "pct": pct})
-    return {"lthr_used": lthr, "zones": zones}
 
 
 def _compute_hr_drift(powers: list, heart_rates: list) -> dict | None:
@@ -226,7 +170,7 @@ def get_recent_rides(days_back: int = 7) -> list[dict]:
             "avg_hr": r["avg_hr"],
             "ascent_m": r["total_ascent"],
             "best_20min": r["best_20min_power"],
-            "athlete_post_ride_notes": r["post_ride_comments"],
+            "athlete_post_ride_notes": _wrap_athlete_data(r["post_ride_comments"]),
             "coach_post_ride_notes": r["coach_comments"],
         }
         for r in rows
@@ -258,7 +202,7 @@ def get_upcoming_workouts(days_ahead: int = 7) -> list[dict]:
             "sport": r["sport"],
             "duration_min": round((r["total_duration_s"] or 0) / 60),
             "coach_notes": r["coach_notes"],
-            "athlete_notes": r["athlete_notes"],
+            "athlete_notes": _wrap_athlete_data(r["athlete_notes"]),
         }
         for r in rows
     ]
@@ -456,7 +400,7 @@ def get_ride_analysis(date: str) -> dict:
     # Power zones
     power_zones = None
     if has_power and ftp > 0:
-        power_zones = _compute_power_zones(powers, ftp)
+        power_zones = compute_power_zones(powers, ftp)
     elif has_power and ftp == 0:
         warnings.append("FTP is 0 — cannot compute power zones")
 
@@ -468,7 +412,7 @@ def get_ride_analysis(date: str) -> dict:
         except (ValueError, TypeError):
             lthr = 0
         if lthr > 0:
-            hr_zones = _compute_hr_zones(heart_rates, lthr)
+            hr_zones = compute_hr_zones(heart_rates, lthr)
 
     # Metrics
     np_val = ride["normalized_power"]
@@ -762,7 +706,7 @@ def get_planned_workout_for_ride(date: str) -> dict:
             "duration_min": round((planned["total_duration_s"] or 0) / 60),
             "planned_tss": planned["planned_tss"],
             "coach_notes": planned["coach_notes"],
-            "athlete_notes": planned["athlete_notes"],
+            "athlete_notes": _wrap_athlete_data(planned["athlete_notes"]),
         }
 
     if actual:

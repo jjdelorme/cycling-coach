@@ -10,6 +10,18 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 - **LOCAL DEVELOPMENT:** Always use the local Podman-managed PostgreSQL container (`podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine`) for development and testing.
 - **ENVIRONMENT VERIFICATION:** Before running any script or command that modifies the database, verify that `DATABASE_URL` is pointing to `localhost` or the intended local development instance.
 
+## AI Coaching Architecture Principles
+
+- **NO HARD-CODED WORKOUT PRESCRIPTIONS:** NEVER hard-code workout types, weekly structures, phase-to-focus mappings, or training cycle patterns (e.g., "3 build weeks + 1 recovery") in Python. All workout templates and structures must live in the `workout_templates` database table. If a new workout type is needed, it goes in the DB, not in Python code.
+
+- **NO STATIC COACH NOTES:** NEVER generate coach notes from Python lookup tables, dicts, or static strings. Coach notes must be produced by the LLM agent based on real athlete data: current CTL/ATL/TSB, recent ride analysis, phase context, and the athlete's stated goals. A coach note like "Easy recovery spin — keep HR low" is wrong if the agent hasn't checked the athlete's recent TSB. The agent must reason from data to produce notes.
+
+- **AGENT DECIDES, TOOLS EXECUTE:** Planning tools (`generate_weekly_plan`, `replace_workout`, etc.) are execution primitives — they write to the database. The AI agent decides WHAT to prescribe based on athlete data. Tools must not embed training logic that belongs to the agent's reasoning. If you find yourself writing `if focus == "base": use_recovery_workout()` in a tool, that decision belongs in the LLM, not the Python function.
+
+- **ADAPTIVE BY DEFAULT:** The coach must prescribe workouts based on the athlete's CURRENT state, not a fixed weekly rotation. The same calendar week should produce different prescriptions depending on whether the athlete is fresh (high TSB), fatigued (low TSB), coming off illness, or peaking for an event. Tools must expose rich athlete state so the LLM can make these decisions.
+
+- **DB IS THE SOURCE OF TRUTH FOR TRAINING CONFIG:** Zone definitions, TSS targets, hour targets, phase focus types, cycle structures — all training configuration belongs in the database, not hard-coded in Python constants or function bodies.
+
 ## Tech Stack
 - **Backend**: Python 3.11+ / FastAPI / PostgreSQL (psycopg2)
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS + Chart.js
@@ -78,6 +90,7 @@ To manage the test database manually:
 
 - **Unit tests** (`tests/unit/`): Pure logic, mocked dependencies. No imports from `server.database`.
 - **Integration tests** (`tests/integration/`): Use the shared `client` and `db_conn` fixtures from `tests/integration/conftest.py`. Do NOT call `init_db()` (handled by session fixture). Do NOT use `TRUNCATE` or destructive cleanup — the test database is disposable.
+- **Planning tool tests:** Assert that the tool writes to the database correctly — do NOT assert specific workout names or note text, as these are determined by the agent at runtime.
 
 ### Versioning
 The `VERSION` file is **not checked into git**.
@@ -154,15 +167,15 @@ echo -n "$JWT_VALUE" | gcloud secrets versions add JWT_SECRET --data-file=- --pr
 
 # Grant the Cloud Run service account access
 gcloud secrets add-iam-policy-binding JWT_SECRET \
-  --member="serviceAccount:cycling-coach-deployer@jasondel-cloudrun10.iam.gserviceaccount.com" \
+  --member="serviceAccount:cycling-coach-deployer@$(gcloud config get project).iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor" \
-  --project=jasondel-cloudrun10
+  --project=$(gcloud config get project)
 
 # Also grant the Cloud Run runtime service account (if different from deployer)
 gcloud secrets add-iam-policy-binding JWT_SECRET \
-  --member="serviceAccount:$(gcloud iam service-accounts list --project=jasondel-cloudrun10 --filter='email:compute@developer' --format='value(email)')" \
+  --member="serviceAccount:$(gcloud iam service-accounts list --project=$(gcloud config get project) --filter='email:compute@developer' --format='value(email)')" \
   --role="roles/secretmanager.secretAccessor" \
-  --project=jasondel-cloudrun10
+  --project=$(gcloud config get project)
 
 # For local dev, add to .env
 echo "JWT_SECRET=$JWT_VALUE" >> .env

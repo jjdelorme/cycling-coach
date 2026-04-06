@@ -311,17 +311,17 @@ class _DbConnection:
 # Settings defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_ATHLETE_PROFILE = """- Experience: ~300 rides / 600 hours over the past year
-- A-race: Big Sky Biggie (late August 2026) - ~50mi MTB, ~6,000ft climbing
-- Qualitative Goals: Focus on technical climbing and sustained threshold power for marathon MTB events.
-- Constraints: Limited to 12-14 hours per week; prefers early morning workouts."""
+DEFAULT_ATHLETE_PROFILE = """- Experience: [Set your training background and years of experience]
+- Goals: [Describe your A-race or primary goal event with date and distance]
+- Strengths: [e.g., climbing, sustained power, sprinting]
+- Limiters: [e.g., VO2max, lactate threshold, technical skills]
+- Constraints: [Available training hours per week, preferred training days/times]"""
 
-DEFAULT_COACHING_PRINCIPLES = """- 12-14h/week is the sweet spot (not 15-19h)
-- 3-week build / 1-week recovery cycles
+DEFAULT_COACHING_PRINCIPLES = """- Match weekly volume to the athlete's available time and current periodization phase
+- Build/recovery cycle length should reflect the athlete's recovery capacity and training age
 - Structured intervals are essential, not just terrain-driven intensity
-- 48-72h recovery after hard efforts (age-appropriate)
+- Allow 48-72h recovery after hard efforts; adjust for athlete age and accumulated fatigue
 - Polarized approach: easy days easy, hard days hard
-- Weight is a lever: every pound matters on the climbs
 - When days are missed, adjust the week - don't panic, protect key workouts"""
 
 DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
@@ -336,32 +336,40 @@ DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
 - Use get_power_curve with date ranges to compare fitness across training blocks
 - When power data is unavailable (has_power = false), focus on HR zones, HR drift, and perceived effort"""
 
-DEFAULT_PLAN_MANAGEMENT = """- CRITICAL: When you recommend changing, swapping, or adjusting a workout, you MUST call replace_workout to persist the change to the database. Never just verbally recommend a different workout without updating the plan. The calendar and all other views read from the database — if you don't call the tool, your advice will contradict what the athlete sees everywhere else.
-- You can generate weekly training plans using generate_weekly_plan
-- You can replace a single day's workout using replace_workout — use this when the athlete wants to change one day without affecting the rest of the week
-  - For standard workouts, use template mode (workout_type) — use list_workout_templates to see what's available
-  - For specific prescriptions, use custom mode (name + description + steps) to design the exact intervals, power targets, and durations
-  - Always include coaching notes in the description: RPE cues, cadence targets, terrain suggestions, what to focus on
-- You can browse and manage workout templates using list_workout_templates and save_workout_template
-  - If the athlete likes a workout, offer to save it as a reusable template with save_workout_template
-  - You can create templates from scratch or extract them from existing planned workouts (from_workout_id)
-  - Templates are stored in the database and available for future use
-- You can reschedule missed workouts using replan_missed_day
-- You can adjust periodization phases using adjust_phase
-- After adjusting phases, ASK the athlete if they want you to regenerate workouts for the affected dates
-- Use regenerate_phase_workouts to rebuild workouts for a date range based on the current phases
-  - It automatically applies 3-week build / 1-week recovery cycles within each phase
-  - It matches workout types to the phase focus (base, build, peak, taper)
-  - It scales weekly hours to the phase's target range
-- Always check current fitness (PMC) before planning intensity
-- When generating plans, match the focus to the current periodization phase
-- After any plan changes, summarize what you did and show the updated schedule
-- You can sync planned workouts to Garmin via intervals.icu using sync_workouts_to_garmin
-- When asked to sync, you can sync by date, by workout name, or sync all remaining workouts this week
-- After generating or replacing workouts, ALWAYS call set_workout_coach_notes for each workout with personalized pre-ride coaching notes. Think like a real coach: terrain advice (e.g. "find a 15-20 min climb for these intervals"), indoor/outdoor guidance, RPE cues, cadence targets, what to focus on mentally, how the workout fits the week's goals, recovery reminders. Make notes specific and actionable, not generic.
-- After generating a weekly plan, offer to sync the workouts to Garmin
-- You can update the athlete profile and coaching settings using update_coach_settings when the athlete tells you about changes (new FTP, new goals, weight changes, etc.)
-- IMPORTANT: When the athlete reports a new FTP, weight, or heart rate value, ALWAYS call update_athlete_setting to persist the numeric value. This ensures workout power targets, zone calculations, and FTP history are updated correctly. Call both update_coach_settings (for the text profile) AND update_athlete_setting (for the structured value)."""
+DEFAULT_PLAN_MANAGEMENT = """CRITICAL: When you recommend changing, swapping, or adjusting a workout, you MUST call replace_workout or generate_week_from_spec to persist the change. Never just verbally recommend a different workout — the calendar reads from the database.
+
+BEFORE PRESCRIBING ANY WORKOUT OR PLANNING A WEEK, you MUST check:
+1. get_pmc_metrics — current CTL, ATL, TSB
+2. get_recent_rides(14) — recent load, ride quality, power trends
+3. get_periodization_status — current phase focus, hour/TSS targets
+4. Consider: Is TSB dropping? Is power declining? Is the athlete fresh or buried?
+
+ADAPTIVE DECISIONS:
+- TSB below -20: prescribe easier workouts; consider early recovery week
+- TSB above +10: athlete is fresh — can handle more intensity or volume
+- Power declining or high HR drift in recent rides: fatigue signal — back off
+- Strong recent power, low decoupling: good form — can push harder
+- Phase focus determines workout TYPE (base=aerobic/endurance, build=threshold+VO2max, peak=race-specific)
+- Phase hour/TSS targets set volume, but adjust down if athlete is fatigued
+
+WEEKLY PLANNING — use generate_week_from_spec:
+- Call list_workout_templates to see what's available by category
+- Choose templates OR design custom workouts based on athlete state
+- Provide personalized coach_notes for EVERY workout referencing current TSB and recent load
+- Do NOT follow a rigid 3:1 build/recovery cycle — insert recovery weeks based on actual fatigue
+- After generating, offer to sync to Garmin via sync_workouts_to_garmin
+
+SINGLE WORKOUT CHANGES — use replace_workout:
+- Template mode for standard workouts; custom mode for specific interval prescriptions
+- Always call set_workout_coach_notes after replace_workout with contextual notes
+- Use replan_missed_day to reschedule, then update notes for new date context
+
+COACH NOTES — MANDATORY:
+Every workout needs personalized notes. Include:
+- Current form context ("TSB is -15 after a hard block — keep this truly easy")
+- Specific execution cues (target HR cap, power range, cadence, terrain)
+- How it fits the week ("This is your quality session — the Wednesday Z2 was prep for this")
+Never write notes like "Easy ride today" when you have athlete data — use it."""
 
 SETTINGS_DEFAULTS = {
     "athlete_profile": DEFAULT_ATHLETE_PROFILE,
@@ -411,13 +419,13 @@ def get_all_settings() -> dict:
 # ---------------------------------------------------------------------------
 
 ATHLETE_SETTINGS_DEFAULTS = {
-    "lthr": "158",          # Lactate threshold HR (bpm)
-    "max_hr": "175",        # Max heart rate (bpm)
-    "resting_hr": "48",     # Resting heart rate (bpm)
-    "ftp": "261",           # Functional threshold power (watts)
-    "weight_kg": "74",      # Weight in kg
-    "age": "50",            # Age
-    "gender": "male",       # Gender (for hrTSS scaling)
+    "lthr": "",             # Lactate threshold HR (bpm)
+    "max_hr": "",           # Max heart rate (bpm)
+    "resting_hr": "",       # Resting heart rate (bpm)
+    "ftp": "0",             # Functional threshold power (watts)
+    "weight_kg": "0",       # Weight in kg
+    "age": "",              # Age
+    "gender": "",           # Gender (for hrTSS scaling)
 }
 
 

@@ -7,6 +7,7 @@ from server.auth import CurrentUser, require_read
 from server.database import get_db, get_athlete_setting
 from server.models.schemas import PowerBestEntry
 from server.queries import get_power_bests_rows, get_ftp_history_rows
+from server.zones import POWER_ZONES
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -94,18 +95,11 @@ def zone_distribution(
                 total += 1
                 if power == 0:
                     zones["z0"] += 1
-                elif power < ftp * 0.55:
-                    zones["z1"] += 1
-                elif power < ftp * 0.75:
-                    zones["z2"] += 1
-                elif power < ftp * 0.90:
-                    zones["z3"] += 1
-                elif power < ftp * 1.05:
-                    zones["z4"] += 1
-                elif power < ftp * 1.20:
-                    zones["z5"] += 1
                 else:
-                    zones["z6"] += 1
+                    for zone_id, _, _, lo, hi in POWER_ZONES:
+                        if ftp * lo <= power < ftp * hi:
+                            zones[zone_id.lower()] += 1
+                            break
 
     if total > 0:
         percentages = {k: round(100 * v / total, 1) for k, v in zones.items()}
