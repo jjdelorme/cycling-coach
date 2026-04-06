@@ -62,21 +62,23 @@ def _build_zwo_xml(name, description, steps, ftp, duration_minutes=None):
     workout = ET.SubElement(root, "workout")
 
     for step in steps:
-        stype = step["type"]
+        stype = step["type"].lower()
 
-        if stype == "Intervals" or stype == "IntervalsT":
+        if stype in ("intervals", "intervalst", "interval"):
             el = ET.SubElement(workout, "IntervalsT")
             el.set("Repeat", str(step.get("repeat", step.get("Repeat", 1))))
             el.set("OnDuration", str(step.get("on_duration_seconds", step.get("on_duration", 0))))
             el.set("OffDuration", str(step.get("off_duration_seconds", step.get("off_duration", 0))))
             el.set("OnPower", str(step.get("on_power", 1.0)))
             el.set("OffPower", str(step.get("off_power", 0.5)))
-        elif stype in ("Warmup", "Cooldown"):
-            el = ET.SubElement(workout, stype)
+        elif stype in ("warmup", "cooldown"):
+            # Zwift requires capitalized tag names for these
+            tag = "Warmup" if stype == "warmup" else "Cooldown"
+            el = ET.SubElement(workout, tag)
             el.set("Duration", str(step.get("duration_seconds", step.get("duration", 0))))
             el.set("PowerLow", str(step.get("power_low", 0.4)))
             el.set("PowerHigh", str(step.get("power_high", 0.65)))
-        elif stype == "SteadyState":
+        elif stype in ("steadystate", "recovery", "rest", "tempo", "threshold", "endurance", "z2", "z3", "z4", "z5"):
             el = ET.SubElement(workout, "SteadyState")
             dur = step.get("duration_seconds", step.get("duration"))
             if dur is None and duration_minutes:
@@ -88,6 +90,8 @@ def _build_zwo_xml(name, description, steps, ftp, duration_minutes=None):
                 dur = 1800  # default 30min
             el.set("Duration", str(dur))
             el.set("Power", str(step.get("power", 0.65)))
+        else:
+            logger.warning(f"Unknown custom step type: {stype}")
 
     xml_str = minidom.parseString(ET.tostring(root, encoding="unicode")).toprettyxml(indent="  ")
     lines = xml_str.split("\n")
@@ -172,7 +176,7 @@ def calculate_planned_tss(workout_xml: str) -> float | None:
             avg_power = (p_low + p_high) / 2
             weighted_seconds += dur * avg_power * avg_power
 
-        elif tag == "IntervalsT":
+        elif tag == "IntervalsT" or tag == "Intervals":
             repeats = int(step.get("Repeat", 1))
             on_dur = float(step.get("OnDuration", 0))
             off_dur = float(step.get("OffDuration", 0))
@@ -181,6 +185,8 @@ def calculate_planned_tss(workout_xml: str) -> float | None:
             weighted_seconds += repeats * (
                 on_dur * on_power * on_power + off_dur * off_power * off_power
             )
+        else:
+            logger.warning(f"Unknown workout tag: {tag}")
 
     if weighted_seconds <= 0:
         return None

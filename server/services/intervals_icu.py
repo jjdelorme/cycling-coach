@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import fitparse
 import httpx
 
-from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID
+from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID, INTERVALS_ICU_DISABLED
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,10 @@ def is_configured() -> bool:
     return bool(api_key and athlete_id)
 
 
+def is_sync_disabled() -> bool:
+    return INTERVALS_ICU_DISABLED
+
+
 def push_workout(
     date: str,
     name: str,
@@ -47,6 +51,9 @@ def push_workout(
     If icu_event_id is provided, updates the existing event (PUT).
     Otherwise creates a new event (POST).
     """
+    if is_sync_disabled():
+        return {"error": "Syncing is disabled via INTERVALS_ICU_DISABLE environment variable."}
+
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
         return {"error": "intervals.icu not configured. Set API key and Athlete ID in Settings."}
@@ -86,6 +93,9 @@ def push_workout(
 
 def push_workouts_bulk(workouts: list[dict]) -> dict:
     """Push multiple planned workouts to intervals.icu calendar."""
+    if is_sync_disabled():
+        return {"error": "Syncing is disabled via INTERVALS_ICU_DISABLE environment variable."}
+
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
         return {"error": "intervals.icu not configured. Set API key and Athlete ID in Settings."}
@@ -126,6 +136,9 @@ def push_workouts_bulk(workouts: list[dict]) -> dict:
 
 def delete_event(event_id: int) -> dict:
     """Delete an event from intervals.icu calendar."""
+    if is_sync_disabled():
+        return {"error": "Syncing is disabled via INTERVALS_ICU_DISABLE environment variable."}
+
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
         return {"status": "error", "message": "intervals.icu not configured"}
@@ -366,6 +379,9 @@ def update_ftp(ftp: int) -> dict:
     Payload: {"ftp": value}
     Note: Use 0 for {athleteId} per Intervals.icu API.
     """
+    if is_sync_disabled():
+        return {"error": "Syncing is disabled via INTERVALS_ICU_DISABLE environment variable."}
+
     api_key, _ = _get_credentials()
     if not api_key:
         return {"status": "error", "message": "intervals.icu not configured"}
@@ -387,6 +403,9 @@ def update_weight(weight: float, date: str = None) -> dict:
     Payload: {"weight": value}
     Date Format: YYYY-MM-DD. Defaults to today.
     """
+    if is_sync_disabled():
+        return {"error": "Syncing is disabled via INTERVALS_ICU_DISABLE environment variable."}
+
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
         return {"status": "error", "message": "intervals.icu not configured"}

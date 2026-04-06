@@ -163,9 +163,18 @@ function TrainingPlanOverview() {
           borderColor: '#00d4aa',
           backgroundColor: 'rgba(0, 212, 170, 0.1)',
           fill: true,
-          pointRadius: 3,
-          pointHoverRadius: 6,
-          pointBackgroundColor: overview.map((w) => {
+          segment: {
+            borderColor: (ctx: any) => ctx.p1DataIndex >= todayIdx && todayIdx !== -1 ? 'rgba(0, 212, 170, 0.4)' : undefined,
+            borderDash: (ctx: any) => ctx.p1DataIndex >= todayIdx && todayIdx !== -1 ? [5, 5] : undefined,
+          },
+          pointStyle: (ctx: any) => ctx.dataIndex === todayIdx ? 'rectRot' : 'circle',
+          pointRadius: (ctx: any) => {
+            if (ctx.dataIndex === todayIdx) return 6
+            return (ctx.raw as number) > 0 ? 3 : 0
+          },
+          pointHoverRadius: (ctx: any) => ctx.dataIndex === todayIdx ? 8 : 6,
+          pointBackgroundColor: overview.map((w, idx) => {
+            if (idx === todayIdx) return '#00d4aa'
             const actual = isHours ? w.actual_hours : w.actual_tss
             const low = isHours ? w.target_hours_low : w.target_tss_low
             const high = isHours ? w.target_hours_high : w.target_tss_high
@@ -207,13 +216,20 @@ function TrainingPlanOverview() {
       ctx.moveTo(x, chartArea.top)
       ctx.lineTo(x, chartArea.bottom)
       ctx.stroke()
+
+      // Add "TODAY" label
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.8)'
+      ctx.font = 'bold 9px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('TODAY', x, chartArea.top - 5)
+
       ctx.restore()
     },
   }), [todayIdx])
 
   const stats = useMemo(() => {
-    if (!overview) return { onTarget: 0, under: 0, over: 0, avg: 0 }
-    const past = overview.filter((w) => w.week_start < todayStr && w.actual_hours > 0 && w.target_hours_low != null)
+    if (!overview) return { onTarget: 0, under: 0, over: 0, avg: 0, total: 0 }
+    const past = overview.filter((w) => w.week_start <= todayStr && (w.actual_hours > 0 || w.actual_tss > 0) && w.target_hours_low != null)
     const isHours = metric === 'hours'
     const onTarget = past.filter((w) => {
       const a = isHours ? w.actual_hours : w.actual_tss
@@ -234,7 +250,7 @@ function TrainingPlanOverview() {
     const avg = past.length > 0
       ? past.reduce((s, w) => s + (isHours ? w.actual_hours : w.actual_tss), 0) / past.length
       : 0
-    return { onTarget, under, over, avg }
+    return { onTarget, under, over, avg, total: past.length }
   }, [overview, todayStr, metric])
 
   if (phasesLoading || overviewLoading) return <div className="p-6 text-text-muted animate-pulse">Loading training plan...</div>
@@ -359,22 +375,31 @@ function TrainingPlanOverview() {
         </div>
 
         {/* Stats Summary */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border/50">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1 flex items-center gap-1.5"><TrendingUp size={12} /> Average Load</span>
-            <span className="text-lg font-bold text-text">{metric === 'hours' ? `${stats.avg.toFixed(1)}h` : Math.round(stats.avg)}</span>
+        <div className="pt-4 border-t border-border/50">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-[10px] font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
+              <Activity size={12} className="text-accent" />
+              Season Performance Summary 
+              <span className="ml-1 lowercase font-normal italic opacity-70">(Calculated from {stats.total} completed weeks in this season)</span>
+            </h3>
           </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] font-bold text-green uppercase tracking-widest mb-1 flex items-center gap-1.5"><Trophy size={12} /> On Target</span>
-            <span className="text-lg font-bold text-green">{stats.onTarget} Weeks</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] font-bold text-red uppercase tracking-widest mb-1 flex items-center gap-1.5"><ArrowDownRight size={12} /> Under Target</span>
-            <span className="text-lg font-bold text-red">{stats.under} Weeks</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] font-bold text-yellow uppercase tracking-widest mb-1 flex items-center gap-1.5"><ArrowUpRight size={12} /> Over Target</span>
-            <span className="text-lg font-bold text-yellow">{stats.over} Weeks</span>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1 flex items-center gap-1.5"><TrendingUp size={12} /> Average Load</span>
+              <span className="text-lg font-bold text-text">{metric === 'hours' ? `${stats.avg.toFixed(1)}h` : Math.round(stats.avg)}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-green uppercase tracking-widest mb-1 flex items-center gap-1.5"><Trophy size={12} /> On Target</span>
+              <span className="text-lg font-bold text-green">{stats.onTarget} <span className="text-xs font-normal text-text-muted">/ {stats.total}</span></span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-red uppercase tracking-widest mb-1 flex items-center gap-1.5"><ArrowDownRight size={12} /> Under Target</span>
+              <span className="text-lg font-bold text-red">{stats.under} <span className="text-xs font-normal text-text-muted">/ {stats.total}</span></span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-yellow uppercase tracking-widest mb-1 flex items-center gap-1.5"><ArrowUpRight size={12} /> Over Target</span>
+              <span className="text-lg font-bold text-yellow">{stats.over} <span className="text-xs font-normal text-text-muted">/ {stats.total}</span></span>
+            </div>
           </div>
         </div>
       </div>

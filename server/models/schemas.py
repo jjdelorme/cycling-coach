@@ -134,6 +134,7 @@ class PlannedWorkout(BaseModel):
     name: Optional[str] = None
     sport: Optional[str] = None
     total_duration_s: Optional[float] = None
+    planned_tss: Optional[float] = None
     workout_xml: Optional[str] = None
     coach_notes: Optional[str] = None
     athlete_notes: Optional[str] = None

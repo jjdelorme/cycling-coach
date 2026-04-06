@@ -367,7 +367,7 @@ def _parse_zwo_steps(xml_str: str, ftp: int = 261) -> list[dict]:
     for el in workout_el:
         tag = el.tag
 
-        if tag == "IntervalsT":
+        if tag in ("IntervalsT", "Intervals"):
             repeat = int(el.get("Repeat", "1"))
             on_dur = int(float(el.get("OnDuration", "0")))
             off_dur = int(float(el.get("OffDuration", "0")))
@@ -412,12 +412,16 @@ def _parse_zwo_steps(xml_str: str, ftp: int = 261) -> list[dict]:
             })
             elapsed += dur
 
-        elif tag == "SteadyState":
+        elif tag in ("SteadyState", "Ramp", "FreeRide"):
             dur = int(float(el.get("Duration", "0")))
-            pct = float(el.get("Power", "0.65"))
+            if tag == "FreeRide":
+                 pct = 0.60 # Default for display
+            else:
+                 pct = float(el.get("Power", el.get("PowerHigh", "0.65")))
+            
             steps.append({
-                "type": "SteadyState",
-                "label": _zone_label(pct),
+                "type": tag,
+                "label": _zone_label(pct) if tag != "FreeRide" else "Free Ride",
                 "duration_s": dur,
                 "start_s": elapsed,
                 "power_pct": pct,

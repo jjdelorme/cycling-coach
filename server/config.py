@@ -21,3 +21,4 @@ JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 # intervals.icu integration
 INTERVALS_ICU_API_KEY = os.getenv("INTERVALS_ICU_API_KEY", "")
 INTERVALS_ICU_ATHLETE_ID = os.getenv("INTERVALS_ICU_ATHLETE_ID", "")
+INTERVALS_ICU_DISABLED = os.getenv("INTERVALS_ICU_DISABLE", "0").lower() in ("1", "true", "yes")
