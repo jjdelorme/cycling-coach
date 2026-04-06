@@ -12,7 +12,7 @@ from fit_tool.profile.profile_type import (
 )
 
 
-def zwo_to_fit(xml_str: str, ftp: int = 261, workout_name: str = "Workout") -> bytes:
+def zwo_to_fit(xml_str: str, ftp: int = 0, workout_name: str = "Workout") -> bytes:
     """Convert a ZWO workout XML string to a Garmin FIT workout file.
 
     Args:

@@ -2,6 +2,67 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.2] - 2026-04-06
+
+### AI Coach — Adaptive Architecture
+
+The coaching agent is now fully adaptive. All hard-coded workout prescriptions,
+weekly templates, and static coach notes have been removed. The LLM agent makes
+every training decision from real athlete data.
+
+- **Removed** `generate_weekly_plan` and `regenerate_phase_workouts` — these
+  embedded rigid weekly structures (Mon=recovery, Tue=Z2, etc.) and a hard-coded
+  3-week build / 1-week recovery mesocycle that produced identical workouts
+  every week regardless of athlete state.
+- **Added** `generate_week_from_spec` — a dumb batch-insert tool. The agent
+  queries CTL/ATL/TSB, recent ride quality, and phase context, then decides what
+  to prescribe. Tools execute; the LLM coaches.
+- **Removed** `_WORKOUT_COACH_NOTES` static dict — coach notes are now written
+  by the agent based on actual athlete context, never pulled from a Python
+  lookup table.
+- **System prompt** now injects the last 7 days of rides on every session so the
+  agent has immediate adaptive context without an extra tool call.
+- **Adaptive planning protocol** in `DEFAULT_PLAN_MANAGEMENT`: TSB thresholds
+  for intensity decisions, mandatory pre-prescription data checks, no rigid
+  periodization cycles.
+
+### Security
+
+- **Restricted `update_coach_settings`** to `athlete_profile` and
+  `coaching_principles` only — removes the agent's ability to rewrite its own
+  `coach_role` / `plan_management` system prompt sections via prompt injection.
+- **Prompt injection mitigations** — athlete-provided fields (`athlete_notes`,
+  `post_ride_comments`) are wrapped with `[ATHLETE DATA: ...]` delimiters in all
+  tool outputs so the LLM treats them as untrusted data, not instructions.
+
+### Infrastructure
+
+- **`server/zones.py`** — new single source of truth for all zone boundary
+  definitions (`POWER_ZONES`, `HR_ZONES`, `power_zone_label`,
+  `compute_power_zones`, `compute_hr_zones`). Eliminates four duplicate
+  definitions across `tools.py`, `analysis.py`, `planning.py`, and
+  `tcx_export.py`, including a silent boundary inconsistency (0.56 vs 0.55).
+- **Removed hardcoded FTP=261** (one athlete's personal FTP) from 8 locations
+  across `queries.py`, `workout_generator.py`, `planning.py`, `fit_export.py`,
+  and `tcx_export.py`. Missing FTP now propagates as `0`.
+- **Generic installation defaults** — `ATHLETE_SETTINGS_DEFAULTS` and
+  `DEFAULT_ATHLETE_PROFILE` replaced with empty/placeholder values. Platform is
+  now truly multi-athlete ready.
+
+### Tests
+
+- Added 11 new integration tests covering `set_workout_coach_notes`,
+  `replace_workout`, `generate_week_from_spec` (template, custom, rest, mixed,
+  error, notes round-trip), `get_upcoming_workouts` coach_notes field.
+- Integration tests for deleted functions removed; replaced with
+  `generate_week_from_spec` equivalents.
+
+### Documentation
+
+- **`AGENTS.md`** — new *AI Coaching Architecture Principles* section with five
+  hard mandates: no hard-coded prescriptions, no static notes, agent decides /
+  tools execute, adaptive by default, DB is the source of truth.
+
 ## [v1.7.1] - 2026-04-06
 
 ### Fixes

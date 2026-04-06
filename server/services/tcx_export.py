@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from typing import Optional
 
+from server.zones import power_zone_label
+
 NS = "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"
 XSI = "http://www.w3.org/2001/XMLSchema-instance"
 SCHEMA_LOC = f"{NS} http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"
@@ -11,7 +13,7 @@ SCHEMA_LOC = f"{NS} http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xs
 
 def zwo_to_tcx(
     xml_str: str,
-    ftp: int = 261,
+    ftp: int = 0,
     workout_name: str = "Workout",
     scheduled_date: Optional[str] = None,
 ) -> str:
@@ -104,7 +106,7 @@ def _convert_zwo_element(el, parent, ftp: int, step_id: list[int]):
         child_on.set("xsi:type", "Step_t")
         ET.SubElement(child_on, "StepId").text = str(step_id[0])
         step_id[0] += 1
-        ET.SubElement(child_on, "Name").text = f"{_zone_label(on_pct)} {on_watts}w ({round(on_pct*100)}%)"
+        ET.SubElement(child_on, "Name").text = f"{power_zone_label(on_pct)} {on_watts}w ({round(on_pct*100)}%)"
         dur = ET.SubElement(child_on, "Duration")
         dur.set("xsi:type", "Time_t")
         ET.SubElement(dur, "Seconds").text = str(on_dur)
@@ -172,7 +174,7 @@ def _convert_zwo_element(el, parent, ftp: int, step_id: list[int]):
         step.set("xsi:type", "Step_t")
         ET.SubElement(step, "StepId").text = str(step_id[0])
         step_id[0] += 1
-        ET.SubElement(step, "Name").text = f"{_zone_label(pct)} {watts}w ({round(pct*100)}%)"
+        ET.SubElement(step, "Name").text = f"{power_zone_label(pct)} {watts}w ({round(pct*100)}%)"
         dur = ET.SubElement(step, "Duration")
         dur.set("xsi:type", "Time_t")
         ET.SubElement(dur, "Seconds").text = str(dur_s)
@@ -188,17 +190,3 @@ def _convert_zwo_element(el, parent, ftp: int, step_id: list[int]):
         target = ET.SubElement(step, "Target")
         target.set("xsi:type", "None_t")
 
-
-def _zone_label(pct: float) -> str:
-    if pct < 0.56:
-        return "Z1"
-    elif pct < 0.76:
-        return "Z2"
-    elif pct < 0.91:
-        return "Sweet Spot"
-    elif pct < 1.06:
-        return "Threshold"
-    elif pct < 1.21:
-        return "VO2max"
-    else:
-        return "Anaerobic"
