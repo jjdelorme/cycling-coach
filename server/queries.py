@@ -86,22 +86,28 @@ def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | No
     return [dict(r) for r in rows]
 
 
-def get_ftp_history_rows(conn) -> list[dict]:
+def get_ftp_history_rows(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Get FTP progression by month from daily_metrics."""
-    rows = conn.execute(
-        """SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as ftp, MAX(weight) as weight
-           FROM daily_metrics 
-           WHERE ftp > 0 
-           GROUP BY SUBSTR(date, 1, 7)
-           ORDER BY month"""
-    ).fetchall()
+    query = """SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as ftp, MAX(weight) as weight_kg
+               FROM daily_metrics
+               WHERE ftp > 0"""
+    params = []
+    if start_date:
+        query += " AND date >= %s"
+        params.append(start_date)
+    if end_date:
+        query += " AND date <= %s"
+        params.append(end_date)
+    query += " GROUP BY SUBSTR(date, 1, 7) ORDER BY month"
+
+    rows = conn.execute(query, params).fetchall()
 
     return [
         {
             "month": r["month"],
             "ftp": int(r["ftp"]),
-            "weight": round(r["weight"], 1) if r["weight"] else None,
-            "w_per_kg": round(r["ftp"] / r["weight"], 2) if r["weight"] and r["weight"] > 0 else None,
+            "weight_kg": round(r["weight_kg"], 1) if r["weight_kg"] else None,
+            "w_per_kg": round(r["ftp"] / r["weight_kg"], 2) if r["weight_kg"] and r["weight_kg"] > 0 else None,
         }
         for r in rows
     ]

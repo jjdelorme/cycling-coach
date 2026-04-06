@@ -115,6 +115,15 @@ function TrainingPlanOverview() {
   }, [])
   const todayStr = useMemo(() => today.toISOString().slice(0, 10), [today])
 
+  const todayIdx = useMemo(() => {
+    if (!overview) return -1
+    return overview.findIndex((w) => {
+      const wDate = new Date(w.week_start)
+      const diff = (today.getTime() - wDate.getTime()) / 86400000
+      return diff >= 0 && diff < 7
+    })
+  }, [overview, today])
+
   const chartData = useMemo(() => {
     if (!overview || overview.length === 0) return null
     const isHours = metric === 'hours'
@@ -189,16 +198,7 @@ function TrainingPlanOverview() {
         },
       ],
     }
-  }, [overview, metric])
-
-  const todayIdx = useMemo(() => {
-    if (!overview) return -1
-    return overview.findIndex((w) => {
-      const wDate = new Date(w.week_start)
-      const diff = (today.getTime() - wDate.getTime()) / 86400000
-      return diff >= 0 && diff < 7
-    })
-  }, [overview, today])
+  }, [overview, metric, todayIdx])
 
   const todayLinePlugin = useMemo(() => ({
     id: 'todayLine',

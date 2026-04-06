@@ -54,7 +54,15 @@ def zone_distribution(
     end_date: Optional[str] = Query(None),
     user: CurrentUser = Depends(require_read),
 ):
-    """Power zone distribution from ride records."""
+    """Power zone distribution from ride records.
+
+    PERFORMANCE NOTE: This query does a full scan of ride_records joined to rides.
+    Adding a composite index on ride_records(ride_id, power) and an index on
+    rides(date) would significantly speed up filtered queries.
+    Example migration:
+      CREATE INDEX IF NOT EXISTS idx_ride_records_ride_id_power ON ride_records(ride_id, power);
+      CREATE INDEX IF NOT EXISTS idx_rides_date ON rides(date);
+    """
     query = """
         SELECT r.ftp, rr.power
         FROM ride_records rr
@@ -160,10 +168,14 @@ def efficiency_factor(
 
 
 @router.get("/ftp-history")
-def ftp_history(user: CurrentUser = Depends(require_read)):
+def ftp_history(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
+):
     """FTP progression over time, including current athlete setting."""
     with get_db() as conn:
-        return get_ftp_history_rows(conn)
+        return get_ftp_history_rows(conn, start_date, end_date)
 
 
 @router.get("/route-matches")
