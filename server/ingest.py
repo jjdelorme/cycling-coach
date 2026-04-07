@@ -2,7 +2,6 @@
 
 import bisect
 import json
-import logging
 import os
 import numpy as np
 import hashlib
@@ -11,6 +10,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from server.database import init_db, get_db
+from server.logging_config import get_logger
 from server.metrics import (
     clean_ride_data, 
     calculate_np, 
@@ -21,7 +21,7 @@ from server.metrics import (
     process_ride_samples
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _semicircles_to_degrees(val):
@@ -348,7 +348,7 @@ def backfill_hr_tss(conn):
             conn.execute("UPDATE rides SET tss = %s WHERE id = %s", (hr_tss, r["id"]))
             updated += 1
 
-    logger.info("Backfilled hrTSS for %d rides (of %d without TSS)", updated, len(rows))
+    logger.info("hrtss_backfill_complete", updated=updated, total_without_tss=len(rows))
     return updated
 
 
@@ -510,18 +510,18 @@ def sync_athlete_settings_from_latest_ride(conn):
         new_weight = str(round(row["weight"], 2))
         
         if new_ftp != current_ftp:
-            logger.info("Auto-syncing FTP from latest ride: %s -> %s", current_ftp, new_ftp)
+            logger.info("ftp_auto_synced", previous=current_ftp, new=new_ftp, source_date=row["date"])
             set_athlete_setting("ftp", new_ftp, date_set=row["date"])
             
         if new_weight != current_weight:
-            logger.info("Auto-syncing weight from latest ride: %s -> %s", current_weight, new_weight)
+            logger.info("weight_auto_synced", previous=current_weight, new=new_weight, source_date=row["date"])
             set_athlete_setting("weight_kg", new_weight, date_set=row["date"])
 
 
 def ingest_rides(conn, rides_dir=None):
     rides_dir = rides_dir or RIDES_DIR
     if not os.path.isdir(rides_dir):
-        logger.warning("Rides directory not found: %s", rides_dir)
+        logger.warning("rides_dir_missing", path=rides_dir)
         return 0
 
     # Get already-ingested filenames
@@ -644,14 +644,14 @@ def backfill_laps(conn, rides_dir=None):
              for l in laps],
         )
         backfilled += 1
-    logger.info("Backfilled laps for %d rides", backfilled)
+    logger.info("laps_backfill_complete", rides_backfilled=backfilled)
     return backfilled
 
 
 def ingest_workouts(conn, workouts_dir=None):
     workouts_dir = workouts_dir or WORKOUTS_DIR
     if not os.path.isdir(workouts_dir):
-        logger.warning("Workouts directory not found: %s", workouts_dir)
+        logger.warning("workouts_dir_missing", path=workouts_dir)
         return 0
 
     # Check if we already have workouts

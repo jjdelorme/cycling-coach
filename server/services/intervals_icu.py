@@ -1,7 +1,6 @@
 """intervals.icu API integration for syncing workouts and downloading rides."""
 
 import hashlib
-import logging
 import os
 import tempfile
 from datetime import datetime, timedelta
@@ -9,8 +8,9 @@ import fitparse
 import httpx
 
 from server.config import INTERVALS_ICU_API_KEY, INTERVALS_ICU_ATHLETE_ID, INTERVALS_ICU_DISABLED
+from server.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 BASE_URL = "https://intervals.icu"
 
@@ -83,7 +83,7 @@ def push_workout(
         event_data = resp.json()
         return {"status": "success", "event_id": event_data.get("id"), "event": event_data}
     else:
-        logger.error("intervals.icu sync failed: status=%s body=%s", resp.status_code, resp.text[:500])
+        logger.error("icu_push_failed", status=resp.status_code, body=resp.text[:200])
         return {
             "status": "error",
             "code": resp.status_code,
@@ -149,7 +149,7 @@ def delete_event(event_id: int) -> dict:
     if resp.status_code in (200, 204):
         return {"status": "success"}
     else:
-        logger.warning("Failed to delete event %d: status=%s", event_id, resp.status_code)
+        logger.warning("icu_delete_failed", event_id=event_id, status=resp.status_code)
         return {"status": "error", "code": resp.status_code, "message": resp.text[:500]}
 
 
@@ -175,15 +175,15 @@ def fetch_activities(oldest: str | None = None, newest: str | None = None) -> li
     url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/activities"
     params = {"oldest": oldest, "newest": newest}
 
-    logger.info("Fetching activities from intervals.icu: %s to %s", oldest, newest)
+    logger.info("icu_fetch_activities", oldest=oldest, newest=newest)
     resp = httpx.get(url, params=params, auth=("API_KEY", api_key), timeout=30.0)
 
     if resp.status_code != 200:
-        logger.error("Failed to fetch activities: status=%s body=%s", resp.status_code, resp.text[:500])
+        logger.error("icu_fetch_activities_failed", status=resp.status_code, body=resp.text[:200])
         raise RuntimeError(f"intervals.icu API error {resp.status_code}: {resp.text[:300]}")
 
     activities = resp.json()
-    logger.info("Fetched %d activities from intervals.icu", len(activities))
+    logger.info("icu_activities_fetched", count=len(activities), oldest=oldest, newest=newest)
     return activities
 
 
@@ -202,7 +202,7 @@ def fetch_activity_streams(activity_id: str) -> dict:
     resp = httpx.get(url, params=params, auth=("API_KEY", api_key), timeout=30.0)
 
     if resp.status_code != 200:
-        logger.error("Failed to fetch streams for %s: status=%s", activity_id, resp.status_code)
+        logger.error("icu_fetch_streams_failed", activity_id=activity_id, status=resp.status_code)
         return {}
 
     return resp.json()
@@ -232,7 +232,7 @@ def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
     resp = httpx.get(url, auth=("API_KEY", api_key), timeout=60.0)
 
     if resp.status_code != 200:
-        logger.warning("Could not download FIT file for %s: status=%s", activity_id, resp.status_code)
+        logger.warning("icu_fit_download_failed", activity_id=activity_id, status=resp.status_code)
         return []
 
     fd, tmp_path = tempfile.mkstemp(suffix=".fit")
@@ -243,7 +243,7 @@ def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
         fitfile = fitparse.FitFile(tmp_path)
         fit_laps = list(fitfile.get_messages("lap"))
     except Exception as e:
-        logger.warning("Failed to parse FIT file for %s: %s", activity_id, e)
+        logger.warning("icu_fit_parse_failed", activity_id=activity_id, error=str(e))
         return []
     finally:
         try:
@@ -292,7 +292,7 @@ def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
             "avg_temperature": fields.get("avg_temperature"),
         })
 
-    logger.info("Extracted %d device laps from FIT file for %s", len(laps), activity_id)
+    logger.info("icu_fit_laps_extracted", activity_id=activity_id, lap_count=len(laps))
     return laps
 
 
@@ -393,7 +393,7 @@ def update_ftp(ftp: int) -> dict:
     if resp.status_code in (200, 201):
         return {"status": "success", "data": resp.json()}
     else:
-        logger.error("intervals.icu FTP update failed: status=%s body=%s", resp.status_code, resp.text[:500])
+        logger.error("icu_ftp_update_failed", status=resp.status_code, body=resp.text[:200])
         return {"status": "error", "code": resp.status_code, "message": resp.text[:500]}
 
 
@@ -420,7 +420,7 @@ def update_weight(weight: float, date: str = None) -> dict:
     if resp.status_code in (200, 201):
         return {"status": "success", "data": resp.json()}
     else:
-        logger.error("intervals.icu weight update failed: status=%s body=%s", resp.status_code, resp.text[:500])
+        logger.error("icu_weight_update_failed", status=resp.status_code, body=resp.text[:200])
         return {"status": "error", "code": resp.status_code, "message": resp.text[:500]}
 
 
@@ -436,7 +436,7 @@ def fetch_calendar_events(oldest: str, newest: str, category: str = "WORKOUT") -
     resp = httpx.get(url, params=params, auth=("API_KEY", api_key), timeout=15.0)
 
     if resp.status_code != 200:
-        logger.error("Failed to fetch events: status=%s body=%s", resp.status_code, resp.text[:500])
+        logger.error("icu_fetch_events_failed", status=resp.status_code, body=resp.text[:200])
         raise RuntimeError(f"intervals.icu API error {resp.status_code}: {resp.text[:300]}")
 
     return resp.json()
@@ -454,5 +454,5 @@ def find_matching_workout(date: str, name: str) -> int | None:
                 if start_date.startswith(date):
                     return event.get("id")
     except Exception as e:
-        logger.warning("Error finding matching workout on Intervals.icu for %s on %s: %s", name, date, e)
+        logger.warning("icu_find_workout_failed", name=name, date=date, error=str(e))
     return None

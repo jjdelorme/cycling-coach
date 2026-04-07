@@ -1,6 +1,7 @@
 """ADK-based coaching agent setup."""
 
 import functools
+import time
 
 from google.adk.agents import Agent
 from google.adk.runners import Runner
@@ -9,6 +10,7 @@ from google.genai import types
 
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION
 from server.database import get_setting
+from server.logging_config import get_logger, get_trace_id
 from server.coaching.session_service import DbSessionService
 from server.coaching.memory_service import DbMemoryService
 from server.coaching.tools import (
@@ -42,6 +44,8 @@ from server.coaching.planning_tools import (
 )
 
 APP_NAME = "cycling-coach"
+
+logger = get_logger(__name__)
 
 # Singleton instances
 _session_service = None
@@ -248,6 +252,18 @@ async def chat(message: str, user_id: str = "athlete", session_id: str = "defaul
     """Send a message to the coaching agent and get a response."""
     import os
 
+    trace_id = get_trace_id()
+    t0 = time.monotonic()
+
+    logger.info(
+        "agent_chat_start",
+        session_id=session_id,
+        user_id=user_id,
+        user_role=user.role if user else "admin",
+        message_len=len(message),
+        trace_id=trace_id,
+    )
+
     # Check for API key in DB settings (overrides ADC auth)
     db_api_key = get_setting("gemini_api_key")
     db_location = get_setting("gcp_location")
@@ -287,15 +303,50 @@ async def chat(message: str, user_id: str = "athlete", session_id: str = "defaul
     )
 
     response_text = ""
+    tool_calls: list[str] = []
+
     async for event in runner.run_async(
         user_id=user_id,
         session_id=session_id,
         new_message=content,
     ):
+        # Track tool calls for the trace log
         if event.content and event.content.parts:
             for part in event.content.parts:
-                if part.text and event.author == "cycling_coach":
+                # Tool call (function call)
+                if hasattr(part, "function_call") and part.function_call:
+                    fn_name = part.function_call.name
+                    tool_calls.append(fn_name)
+                    logger.debug(
+                        "agent_tool_call",
+                        tool=fn_name,
+                        session_id=session_id,
+                        trace_id=trace_id,
+                    )
+                # Tool response
+                elif hasattr(part, "function_response") and part.function_response:
+                    logger.debug(
+                        "agent_tool_response",
+                        tool=part.function_response.name,
+                        session_id=session_id,
+                        trace_id=trace_id,
+                    )
+                # Final text response
+                elif part.text and event.author == "cycling_coach":
                     response_text += part.text
+
+    elapsed_ms = (time.monotonic() - t0) * 1000
+    logger.info(
+        "agent_chat_complete",
+        session_id=session_id,
+        user_id=user_id,
+        trace_id=trace_id,
+        latency_ms=round(elapsed_ms, 1),
+        tool_calls=tool_calls,
+        tool_call_count=len(tool_calls),
+        response_len=len(response_text),
+        success=bool(response_text),
+    )
 
     # Save session to long-term memory after each interaction
     updated_session = await session_service.get_session(

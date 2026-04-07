@@ -62,7 +62,7 @@ def test_calculate_planned_tss_intervals_legacy():
 """
     assert calculate_planned_tss(xml) == 10.4
 
-def test_calculate_planned_tss_unknown_tag(caplog):
+def test_calculate_planned_tss_unknown_tag(capsys):
     xml = """
 <workout_file>
   <workout>
@@ -73,14 +73,16 @@ def test_calculate_planned_tss_unknown_tag(caplog):
 """
     # Should only count SteadyState: (1800 * 1.0^2) / 3600 * 100 = 50
     assert calculate_planned_tss(xml) == 50.0
-    assert "Unknown workout tag: UnknownTag" in caplog.text
+    # Structlog writes to stdout; check for the structured event key
+    assert "unknown_workout_tag" in capsys.readouterr().out
 
 def test_calculate_planned_tss_empty_xml():
     assert calculate_planned_tss("") is None
 
-def test_calculate_planned_tss_malformed_xml(caplog):
+def test_calculate_planned_tss_malformed_xml(capsys):
     assert calculate_planned_tss("<invalid") is None
-    assert "Could not parse workout XML for TSS calculation" in caplog.text
+    # Structlog writes to stdout; check for the structured event key
+    assert "workout_xml_parse_failed" in capsys.readouterr().out
 
 def test_calculate_planned_tss_no_workout_tag():
     xml = "<workout_file></workout_file>"
