@@ -1,11 +1,16 @@
 steps:
-  # Write VERSION from the git tag that triggered this build (e.g. "v1.4.0" → "1.4.0")
+  # Require an exact tag on HEAD — fail the build if this commit is not tagged
   - name: 'bash'
     args:
       - '-c'
       - |
-        TAG="${TAG_NAME}"
+        git fetch --tags
+        TAG=$$(git describe --exact-match --tags HEAD 2>/dev/null) || {
+          echo "ERROR: No tag on HEAD. Tag this commit before merging to main."
+          exit 1
+        }
         echo "$${TAG#v}" > /workspace/VERSION
+        echo "$$TAG" > /workspace/TAG_VERSION
         echo "VERSION: $$(cat /workspace/VERSION)"
 
   # Build container image
@@ -15,17 +20,19 @@ steps:
       - '-c'
       - |
         docker build \
-          --build-arg "APP_VERSION=$$(cat VERSION)" \
+          --build-arg "APP_VERSION=$$(cat /workspace/VERSION)" \
           --build-arg "VITE_GOOGLE_CLIENT_ID=$$GOOGLE_CLIENT_ID" \
-          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION) \
           .
     secretEnv: ['GOOGLE_CLIENT_ID']
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
     args:
-      - 'push'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME}'
+      - '-c'
+      - |
+        docker push ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION)
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -39,10 +46,10 @@ steps:
           --format 'value(status.url)' 2>/dev/null || echo '')
 
         # Revision suffix: "1.4.0" → "v1-4-0"
-        REVISION_SUFFIX="v$$(cat VERSION | tr '.' '-')"
+        REVISION_SUFFIX="v$$(cat /workspace/VERSION | tr '.' '-')"
 
         gcloud run deploy ${_SERVICE_NAME} \
-          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME} \
+          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION) \
           --region ${_REGION} \
           --revision-suffix "$${REVISION_SUFFIX}" \
           --allow-unauthenticated \
@@ -63,6 +70,3 @@ serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/cycling-coach-deployer@$
 
 options:
   logging: CLOUD_LOGGING_ONLY
-
-images:
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${TAG_NAME}'
