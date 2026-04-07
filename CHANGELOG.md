@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.3] - 2026-04-07
+
+### Release
+- Merge of `2026-04-06-feedback` branch into main, incorporating the adaptive AI coach architecture (v1.7.2) and analysis page fixes (v1.7.1). See those entries for full details.
+
 ## [v1.7.2] - 2026-04-06
 
 ### AI Coach — Adaptive Architecture
