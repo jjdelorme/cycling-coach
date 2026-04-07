@@ -1,0 +1,80 @@
+steps:
+  # Generate VERSION from git describe for test builds
+  - name: 'bash'
+    args:
+      - '-c'
+      - |
+        # Use git describe for version, fallback to branch+short_sha
+        VERSION=$$(git describe --tags --always 2>/dev/null || echo "${BRANCH_NAME}-${SHORT_SHA}")
+        echo "$$VERSION" > /workspace/VERSION
+        echo "Test VERSION: $$(cat /workspace/VERSION)"
+
+  # Build container image
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker build \
+          --build-arg "APP_VERSION=$$(cat VERSION)" \
+          --build-arg "VITE_GOOGLE_CLIENT_ID=$$GOOGLE_CLIENT_ID" \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA} \
+          .
+    secretEnv: ['GOOGLE_CLIENT_ID']
+
+  # Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA}'
+
+  # Deploy to Cloud Run with 'test' tag
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Get existing service URL for CORS
+        SERVICE_URL=$$(gcloud run services describe ${_SERVICE_NAME} \
+          --region ${_REGION} \
+          --format 'value(status.url)' 2>/dev/null || echo '')
+
+        # Sanitize branch name for revision suffix (replace / with -, limit length)
+        BRANCH_CLEAN=$$(echo "${BRANCH_NAME}" | sed 's/[^a-z0-9-]/-/g' | cut -c1-30)
+        REVISION_SUFFIX="test--$${BRANCH_CLEAN}-${SHORT_SHA}"
+
+        gcloud run deploy ${_SERVICE_NAME} \
+          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA} \
+          --region ${_REGION} \
+          --revision-suffix "$${REVISION_SUFFIX}" \
+          --tag test \
+          --no-traffic \
+          --allow-unauthenticated \
+          --set-secrets "CYCLING_COACH_DATABASE_URL=CYCLING_COACH_DATABASE_URL:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,JWT_SECRET=JWT_SECRET:latest" \
+          --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL}"
+
+        echo ""
+        echo "================================================================"
+        echo "Test deployment complete!"
+        echo "URL: https://test---${_SERVICE_NAME}-<hash>.a.run.app"
+        echo "Branch: ${BRANCH_NAME}"
+        echo "Commit: ${SHORT_SHA}"
+        echo "================================================================"
+
+substitutions:
+  _SERVICE_NAME: cycling-coach
+  _REGION: us-central1
+  _REPO: cloud-run-source-deploy
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/GOOGLE_CLIENT_ID/versions/latest
+      env: GOOGLE_CLIENT_ID
+
+serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/cycling-coach-deployer@${PROJECT_ID}.iam.gserviceaccount.com'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA}'

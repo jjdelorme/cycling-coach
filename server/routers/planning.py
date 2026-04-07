@@ -1,5 +1,6 @@
 """Training plan endpoints."""
 
+import logging
 import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import Response
@@ -13,6 +14,8 @@ from server.queries import get_current_ftp as _get_current_ftp_with_conn, get_pe
 from server.services.workout_generator import generate_zwo, list_templates, get_template
 from server.zones import power_zone_label
 
+logger = logging.getLogger(__name__)
+
 
 def _get_current_ftp() -> int:
     """Get current FTP (convenience wrapper that manages its own connection)."""
@@ -25,15 +28,19 @@ router = APIRouter(prefix="/api/plan", tags=["plan"])
 @router.get("/activity-dates")
 def get_activity_dates(user: CurrentUser = Depends(require_read)):
     """Return sorted list of all dates that have a ride or planned workout."""
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT date FROM ("
-            "  SELECT SUBSTR(date, 1, 10) AS date FROM rides"
-            "  UNION"
-            "  SELECT SUBSTR(date, 1, 10) AS date FROM planned_workouts"
-            ") ORDER BY date"
-        ).fetchall()
-    return [r["date"] for r in rows]
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT date FROM ("
+                "  SELECT SUBSTR(date, 1, 10) AS date FROM rides WHERE date IS NOT NULL"
+                "  UNION"
+                "  SELECT SUBSTR(date, 1, 10) AS date FROM planned_workouts WHERE date IS NOT NULL"
+                ") AS combined ORDER BY date"
+            ).fetchall()
+        return [r["date"] for r in rows]
+    except Exception as e:
+        logger.error(f"Error fetching activity dates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch activity dates: {str(e)}")
 
 
 @router.get("/macro", response_model=list[PeriodizationPhase])

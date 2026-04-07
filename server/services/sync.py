@@ -626,6 +626,77 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     return downloaded, skipped, earliest_date
 
 
+async def _download_planned_workouts(sync_id: str, log_lines: list[str], conn) -> int:
+    """Download planned workouts from intervals.icu calendar that don't exist locally.
+
+    This handles the case where workouts were created on intervals.icu directly
+    (or when the local DB is rebuilt from scratch).  Only inserts rows that
+    don't already exist in planned_workouts; never overwrites local data.
+
+    Returns the number of workouts imported.
+    """
+    t0 = time.monotonic()
+    today = datetime.now().strftime("%Y-%m-%d")
+    end_date = (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d")
+
+    msg = f"Checking intervals.icu for planned workouts ({today} to {end_date})..."
+    logger.info(msg)
+    log_lines.append(_tlog(msg))
+    await _broadcast(sync_id, {"phase": "workouts_download", "detail": msg})
+
+    try:
+        raw_events = await asyncio.to_thread(fetch_calendar_events, today, end_date)
+    except Exception as e:
+        log_lines.append(_tlog(f"Could not fetch calendar events from intervals.icu: {e}"))
+        return 0
+
+    if not raw_events:
+        log_lines.append(_tlog("No upcoming calendar events on intervals.icu"))
+        return 0
+
+    # Build a set of (date, name) pairs already in the local DB so we don't duplicate
+    existing = set()
+    for row in conn.execute(
+        "SELECT date, name FROM planned_workouts WHERE date >= ?", (today,)
+    ).fetchall():
+        r = dict(row)
+        existing.add((r["date"], r["name"] or ""))
+
+    imported = 0
+    for event in raw_events:
+        if event.get("category") != "WORKOUT":
+            continue
+        event_date = (event.get("start_date_local") or "")[:10]
+        if not event_date or event_date < today:
+            continue
+
+        name = event.get("name") or "Workout"
+        if (event_date, name) in existing:
+            continue
+
+        # Map the intervals.icu event into a planned_workouts row.
+        # file_contents holds the ZWO XML if a workout file was attached.
+        workout_xml = event.get("file_contents") or None
+        description = event.get("description") or None
+        moving_time = event.get("moving_time") or None
+        icu_event_id = event.get("id")
+
+        try:
+            conn.execute(
+                "INSERT INTO planned_workouts (date, name, workout_xml, coach_notes, total_duration_s, icu_event_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (event_date, name, workout_xml, description, moving_time, icu_event_id),
+            )
+            existing.add((event_date, name))
+            imported += 1
+            log_lines.append(_tlog(f"Imported planned workout from intervals.icu: {event_date} {name}"))
+        except Exception as e:
+            logger.warning("Could not import calendar event '%s' on %s: %s", name, event_date, e)
+
+    logger.info("Planned workout download completed in %.1fs: %d imported", time.monotonic() - t0, imported)
+    return imported
+
+
 async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[int, int]:
     """Upload planned workouts to intervals.icu that haven't been synced yet."""
     t0 = time.monotonic()
@@ -664,6 +735,28 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
     logger.info(msg)
     log_lines.append(_tlog(msg))
 
+    # Batch-fetch all existing Intervals.icu events for the date range up front.
+    # This avoids N separate API calls (one per workout) to check for duplicates.
+    icu_events_by_date: dict[str, list[dict]] = {}
+    try:
+        raw_events = await asyncio.to_thread(fetch_calendar_events, start_date, end_date)
+        for event in raw_events:
+            if event.get("category") != "WORKOUT":
+                continue
+            event_date = (event.get("start_date_local") or "")[:10]
+            if event_date:
+                icu_events_by_date.setdefault(event_date, []).append(event)
+        log_lines.append(_tlog(f"Fetched {len(raw_events)} existing Intervals.icu events for date range"))
+    except Exception as e:
+        log_lines.append(_tlog(f"Warning: could not prefetch Intervals.icu events ({e}); will attempt push without dedup"))
+
+    def _find_event_id(date: str, name: str) -> int | None:
+        """Look up an existing Intervals.icu event id from the prefetched cache."""
+        for event in icu_events_by_date.get(date, []):
+            if event.get("name") == name:
+                return event.get("id")
+        return None
+
     now_iso = _now_iso()
 
     for i, w in enumerate(local_workouts):
@@ -683,9 +776,9 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
             log_lines.append(_tlog(detail))
             continue
 
-        # Check for existing event on Intervals.icu if we don't have an ID
+        # Check the prefetched event cache for an existing event (no extra API call)
         if not icu_event_id:
-            icu_event_id = find_matching_workout(w_date, w_name)
+            icu_event_id = _find_event_id(w_date, w_name)
             if icu_event_id:
                 logger.info("Found existing Intervals.icu event %s matching '%s' on %s", icu_event_id, w_name, w_date)
 
@@ -779,6 +872,7 @@ async def run_sync(sync_id: str | None = None) -> str:
 
     log_lines: list[str] = []
     errors: list[str] = []
+    rides_dl = rides_skip = wo_dl = wo_up = wo_skip = 0
 
     try:
         with get_db() as conn:
@@ -794,13 +888,21 @@ async def run_sync(sync_id: str | None = None) -> str:
                 sync_athlete_settings_from_latest_ride(conn)
             conn.commit()
 
+            await _broadcast(sync_id, {"status": "running", "phase": "workouts_download", "detail": "Checking intervals.icu for incoming planned workouts..."})
+
+            # Phase 2: Download any planned workouts from intervals.icu that
+            # don't exist locally (e.g. created on intervals.icu directly, or
+            # after a DB rebuild).
+            wo_dl = await _download_planned_workouts(sync_id, log_lines, conn)
+            conn.commit()
+
             await _broadcast(sync_id, {"status": "running", "phase": "workouts", "detail": "Starting workout upload..."})
 
-            # Phase 2: Upload workouts
+            # Phase 3: Upload workouts
             wo_up, wo_skip = await _upload_workouts(sync_id, log_lines, conn)
             conn.commit()
 
-            # Phase 3: Recompute PMC if we downloaded new rides
+            # Phase 4: Recompute PMC if we downloaded new rides
             if rides_dl > 0:
                 msg = "Recomputing daily metrics (PMC)..."
                 log_lines.append(_tlog(msg))
@@ -820,7 +922,7 @@ async def run_sync(sync_id: str | None = None) -> str:
             total_elapsed = time.monotonic() - t_sync
             summary = (
                 f"Sync complete in {total_elapsed:.1f}s: {rides_dl} rides downloaded, {rides_skip} skipped, "
-                f"{wo_up} workouts uploaded, {wo_skip} skipped"
+                f"{wo_dl} planned workouts imported, {wo_up} uploaded, {wo_skip} skipped"
             )
             logger.info(summary)
             log_lines.append(_tlog(summary))
@@ -845,26 +947,31 @@ async def run_sync(sync_id: str | None = None) -> str:
         logger.error(err, exc_info=True)
         log_lines.append(_tlog(err))
         errors.append(str(e))
-        rides_dl = rides_skip = wo_up = wo_skip = 0
+        rides_dl = rides_skip = wo_dl = wo_up = wo_skip = 0
 
-        # Persist failure state with a fresh connection
-        _update_sync_run(
-            sync_id,
-            status=status,
-            completed_at=_now_iso(),
-            rides_downloaded=rides_dl,
-            rides_skipped=rides_skip,
-            workouts_uploaded=wo_up,
-            workouts_skipped=wo_skip,
-            errors="\n".join(errors) if errors else None,
-            log="\n".join(log_lines),
-        )
+        # Persist failure state with a fresh connection.  Wrapped in its own
+        # try/except so a secondary DB failure can't prevent _broadcast below.
+        try:
+            _update_sync_run(
+                sync_id,
+                status=status,
+                completed_at=_now_iso(),
+                rides_downloaded=rides_dl,
+                rides_skipped=rides_skip,
+                workouts_uploaded=wo_up,
+                workouts_skipped=wo_skip,
+                errors="\n".join(errors) if errors else None,
+                log="\n".join(log_lines),
+            )
+        except Exception as db_err:
+            logger.error("Failed to persist sync failure state: %s", db_err)
 
     final_msg = {
         "status": status,
         "sync_id": sync_id,
         "rides_downloaded": rides_dl,
         "rides_skipped": rides_skip,
+        "workouts_downloaded": wo_dl,
         "workouts_uploaded": wo_up,
         "workouts_skipped": wo_skip,
         "errors": errors or None,
@@ -882,8 +989,11 @@ def start_sync_background() -> str:
     sync_id = str(uuid.uuid4())[:8]
     _active_syncs[sync_id] = {"status": "pending", "started_at": _now_iso()}
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_sync(sync_id))
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(run_sync(sync_id))
+    except RuntimeError:
+        asyncio.run(run_sync(sync_id))
 
     return sync_id
 

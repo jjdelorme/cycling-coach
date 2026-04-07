@@ -73,6 +73,27 @@ every training decision from real athlete data.
 ### Infrastructure
 - Added `scripts/migrate_add_zone_indexes.sql` — idempotent migration to add `idx_ride_records_ride_id_power` and `idx_rides_date`, targeting the 2.5–3s slow query on the Zones tab. Run against any environment to apply.
 
+## [v1.7.0] - 2026-04-05
+
+### Fixes
+- **UI:** Formatted interval lap duration consistently with planned intervals.
+- **UI:** Fixed ride navigation buttons.
+- **API:** Added error handling to the `activity-dates` endpoint.
+
+## [v1.6.3] - 2026-04-05
+
+### Features & Enhancements
+- **Syncing:** Added `_download_planned_workouts` phase to import missing Intervals.icu calendar events into the local database.
+- **Syncing:** Added an expandable and scrollable log view to the sync result banner for detailed status feedback.
+- **Infrastructure:** Introduced a test deployment pipeline for automated branch-based builds.
+
+### Fixes
+- **Syncing:** Fixed a potential background sync hang by correctly using `asyncio.get_running_loop()`.
+- **Syncing:** Optimized sync performance by batch-fetching Intervals.icu calendar events, eliminating N+1 API calls.
+- **Syncing:** Improved the sync summary to correctly count and report downloaded workouts.
+- **Syncing:** Prevented event loop blocking during workout deduplication tasks.
+- **UI:** Improved component typing and test coverage for planned workout comparisons.
+
 ## [v1.6.2] - 2026-04-02
 
 ### Features & Enhancements
