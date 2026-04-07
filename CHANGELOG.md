@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.4-beta] - 2026-04-07
+
+- CI: switched prod Cloud Build trigger from branch push to tag push with tag guard
+
 ## [v1.7.3] - 2026-04-07
 
 ### Release
