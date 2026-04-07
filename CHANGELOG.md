@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.5-beta] - 2026-04-07
+
+- feat(observability): structured JSON logging across the entire backend
+
 ## [v1.7.4-beta] - 2026-04-07
 
 - CI: switched prod Cloud Build trigger from branch push to tag push with tag guard
