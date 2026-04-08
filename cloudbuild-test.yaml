@@ -4,16 +4,15 @@ steps:
     args:
       - '-c'
       - |
-        # Fetch all tags (no --depth so annotated tag objects are fetched too)
         git fetch --tags
-        # Prefer exact tag on HEAD; fall back to describe; fall back to branch+sha
-        TAG=$$(git tag --points-at HEAD | head -1)
+        echo "DEBUG git describe: $$(git describe --exact-match --tags HEAD 2>&1)"
+        echo "DEBUG git tag list: $$(git tag | tail -5)"
+        TAG=$$(git describe --exact-match --tags HEAD 2>/dev/null) || TAG=""
         if [ -n "$$TAG" ]; then
-          VERSION="$$TAG"
+          echo "$${TAG#v}" > /workspace/VERSION
         else
-          VERSION=$$(git describe --tags --always 2>/dev/null || echo "${BRANCH_NAME}-${SHORT_SHA}")
+          echo "${BRANCH_NAME}-${SHORT_SHA}" > /workspace/VERSION
         fi
-        echo "$$VERSION" > /workspace/VERSION
         echo "Test VERSION: $$(cat /workspace/VERSION)"
 
   # Build container image
