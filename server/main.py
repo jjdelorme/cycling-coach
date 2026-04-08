@@ -202,7 +202,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             "error_id": error_id,
             "error_type": type(exc).__name__,
             "error_msg": str(exc)[:500],
-            "traceback": tb[:2000],
+            "traceback": tb[:5000],
         },
         headers={"X-Error-Id": error_id},
     )
