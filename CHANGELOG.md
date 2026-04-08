@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.7-beta] - 2026-04-08
+
+- fix(ci): fetch tags before git describe so VERSION shows tag not commit hash
+
 ## [v1.7.6-beta] - 2026-04-08
 
 - fix(ci): sanitize branch name in test build image tag (fixes builds for branches with `/` in name)
