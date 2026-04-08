@@ -17,7 +17,8 @@ import {
   Heart,
   Info,
   CalendarDays,
-  Activity
+  Activity,
+  Flame
 } from 'lucide-react'
 import type { PlannedWorkout, RideSummary } from '../types/api'
 import SportIcon from '../components/SportIcon'
@@ -244,7 +245,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                       <MiniMetric label="Distance" value={fmtDistance(r.distance_m, units)} icon={TrendingUp} color="text-text" />
                       <MiniMetric label="TSS" value={String(Math.round(r.tss ?? 0))} icon={Zap} color="text-accent" />
                       <MiniMetric label="Avg Power" value={r.avg_power ? `${r.avg_power}w` : '--'} icon={Activity} color="text-blue" />
-                      <MiniMetric label="NP" value={r.normalized_power ? `${r.normalized_power}w` : '--'} icon={TrendingUp} color="text-blue" />
+                      <MiniMetric label="Calories" value={r.total_calories ? `${r.total_calories.toLocaleString()} kcal` : '--'} icon={Flame} color="text-orange-400" />
                       <MiniMetric label="Avg HR" value={r.avg_hr ? `${r.avg_hr}bpm` : '--'} icon={Heart} color="text-red" />
                     </div>
                   </div>
@@ -300,14 +301,21 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
   )
 }
 
-function MiniMetric({ label, value, icon: Icon, color }: { label: string; value: string; icon: any; color?: string }) {
+function MiniMetric({ label, value, secondaryValue, secondaryColor, icon: Icon, color }: { label: string; value: string; secondaryValue?: string; secondaryColor?: string; icon: any; color?: string }) {
   return (
     <div className="bg-surface-low rounded-lg p-3 border border-border/50">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[9px] font-bold text-text-muted uppercase tracking-wider">{label}</span>
         <Icon size={10} className="text-text-muted opacity-30" />
       </div>
-      <div className={`text-sm font-bold ${color || 'text-text'}`}>{value}</div>
+      {secondaryValue ? (
+        <div className="flex flex-col gap-0.5">
+          <div className={`text-sm font-bold ${color || 'text-text'}`}>{value}</div>
+          <div className={`text-sm font-bold ${secondaryColor || 'text-text-muted'}`}>{secondaryValue}</div>
+        </div>
+      ) : (
+        <div className={`text-sm font-bold ${color || 'text-text'}`}>{value}</div>
+      )}
     </div>
   )
 }

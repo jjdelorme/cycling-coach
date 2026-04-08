@@ -36,7 +36,8 @@ import {
   List,
   RefreshCw,
   Target,
-  Trash2
+  Trash2,
+  Flame
 } from 'lucide-react'
 import SportIcon from '../components/SportIcon'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
@@ -405,18 +406,17 @@ const syncSingleRide = useSyncSingleRide()
                 return totalDur > 0 ? Math.round(ws / totalDur) : undefined
               })() : undefined
 
-              const plannedNP = plannedIF && pw?.ftp ? Math.round(plannedIF * pw.ftp) : undefined
 
               return (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
                   <MetricCard label="Duration" value={fmtDuration(ride.duration_s)} planned={plannedDur ? fmtDuration(plannedDur) : null} icon={Clock} color="text-text" />
                   <MetricCard label="Distance" value={fmtDistance(ride.distance_m, units)} icon={TrendingUp} color="text-text" />
                   <MetricCard label="TSS" value={ride.tss?.toFixed(0) ?? '--'} planned={plannedTss ? plannedTss.toFixed(0) : null} icon={Zap} color="text-accent" />
-                  <MetricCard label="Avg Power" value={ride.avg_power ? `${ride.avg_power}w` : '--'} planned={plannedAvgPower ? `${plannedAvgPower}w` : null} icon={Activity} color="text-blue" />
-                  <MetricCard label="NP" value={ride.normalized_power ? `${ride.normalized_power}w` : '--'} planned={plannedNP ? `${plannedNP}w` : null} icon={ArrowUpRight} color="text-blue" />
+                  <MetricCard label="Power" value={ride.avg_power ? `${ride.avg_power}w AVG` : '--'} secondaryValue={ride.normalized_power ? `${ride.normalized_power}w NP` : undefined} color="text-blue/60" secondaryColor="text-blue" planned={plannedAvgPower ? `${plannedAvgPower}w` : null} icon={Activity} />
                   <MetricCard label="Avg HR" value={ride.avg_hr ? `${ride.avg_hr}bpm` : '--'} higherIsBetter={false} icon={Heart} color="text-red" />
                   <MetricCard label="IF" value={ride.intensity_factor?.toFixed(2) ?? '--'} planned={plannedIF ? plannedIF.toFixed(2) : null} icon={Layers} color="text-text" />
                   <MetricCard label="Ascent" value={fmtElevation(ride.total_ascent, units)} icon={TrendingUp} color="text-green" />
+                  <MetricCard label="Calories" value={ride.total_calories ? `${ride.total_calories.toLocaleString()} kcal` : '--'} icon={Flame} color="text-orange-400" />
                 </div>
               )
             })()}
@@ -690,9 +690,11 @@ const syncSingleRide = useSyncSingleRide()
   )
 }
 
-function MetricCard({ label, value, planned, higherIsBetter = true, icon: Icon, color }: {
+function MetricCard({ label, value, secondaryValue, secondaryColor, planned, higherIsBetter = true, icon: Icon, color }: {
   label: string
   value: string
+  secondaryValue?: string
+  secondaryColor?: string
   planned?: string | null
   higherIsBetter?: boolean
   icon: React.ElementType
@@ -720,11 +722,22 @@ function MetricCard({ label, value, planned, higherIsBetter = true, icon: Icon, 
         <Icon size={12} className="text-text-muted opacity-40 shrink-0" />
       </div>
       <div>
-        <div className={`text-base font-bold truncate ${color || 'text-text'}`}>
-          {value}
-          {ArrowIcon && <ArrowIcon size={12} className={`inline ml-1 ${indicatorColor}`} />}
-          {indicator === 'match' && <span className="ml-1 text-green">✓</span>}
-        </div>
+        {secondaryValue ? (
+          <div className="flex flex-col gap-0.5">
+            <div className={`text-sm font-bold truncate ${color || 'text-text'}`}>
+              {value}
+              {ArrowIcon && <ArrowIcon size={11} className={`inline ml-1 ${indicatorColor}`} />}
+              {indicator === 'match' && <span className="ml-1 text-green">✓</span>}
+            </div>
+            <div className={`text-sm font-bold truncate ${secondaryColor || 'text-text-muted'}`}>{secondaryValue}</div>
+          </div>
+        ) : (
+          <div className={`text-base font-bold truncate ${color || 'text-text'}`}>
+            {value}
+            {ArrowIcon && <ArrowIcon size={12} className={`inline ml-1 ${indicatorColor}`} />}
+            {indicator === 'match' && <span className="ml-1 text-green">✓</span>}
+          </div>
+        )}
         {planned && (
           <div className="text-[9px] font-bold text-text-muted/50 mt-0.5 truncate">
             Target: {planned}
