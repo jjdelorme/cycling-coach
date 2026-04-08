@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.6-beta] - 2026-04-08
+
+- fix(ci): sanitize branch name in test build image tag (fixes builds for branches with `/` in name)
+
 ## [v1.7.5-beta] - 2026-04-07
 
 - feat(observability): structured JSON logging across the entire backend
