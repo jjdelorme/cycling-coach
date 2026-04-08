@@ -18,6 +18,9 @@ from server.logging_config import (
     generate_error_id,
     bind_trace_id,
 )
+from opentelemetry import trace as otel_trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from server.telemetry import configure_telemetry, shutdown as telemetry_shutdown
 
 # Configure structured logging before anything else imports logging
 configure_logging()
@@ -54,6 +57,7 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
     logger.info("Shutting down cycling-coach")
+    telemetry_shutdown()
 
 
 app = FastAPI(title="Cycling Coach", version=APP_VERSION, lifespan=lifespan)
@@ -64,12 +68,16 @@ app = FastAPI(title="Cycling Coach", version=APP_VERSION, lifespan=lifespan)
 # Starlette processes add_middleware() in REVERSE registration order:
 # the LAST call added becomes the OUTERMOST layer (runs first on ingress).
 # Registration order here:
-#   1. CORSMiddleware       → added first  → innermost (runs last)
-#   2. RequestLoggingMiddleware → added second → middle layer
-#   3. TraceMiddleware      → added last   → outermost (runs first on ingress)
+#   1. CORSMiddleware              → added first  → innermost (runs last)
+#   2. RequestLoggingMiddleware    → added second → middle layer
+#   3. OTelTraceBridge             → added last   → outermost custom middleware
+#
+# FastAPIInstrumentor.instrument_app(app) injects its own middleware at the
+# Starlette level *before* our add_middleware() calls take effect, so OTel's
+# span is active by the time OTelTraceBridge.dispatch() runs.
 #
 # Execution order on an incoming request:
-#   TraceMiddleware (sets trace_id) → RequestLoggingMiddleware (logs with trace_id) → route
+#   OTelTraceBridge (reads OTel span, binds trace_id) → RequestLoggingMiddleware → route
 # ---------------------------------------------------------------------------
 
 app.add_middleware(
@@ -84,25 +92,35 @@ app.add_middleware(
 )
 
 
-class TraceMiddleware(BaseHTTPMiddleware):
-    """Assign a trace ID to every request and expose it on the response."""
+class OTelTraceBridge(BaseHTTPMiddleware):
+    """Bridge OTel active span context into structlog's GCP log fields.
+
+    FastAPIInstrumentor creates the OTel span before this middleware runs
+    (it is registered as the outermost middleware, so it executes after OTel
+    has already set the active span in the current context). We read that span,
+    convert trace_id/span_id to hex, and call bind_trace_id() so every
+    structlog entry in this request carries logging.googleapis.com/trace and
+    logging.googleapis.com/spanId that match the Cloud Trace entry.
+    """
 
     async def dispatch(self, request: Request, call_next):
-        # Honour incoming W3C traceparent if present, otherwise generate fresh
-        traceparent = request.headers.get("traceparent", "")
-        if traceparent:
-            # traceparent format: 00-<trace-id>-<parent-id>-<flags>
-            parts = traceparent.split("-")
-            trace_id = parts[1] if len(parts) >= 2 else generate_trace_id()
-            span_id = parts[2] if len(parts) >= 3 else ""
-        else:
-            trace_id = generate_trace_id()
-            span_id = ""
+        span = otel_trace.get_current_span()
+        span_context = span.get_span_context()
 
-        bind_trace_id(trace_id, span_id)
+        if span_context.is_valid:
+            trace_id_hex = format(span_context.trace_id, "032x")
+            span_id_hex = format(span_context.span_id, "016x")
+        else:
+            # No active OTel span (e.g., health check before instrumentation is
+            # fully wired, or unit tests without OTel context). Fall back to a
+            # fresh random trace ID so logs are still correlated within the request.
+            trace_id_hex = generate_trace_id()
+            span_id_hex = ""
+
+        bind_trace_id(trace_id_hex, span_id_hex)
 
         response = await call_next(request)
-        response.headers["X-Trace-Id"] = trace_id
+        response.headers["X-Trace-Id"] = trace_id_hex
         return response
 
 
@@ -144,7 +162,15 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestLoggingMiddleware)
-app.add_middleware(TraceMiddleware)
+app.add_middleware(OTelTraceBridge)
+
+# --- OpenTelemetry setup ---
+# configure_telemetry() selects InMemorySpanExporter (TESTING=true) or
+# CloudTraceSpanExporter (production). FastAPIInstrumentor injects its own
+# middleware before our custom ones so the active span is ready when
+# OTelTraceBridge.dispatch() reads it.
+configure_telemetry()
+FastAPIInstrumentor.instrument_app(app)
 
 
 # ---------------------------------------------------------------------------
