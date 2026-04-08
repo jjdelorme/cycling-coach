@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.8-beta] - 2026-04-08
+
+- feat(observability): OpenTelemetry tracing — AI coach chat sessions now export `agent.chat` and `agent.tool_call` spans to GCP Cloud Trace; structured logs correlated via `logging.googleapis.com/trace`
+
 ## [v1.7.7-beta] - 2026-04-08
 
 - fix(ci): fetch tags before git describe so VERSION shows tag not commit hash
