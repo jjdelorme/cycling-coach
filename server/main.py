@@ -185,7 +185,9 @@ FastAPIInstrumentor.instrument_app(app)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    import traceback
     error_id = generate_error_id()
+    tb = traceback.format_exc()
     logger.error(
         "unhandled_exception",
         error_id=error_id,
@@ -198,6 +200,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         content={
             "detail": "An unexpected error occurred.",
             "error_id": error_id,
+            "error_type": type(exc).__name__,
+            "error_msg": str(exc)[:500],
+            "traceback": tb[:2000],
         },
         headers={"X-Error-Id": error_id},
     )
