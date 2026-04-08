@@ -5,8 +5,6 @@ steps:
       - '-c'
       - |
         git fetch --tags
-        echo "DEBUG git describe: $$(git describe --exact-match --tags HEAD 2>&1)"
-        echo "DEBUG git tag list: $$(git tag | tail -5)"
         TAG=$$(git describe --exact-match --tags HEAD 2>/dev/null) || TAG=""
         if [ -n "$$TAG" ]; then
           echo "$${TAG#v}" > /workspace/VERSION

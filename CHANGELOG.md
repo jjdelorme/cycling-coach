@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.11-beta] - 2026-04-08
+
+- fix(ci): push branch and tag atomically so Cloud Build workspace includes the tag and `git describe` resolves the correct version
+- chore(ci): remove debug output from test build VERSION step
+
 ## [v1.7.9-beta] - 2026-04-08
 
 - fix(ci): remove --depth=1 from git fetch so annotated tag objects are fetched and version displays correctly
