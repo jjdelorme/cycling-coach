@@ -15,18 +15,22 @@ steps:
     args:
       - '-c'
       - |
+        BRANCH_SAFE=$$(echo "${BRANCH_NAME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
         docker build \
-          --build-arg "APP_VERSION=$$(cat VERSION)" \
+          --build-arg "APP_VERSION=$$(cat /workspace/VERSION)" \
           --build-arg "VITE_GOOGLE_CLIENT_ID=$$GOOGLE_CLIENT_ID" \
-          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-$${BRANCH_SAFE}-${SHORT_SHA} \
           .
     secretEnv: ['GOOGLE_CLIENT_ID']
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
     args:
-      - 'push'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA}'
+      - '-c'
+      - |
+        BRANCH_SAFE=$$(echo "${BRANCH_NAME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+        docker push ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-$${BRANCH_SAFE}-${SHORT_SHA}
 
   # Deploy to Cloud Run with 'test' tag
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -41,10 +45,11 @@ steps:
 
         # Sanitize branch name for revision suffix (replace / with -, limit length)
         BRANCH_CLEAN=$$(echo "${BRANCH_NAME}" | sed 's/[^a-z0-9-]/-/g' | cut -c1-30)
+        BRANCH_SAFE=$$(echo "${BRANCH_NAME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
         REVISION_SUFFIX="test--$${BRANCH_CLEAN}-${SHORT_SHA}"
 
         gcloud run deploy ${_SERVICE_NAME} \
-          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA} \
+          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-$${BRANCH_SAFE}-${SHORT_SHA} \
           --region ${_REGION} \
           --revision-suffix "$${REVISION_SUFFIX}" \
           --tag test \
@@ -75,6 +80,3 @@ serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/cycling-coach-deployer@$
 
 options:
   logging: CLOUD_LOGGING_ONLY
-
-images:
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:test-${BRANCH_NAME}-${SHORT_SHA}'
