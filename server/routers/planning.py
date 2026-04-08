@@ -1,6 +1,5 @@
 """Training plan endpoints."""
 
-import logging
 import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import Response
@@ -12,9 +11,10 @@ from server.database import get_db, get_athlete_setting
 from server.models.schemas import PlannedWorkout, PeriodizationPhase
 from server.queries import get_current_ftp as _get_current_ftp_with_conn, get_periodization_phases, get_week_planned_and_actual
 from server.services.workout_generator import generate_zwo, list_templates, get_template
+from server.logging_config import get_logger
 from server.zones import power_zone_label
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _get_current_ftp() -> int:
@@ -39,7 +39,7 @@ def get_activity_dates(user: CurrentUser = Depends(require_read)):
             ).fetchall()
         return [r["date"] for r in rows]
     except Exception as e:
-        logger.error(f"Error fetching activity dates: {e}", exc_info=True)
+        logger.error("activity_dates_failed", error=str(e), exc_info=e)
         raise HTTPException(status_code=500, detail=f"Failed to fetch activity dates: {str(e)}")
 
 

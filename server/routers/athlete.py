@@ -5,6 +5,9 @@ from pydantic import BaseModel
 
 from server.auth import CurrentUser, require_read, require_write
 from server.database import get_all_athlete_settings, set_athlete_setting, ATHLETE_SETTINGS_DEFAULTS
+from server.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/athlete", tags=["athlete"])
 
@@ -38,14 +41,12 @@ async def update_setting(req: AthleteSettingUpdate, user: CurrentUser = Depends(
             from server.services.intervals_icu import update_ftp
             update_ftp(int(req.value))
         except (ValueError, Exception) as e:
-            import logging
-            logging.getLogger(__name__).warning("Failed to sync FTP to intervals.icu: %s", e)
+            logger.warning("icu_ftp_sync_failed", error=str(e))
     elif req.key == "weight_kg":
         try:
             from server.services.intervals_icu import update_weight
             update_weight(float(req.value))
         except (ValueError, Exception) as e:
-            import logging
-            logging.getLogger(__name__).warning("Failed to sync weight to intervals.icu: %s", e)
+            logger.warning("icu_weight_sync_failed", error=str(e))
 
     return {"status": "updated", "key": req.key}

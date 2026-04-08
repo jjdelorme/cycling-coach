@@ -1,11 +1,11 @@
 import asyncio
-import logging
 import sys
 import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from server.database import get_db
+from server.logging_config import get_logger
 from server.services.intervals_icu import _get_credentials, fetch_activity_fit_laps, fetch_activity_streams, is_configured, map_activity_to_ride
 from server.services.sync import _enrich_laps_with_np, _extract_streams, _store_laps, _store_streams, _backfill_start_location
 from server.metrics import process_ride_samples
@@ -14,31 +14,30 @@ from server.ingest import get_benchmark_for_date
 
 import httpx
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 async def import_specific_activity(icu_id):
     if not is_configured():
-        logger.error("Intervals.icu is not configured.")
+        logger.error("single_sync_not_configured", icu_id=icu_id)
         raise ValueError("Intervals.icu is not configured.")
 
     api_key, athlete_id = _get_credentials()
 
     url = f"https://intervals.icu/api/v1/activity/{icu_id}"
-    logger.info(f"Fetching activity {icu_id}...")
+    logger.info("single_sync_fetch_start", icu_id=icu_id)
     resp = httpx.get(url, auth=("API_KEY", api_key), timeout=10.0)
     if resp.status_code != 200:
-        logger.error(f"Failed to fetch activity {icu_id}: {resp.status_code} {resp.text}")
+        logger.error("single_sync_fetch_failed", icu_id=icu_id, status=resp.status_code)
         raise ValueError(f"Failed to fetch activity {icu_id}: {resp.status_code}")
 
     activity = resp.json()
     ride_data = map_activity_to_ride(activity)
 
     if not ride_data:
-        logger.error(f"Activity {icu_id} could not be mapped to a ride.")
-        raise ValueError(f"Activity {icu_id} could not be mapped to a ride.")        
+        logger.error("single_sync_map_failed", icu_id=icu_id)
+        raise ValueError(f"Activity {icu_id} could not be mapped to a ride.")
     target_date = ride_data["date"]
-    logger.info(f"Mapped activity to {target_date}, sport: {ride_data['sport']}")
+    logger.info("single_sync_mapped", icu_id=icu_id, date=target_date, sport=ride_data["sport"])
     
     filename = f"icu_{icu_id}"
     
@@ -46,13 +45,13 @@ async def import_specific_activity(icu_id):
         ride = conn.execute("SELECT id FROM rides WHERE filename = %(f)s", {"f": filename}).fetchone()
         if ride:
             ride_id = ride["id"]
-            logger.info(f"Ride already exists with ID {ride_id}. Will update.")
+            logger.info("single_sync_updating", icu_id=icu_id, ride_id=ride_id)
             
             # Clear old records
             conn.execute("DELETE FROM ride_records WHERE ride_id = %(id)s", {"id": ride_id})
             conn.execute("DELETE FROM power_bests WHERE ride_id = %(id)s", {"id": ride_id})
         else:
-            logger.info("Inserting new ride.")
+            logger.info("single_sync_inserting", icu_id=icu_id, date=target_date)
             res = conn.execute(
                 """INSERT INTO rides 
                    (date, start_time, title, duration_s, distance_m, total_ascent,
@@ -82,13 +81,13 @@ async def import_specific_activity(icu_id):
             ).fetchone()
             ride_id = res["id"]
             
-        logger.info("Fetching streams...")
+        logger.info("single_sync_fetch_streams", icu_id=icu_id)
         streams = fetch_activity_streams(icu_id)
         sport = ride_data.get("sport", "").lower()
         is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
         stream_map = {}
         if streams:
-            logger.info("Storing streams...")
+            logger.info("single_sync_storing_streams", icu_id=icu_id, ride_id=ride_id)
             _store_streams(ride_id, streams, conn=conn)
             _backfill_start_location(ride_id, streams, conn=conn)
 
@@ -105,7 +104,7 @@ async def import_specific_activity(icu_id):
             if ftp <= 0:
                 ftp = ride_data.get("ftp") or 0
                 
-            logger.info("Processing streams through updated metrics pipeline...")
+            logger.info("single_sync_processing_metrics", icu_id=icu_id, ftp=ftp)
             metrics = process_ride_samples(
                 raw_powers, raw_hrs, raw_cadences, ftp, ride_data["duration_s"],
                 lthr=lthr, max_hr=max_hr_setting, resting_hr=resting_hr
@@ -151,10 +150,10 @@ async def import_specific_activity(icu_id):
                     "INSERT INTO power_bests (ride_id, date, duration_s, power, avg_hr, avg_cadence, start_offset_s) VALUES (%(ride_id)s, %(date)s, %(dur)s, %(pwr)s, %(ahr)s, %(acad)s, %(offset)s)",
                     params_list
                 )
-            logger.info(f"Done processing {icu_id}. Final data: Sport={ride_data.get('sport')}, New TSS={metrics.get('tss')}")
+            logger.info("single_sync_complete", icu_id=icu_id, sport=ride_data.get("sport"), tss=metrics.get("tss"), has_power=metrics.get("has_power_data"))
         else:
-            logger.warning("No streams available.")
-            logger.info(f"Done processing {icu_id}. Final data: Sport={ride_data.get('sport')}, TSS={ride_data.get('tss')}")
+            logger.warning("single_sync_no_streams", icu_id=icu_id)
+            logger.info("single_sync_complete", icu_id=icu_id, sport=ride_data.get("sport"), tss=ride_data.get("tss"), has_power=False)
 
         # Fetch and store device laps from FIT file
         try:
@@ -165,9 +164,9 @@ async def import_specific_activity(icu_id):
                 if streams and is_cycling and stream_map:
                     _enrich_laps_with_np(laps, stream_map)
                 _store_laps(ride_id, laps, conn=conn)
-                logger.info(f"Stored {len(laps)} device laps for {icu_id}")
+                logger.info("single_sync_laps_stored", icu_id=icu_id, lap_count=len(laps))
         except Exception as e:
-            logger.warning(f"Could not fetch laps for {icu_id}: {e}")
+            logger.warning("single_sync_laps_failed", icu_id=icu_id, error=str(e))
 
         conn.commit()
 

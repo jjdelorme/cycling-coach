@@ -7,13 +7,13 @@
 """
 
 import asyncio
-import logging
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from server.database import get_db
+from server.logging_config import get_logger
 from server.metrics import calculate_np, process_ride_samples
 from server.queries import get_latest_metric
 from server.services.intervals_icu import (
@@ -28,7 +28,7 @@ from server.services.intervals_icu import (
     push_workout,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # In-memory registry of active sync runs and their subscribers
 _active_syncs: dict[str, dict] = {}
@@ -290,7 +290,7 @@ def _store_streams(ride_id: int, streams: dict | list, conn=None):
     else:
         with get_db() as c:
             _insert(c)
-    logger.info("Stored %d stream records for ride %d", len(rows), ride_id)
+    logger.info("streams_stored", ride_id=ride_id, record_count=len(rows))
 
 
 def _backfill_start_location(ride_id: int, streams, conn=None):
@@ -346,7 +346,7 @@ def _store_laps(ride_id: int, laps: list[dict], conn=None):
     else:
         with get_db() as c:
             _insert(c)
-    logger.info("Stored %d laps for ride %d", len(rows), ride_id)
+    logger.info("laps_stored", ride_id=ride_id, lap_count=len(rows))
 
 
 async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int, int, str | None]:
@@ -429,8 +429,8 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
         log_lines.append(_tlog(msg))
         await _broadcast(sync_id, {"phase": "rides", "detail": msg})
         set_watermark("rides_newest", newest, conn=conn)
-        logger.info("Ride download completed in %.1fs: %d downloaded, %d skipped",
-                    time.monotonic() - t0, 0, len(activities))
+        logger.info("ride_download_complete", rides_downloaded=0, rides_skipped=len(activities),
+                    latency_s=round(time.monotonic() - t0, 1))
         return 0, len(activities), None
 
     for i, activity in enumerate(activities):
@@ -589,7 +589,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         log_lines.append(_tlog(f"  + calculated metrics and {len(metrics['power_bests'])} power bests"))
                 except Exception as se:
                     err = f"Could not fetch or process streams for {icu_id}: {se}"
-                    logger.warning(err)
+                    logger.warning("streams_fetch_failed", icu_id=icu_id, error=str(se))
                     log_lines.append(_tlog(f"  ! {err}"))
 
                 # Fetch and store device laps from FIT file
@@ -602,11 +602,11 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         _store_laps(ride_db_id, laps, conn=conn)
                         log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride['date']}"))
                 except Exception as le:
-                    logger.warning("Could not fetch laps for %s: %s", icu_id, le)
+                    logger.warning("laps_fetch_failed", icu_id=icu_id, error=str(le))
 
         except Exception as e:
             err = f"Error inserting ride {ride['filename']}: {e}"
-            logger.error(err)
+            logger.error("ride_insert_failed", filename=ride["filename"], error=str(e), exc_info=e)
             log_lines.append(_tlog(err))
 
         if (i + 1) % 5 == 0 or i == len(activities) - 1:
@@ -621,8 +621,8 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     if activities:
         set_watermark("rides_newest", newest, conn=conn)
 
-    logger.info("Ride download completed in %.1fs: %d downloaded, %d skipped",
-                time.monotonic() - t0, downloaded, skipped)
+    logger.info("ride_download_complete", rides_downloaded=downloaded, rides_skipped=skipped,
+                latency_s=round(time.monotonic() - t0, 1))
     return downloaded, skipped, earliest_date
 
 
@@ -691,9 +691,9 @@ async def _download_planned_workouts(sync_id: str, log_lines: list[str], conn) -
             imported += 1
             log_lines.append(_tlog(f"Imported planned workout from intervals.icu: {event_date} {name}"))
         except Exception as e:
-            logger.warning("Could not import calendar event '%s' on %s: %s", name, event_date, e)
+            logger.warning("calendar_event_import_failed", name=name, date=event_date, error=str(e))
 
-    logger.info("Planned workout download completed in %.1fs: %d imported", time.monotonic() - t0, imported)
+    logger.info("workout_download_complete", imported=imported, latency_s=round(time.monotonic() - t0, 1))
     return imported
 
 
@@ -821,8 +821,8 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
     if uploaded > 0:
         set_watermark("workouts_synced_through", end_date, conn=conn)
 
-    logger.info("Workout upload completed in %.1fs: %d uploaded, %d skipped",
-                time.monotonic() - t0, uploaded, skipped)
+    logger.info("workout_upload_complete", uploaded=uploaded, skipped=skipped,
+                latency_s=round(time.monotonic() - t0, 1))
     return uploaded, skipped
 
 
@@ -848,7 +848,7 @@ def backfill_laps_from_icu() -> dict:
                 _store_laps(ride["id"], laps)
                 backfilled += 1
         except Exception as e:
-            logger.warning("Could not backfill laps for %s: %s", ride["filename"], e)
+            logger.warning("laps_backfill_failed", filename=ride["filename"], error=str(e))
             errors += 1
 
     return {"backfilled": backfilled, "skipped": len(icu_rides) - backfilled - errors, "errors": errors}
@@ -944,7 +944,7 @@ async def run_sync(sync_id: str | None = None) -> str:
     except Exception as e:
         status = "failed"
         err = f"Sync failed: {e}"
-        logger.error(err, exc_info=True)
+        logger.error("sync_failed", sync_id=sync_id, error=str(e), exc_info=e)
         log_lines.append(_tlog(err))
         errors.append(str(e))
         rides_dl = rides_skip = wo_dl = wo_up = wo_skip = 0
@@ -964,7 +964,7 @@ async def run_sync(sync_id: str | None = None) -> str:
                 log="\n".join(log_lines),
             )
         except Exception as db_err:
-            logger.error("Failed to persist sync failure state: %s", db_err)
+            logger.error("sync_state_persist_failed", sync_id=sync_id, error=str(db_err))
 
     final_msg = {
         "status": status,
@@ -1033,11 +1033,11 @@ def sync_single_ride_background(icu_id: str) -> str:
 
     async def _run():
         try:
-            logger.info(f"Starting single ride sync for {icu_id} (sync_id={sync_id})")
+            logger.info("single_ride_sync_start", icu_id=icu_id, sync_id=sync_id)
             from server.services.single_sync import import_specific_activity
             await import_specific_activity(icu_id)
         except Exception as e:
-            logger.exception("Single ride sync failed")
+            logger.error("single_ride_sync_failed", icu_id=icu_id, sync_id=sync_id, exc_info=True)
             _update_sync_run(sync_id, status="failed", errors=str(e), completed_at=_now_iso())
         else:
             _update_sync_run(sync_id, status="completed", log=f"Successfully re-synced {icu_id}", completed_at=_now_iso())

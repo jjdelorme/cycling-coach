@@ -1,14 +1,10 @@
 steps:
-  # Require an exact tag on HEAD — fail the build if this commit is not tagged
+  # Write VERSION from the tag that triggered this build ($TAG_NAME is set by Cloud Build for tag triggers)
   - name: 'bash'
     args:
       - '-c'
       - |
-        git fetch --tags
-        TAG=$$(git describe --exact-match --tags HEAD 2>/dev/null) || {
-          echo "ERROR: No tag on HEAD. Tag this commit before merging to main."
-          exit 1
-        }
+        TAG="${TAG_NAME}"
         echo "$${TAG#v}" > /workspace/VERSION
         echo "$$TAG" > /workspace/TAG_VERSION
         echo "VERSION: $$(cat /workspace/VERSION)"

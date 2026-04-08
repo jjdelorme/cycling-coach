@@ -1,29 +1,33 @@
 """FastAPI application entry point."""
 
-import logging
 import os
 import time
 import subprocess
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from server.logging_config import (
+    configure_logging,
+    get_logger,
+    generate_trace_id,
+    generate_error_id,
+    bind_trace_id,
+)
+from opentelemetry import trace as otel_trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from server.telemetry import configure_telemetry, shutdown as telemetry_shutdown
+
+# Configure structured logging before anything else imports logging
+configure_logging()
+logger = get_logger(__name__)
 
 from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete, admin
 from server.database import init_db
-
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
 
 
 def _read_version() -> str:
@@ -33,11 +37,12 @@ def _read_version() -> str:
             return f.read().strip()
     try:
         return subprocess.check_output(
-            ["git", "describe", "--tags", "--always", "--dirty"], 
+            ["git", "describe", "--tags", "--always", "--dirty"],
             text=True, stderr=subprocess.DEVNULL
         ).strip().lstrip('v')
     except Exception:
         return "dev"
+
 
 APP_VERSION = _read_version()
 
@@ -48,11 +53,32 @@ async def lifespan(app: FastAPI):
     if GOOGLE_AUTH_ENABLED and not JWT_SECRET:
         raise RuntimeError("JWT_SECRET is required when GOOGLE_AUTH_ENABLED=true. "
                            "Set it via environment variable or Secret Manager.")
+    logger.info("Starting cycling-coach", version=APP_VERSION)
     init_db()
     yield
+    logger.info("Shutting down cycling-coach")
+    telemetry_shutdown()
 
 
 app = FastAPI(title="Cycling Coach", version=APP_VERSION, lifespan=lifespan)
+
+# ---------------------------------------------------------------------------
+# Middleware
+#
+# Starlette processes add_middleware() in REVERSE registration order:
+# the LAST call added becomes the OUTERMOST layer (runs first on ingress).
+# Registration order here:
+#   1. CORSMiddleware              → added first  → innermost (runs last)
+#   2. RequestLoggingMiddleware    → added second → middle layer
+#   3. OTelTraceBridge             → added last   → outermost custom middleware
+#
+# FastAPIInstrumentor.instrument_app(app) injects its own middleware at the
+# Starlette level *before* our add_middleware() calls take effect, so OTel's
+# span is active by the time OTelTraceBridge.dispatch() runs.
+#
+# Execution order on an incoming request:
+#   OTelTraceBridge (reads OTel span, binds trace_id) → RequestLoggingMiddleware → route
+# ---------------------------------------------------------------------------
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,17 +91,121 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        t0 = time.monotonic()
+
+class OTelTraceBridge(BaseHTTPMiddleware):
+    """Bridge OTel active span context into structlog's GCP log fields.
+
+    FastAPIInstrumentor creates the OTel span before this middleware runs
+    (it is registered as the outermost middleware, so it executes after OTel
+    has already set the active span in the current context). We read that span,
+    convert trace_id/span_id to hex, and call bind_trace_id() so every
+    structlog entry in this request carries logging.googleapis.com/trace and
+    logging.googleapis.com/spanId that match the Cloud Trace entry.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        span = otel_trace.get_current_span()
+        span_context = span.get_span_context()
+
+        if span_context.is_valid:
+            trace_id_hex = format(span_context.trace_id, "032x")
+            span_id_hex = format(span_context.span_id, "016x")
+        else:
+            # No active OTel span (e.g., health check before instrumentation is
+            # fully wired, or unit tests without OTel context). Fall back to a
+            # fresh random trace ID so logs are still correlated within the request.
+            trace_id_hex = generate_trace_id()
+            span_id_hex = ""
+
+        bind_trace_id(trace_id_hex, span_id_hex)
+
         response = await call_next(request)
-        elapsed_ms = (time.monotonic() - t0) * 1000
-        path = request.url.path
-        if not path.startswith("/assets/"):
-            logger.info("%s %s %d %.0fms", request.method, path, response.status_code, elapsed_ms)
+        response.headers["X-Trace-Id"] = trace_id_hex
         return response
 
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Log one structured entry per request with method, path, status, latency."""
+
+    async def dispatch(self, request: Request, call_next):
+        t0 = time.monotonic()
+        path = request.url.path
+
+        # Skip static asset noise
+        if path.startswith("/assets/"):
+            return await call_next(request)
+
+        response = await call_next(request)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        status = response.status_code
+
+        log = logger.info if status < 400 else (logger.warning if status < 500 else logger.error)
+        # httpRequest is a GCP Cloud Logging structured payload — the log router
+        # parses it into the log entry's httpRequest field for dashboards/alerts.
+        # We log only the path (no query string) to avoid PII/token leakage.
+        log(
+            "http_request",
+            method=request.method,
+            path=path,
+            status=status,
+            latency_ms=round(elapsed_ms, 1),
+            httpRequest={
+                "requestMethod": request.method,
+                "requestUrl": path,
+                "status": status,
+                "latency": f"{elapsed_ms / 1000:.3f}s",
+                "remoteIp": request.client.host if request.client else "",
+                "userAgent": request.headers.get("user-agent", ""),
+            },
+        )
+        return response
+
+
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(OTelTraceBridge)
+
+# --- OpenTelemetry setup ---
+# configure_telemetry() selects InMemorySpanExporter (TESTING=true) or
+# CloudTraceSpanExporter (production). FastAPIInstrumentor injects its own
+# middleware before our custom ones so the active span is ready when
+# OTelTraceBridge.dispatch() reads it.
+configure_telemetry()
+FastAPIInstrumentor.instrument_app(app)
+
+
+# ---------------------------------------------------------------------------
+# Global exception handler — catches unhandled 500s
+#
+# Note: FastAPI's ExceptionMiddleware intercepts HTTPException and
+# RequestValidationError before this handler is reached — those return their
+# own structured error responses without going through here. This handler
+# fires only for truly unexpected exceptions that escape route handlers,
+# which is exactly the set of errors that need an error_id.
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    error_id = generate_error_id()
+    logger.error(
+        "unhandled_exception",
+        error_id=error_id,
+        method=request.method,
+        path=request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An unexpected error occurred.",
+            "error_id": error_id,
+        },
+        headers={"X-Error-Id": error_id},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Routers
+# ---------------------------------------------------------------------------
 
 app.include_router(rides.router)
 app.include_router(pmc.router)
@@ -100,19 +230,18 @@ def version():
     return {"version": APP_VERSION}
 
 
-# Serve frontend static files (React build)
+# ---------------------------------------------------------------------------
+# Frontend SPA — serve React build if present
+# ---------------------------------------------------------------------------
+
 _frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
 if os.path.isdir(_frontend_dist):
-    # Serve static assets (JS, CSS, images)
     app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="assets")
 
-    # SPA fallback: serve index.html for all non-API routes
     @app.get("/{path:path}")
     async def spa_fallback(path: str):
-        # Try to serve the exact file first
         file_path = os.path.join(_frontend_dist, path)
         if path and os.path.isfile(file_path):
             return FileResponse(file_path)
-        # Fall back to index.html for SPA routing
         return FileResponse(os.path.join(_frontend_dist, "index.html"))

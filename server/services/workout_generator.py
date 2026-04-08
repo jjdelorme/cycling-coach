@@ -3,9 +3,10 @@
 import json
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
-import logging
 
-logger = logging.getLogger(__name__)
+from server.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_template(key):
@@ -91,7 +92,7 @@ def _build_zwo_xml(name, description, steps, ftp, duration_minutes=None):
             el.set("Duration", str(dur))
             el.set("Power", str(step.get("power", 0.65)))
         else:
-            logger.warning(f"Unknown custom step type: {stype}")
+            logger.warning("unknown_step_type", step_type=stype)
 
     xml_str = minidom.parseString(ET.tostring(root, encoding="unicode")).toprettyxml(indent="  ")
     lines = xml_str.split("\n")
@@ -152,7 +153,7 @@ def calculate_planned_tss(workout_xml: str) -> float | None:
     try:
         root = ET.fromstring(workout_xml)
     except ET.ParseError:
-        logger.warning("Could not parse workout XML for TSS calculation")
+        logger.warning("workout_xml_parse_failed")
         return None
 
     workout_el = root.find("workout")
@@ -186,7 +187,7 @@ def calculate_planned_tss(workout_xml: str) -> float | None:
                 on_dur * on_power * on_power + off_dur * off_power * off_power
             )
         else:
-            logger.warning(f"Unknown workout tag: {tag}")
+            logger.warning("unknown_workout_tag", tag=tag)
 
     if weighted_seconds <= 0:
         return None

@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.7.11-beta] - 2026-04-08
+
+- fix(ci): push branch and tag atomically so Cloud Build workspace includes the tag and `git describe` resolves the correct version
+- chore(ci): remove debug output from test build VERSION step
+
+## [v1.7.9-beta] - 2026-04-08
+
+- fix(ci): remove --depth=1 from git fetch so annotated tag objects are fetched and version displays correctly
+
+## [v1.7.8-beta] - 2026-04-08
+
+- feat(observability): OpenTelemetry tracing — AI coach chat sessions now export `agent.chat` and `agent.tool_call` spans to GCP Cloud Trace; structured logs correlated via `logging.googleapis.com/trace`
+
+## [v1.7.7-beta] - 2026-04-08
+
+- fix(ci): fetch tags before git describe so VERSION shows tag not commit hash
+
+## [v1.7.6-beta] - 2026-04-08
+
+- fix(ci): sanitize branch name in test build image tag (fixes builds for branches with `/` in name)
+
+## [v1.7.5-beta] - 2026-04-07
+
+- feat(observability): structured JSON logging across the entire backend
+
 ## [v1.7.4-beta] - 2026-04-07
 
 - CI: switched prod Cloud Build trigger from branch push to tag push with tag guard

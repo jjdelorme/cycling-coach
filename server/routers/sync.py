@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException, Query
 from typing import Optional
@@ -22,9 +21,10 @@ from server.services.sync import (
     unsubscribe,
 )
 from server.database import get_db
+from server.logging_config import get_logger
 from server.services.intervals_icu import fetch_activity_streams, is_configured
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -115,10 +115,10 @@ async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200), user:
             if streams:
                 _store_streams(row["id"], streams)
                 backfilled += 1
-                logger.info("Backfilled streams for ride %d (%s)", row["id"], row["date"])
+                logger.info("streams_backfilled", ride_id=row["id"], date=row["date"])
         except Exception as e:
             errors.append(f"{row['date']}: {e}")
-            logger.warning("Failed to backfill ride %d: %s", row["id"], e)
+            logger.warning("streams_backfill_failed", ride_id=row["id"], date=row["date"], error=str(e))
 
     return {
         "backfilled": backfilled,
@@ -147,7 +147,7 @@ async def sync_websocket(websocket: WebSocket, sync_id: str):
     Final message will have status "completed" or "failed".
     """
     await websocket.accept()
-    logger.info("WebSocket connected for sync %s", sync_id)
+    logger.info("ws_connected", sync_id=sync_id)
 
     q = subscribe(sync_id)
 
@@ -179,8 +179,8 @@ async def sync_websocket(websocket: WebSocket, sync_id: str):
                     break
 
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected for sync %s", sync_id)
+        logger.info("ws_disconnected", sync_id=sync_id)
     except Exception as e:
-        logger.error("WebSocket error for sync %s: %s", sync_id, e)
+        logger.error("ws_error", sync_id=sync_id, error=str(e), exc_info=e)
     finally:
         unsubscribe(sync_id, q)

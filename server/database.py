@@ -1,6 +1,5 @@
 """Database setup and connection management for PostgreSQL."""
 
-import logging
 import os
 import re
 import time
@@ -9,7 +8,9 @@ import psycopg2.extras
 from contextlib import contextmanager
 from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+from server.logging_config import get_logger, get_trace_id
+
+logger = get_logger(__name__)
 SLOW_QUERY_MS = int(os.environ.get("SLOW_QUERY_MS", "100"))
 
 load_dotenv()
@@ -282,7 +283,12 @@ class _DbConnection:
         elapsed_ms = (time.monotonic() - t0) * 1000
         if elapsed_ms >= SLOW_QUERY_MS:
             sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
-            logger.warning("Slow query (%.1fms): %s", elapsed_ms, sql_preview)
+            logger.warning(
+                "slow_query",
+                latency_ms=round(elapsed_ms, 1),
+                sql=sql_preview,
+                trace_id=get_trace_id(),
+            )
         return self._cursor
 
     def executemany(self, sql, params_list, page_size=1000):
@@ -292,8 +298,13 @@ class _DbConnection:
         elapsed_ms = (time.monotonic() - t0) * 1000
         if elapsed_ms >= SLOW_QUERY_MS:
             sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
-            logger.warning("Slow executemany (%.1fms, %d rows): %s",
-                           elapsed_ms, len(params_list), sql_preview)
+            logger.warning(
+                "slow_executemany",
+                latency_ms=round(elapsed_ms, 1),
+                rows=len(params_list),
+                sql=sql_preview,
+                trace_id=get_trace_id(),
+            )
         return self._cursor
 
     def commit(self):
@@ -513,7 +524,7 @@ def init_db():
             conn.commit()
             cur.close()
         except Exception as e:
-            logger.warning("Migration failed (likely already applied): %s", e)
+            logger.warning("migration_skipped", reason=str(e), stmt=stmt[:80])
             conn.rollback()
     
     conn.close()
