@@ -4,9 +4,15 @@ steps:
     args:
       - '-c'
       - |
-        # Fetch tags so git describe can find the beta tag on HEAD
-        git fetch --tags --depth=1
-        VERSION=$$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --always 2>/dev/null || echo "${BRANCH_NAME}-${SHORT_SHA}")
+        # Fetch all tags (no --depth so annotated tag objects are fetched too)
+        git fetch --tags
+        # Prefer exact tag on HEAD; fall back to describe; fall back to branch+sha
+        TAG=$$(git tag --points-at HEAD | head -1)
+        if [ -n "$$TAG" ]; then
+          VERSION="$$TAG"
+        else
+          VERSION=$$(git describe --tags --always 2>/dev/null || echo "${BRANCH_NAME}-${SHORT_SHA}")
+        fi
         echo "$$VERSION" > /workspace/VERSION
         echo "Test VERSION: $$(cat /workspace/VERSION)"
 
