@@ -107,6 +107,40 @@ sequenceDiagram
 - **Frontend**: `cd frontend && npm run dev`
 - **Testing**: `pytest`
 
+## Releases
+
+Releases are managed via the `/release` skill in Claude Code. Production deploys to Cloud Run automatically when a tag is pushed (Cloud Build trigger).
+
+### Version scheme
+
+`major.minor.patch` — semantic versioning:
+
+| Command | Bumps | Tag | Use when |
+|---|---|---|---|
+| `/release beta` | patch | `v1.7.4-beta` | Branch ready for testing before prod |
+| `/release patch` | patch | `v1.7.4` | Bug fix going straight to prod |
+| `/release minor` | minor | `v1.8.0` | Planned feature milestone |
+
+### Typical flow — feature to prod
+
+```bash
+# On a feature branch — cut a test release
+/release beta       # → v1.7.4-beta, pushes tag
+
+# Merge to main, then promote
+/release patch      # detects v1.7.4-beta on HEAD → promotes to v1.7.4
+                    # Cloud Build triggers, deploys to Cloud Run
+```
+
+### Direct hotfix to prod
+
+```bash
+# On main
+/release patch      # no beta on HEAD → bumps to v1.7.4 directly
+```
+
+The skill handles CHANGELOG updates, commits, annotated tags, and the push. It will confirm the version with you before making any changes.
+
 ## License
 
 MIT
