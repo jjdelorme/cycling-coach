@@ -256,12 +256,20 @@ def test_get_upcoming_workouts_returns_coach_notes_field(db_conn):
     from datetime import datetime, timedelta
     from server.coaching.tools import get_upcoming_workouts
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    # Pre-clean any leftover rows from previous test runs for this date+name,
+    # then commit so the fresh insert is visible to get_upcoming_workouts's own
+    # connection (READ COMMITTED isolation).
+    db_conn.execute(
+        "DELETE FROM planned_workouts WHERE date = %s AND name = %s",
+        (tomorrow, "test_get_upcoming_workouts_coach_notes"),
+    )
     db_conn.execute(
         "INSERT INTO planned_workouts (date, name, sport, total_duration_s, coach_notes) VALUES (%s, %s, %s, %s, %s)",
-        (tomorrow, "Test Workout", "bike", 3600, "Ride easy, RPE 3"),
+        (tomorrow, "test_get_upcoming_workouts_coach_notes", "bike", 3600, "Ride easy, RPE 3"),
     )
+    db_conn.commit()
     results = get_upcoming_workouts(days_ahead=7)
-    matching = [r for r in results if r["date"] == tomorrow]
+    matching = [r for r in results if r["date"] == tomorrow and r["name"] == "test_get_upcoming_workouts_coach_notes"]
     assert len(matching) == 1
     assert matching[0]["coach_notes"] == "Ride easy, RPE 3"
 
@@ -271,12 +279,20 @@ def test_get_upcoming_workouts_coach_notes_none_when_unset(db_conn):
     from datetime import datetime, timedelta
     from server.coaching.tools import get_upcoming_workouts
     day_after = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+    # Pre-clean any leftover rows from previous test runs for this date+name,
+    # then commit so the fresh insert is visible to get_upcoming_workouts's own
+    # connection (READ COMMITTED isolation).
+    db_conn.execute(
+        "DELETE FROM planned_workouts WHERE date = %s AND name = %s",
+        (day_after, "test_get_upcoming_workouts_no_notes"),
+    )
     db_conn.execute(
         "INSERT INTO planned_workouts (date, name, sport, total_duration_s) VALUES (%s, %s, %s, %s)",
-        (day_after, "Test Workout 2", "bike", 3600),
+        (day_after, "test_get_upcoming_workouts_no_notes", "bike", 3600),
     )
+    db_conn.commit()
     results = get_upcoming_workouts(days_ahead=7)
-    matching = [r for r in results if r["date"] == day_after]
+    matching = [r for r in results if r["date"] == day_after and r["name"] == "test_get_upcoming_workouts_no_notes"]
     assert len(matching) == 1
     assert matching[0]["coach_notes"] is None
 
