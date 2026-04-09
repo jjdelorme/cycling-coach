@@ -6,7 +6,7 @@ from typing import Optional
 
 from server.auth import CurrentUser, require_read, require_write
 from server.database import get_db
-from server.models.schemas import RideSummary, RideDetail, RideRecord, RideLap, WeeklySummary, MonthlySummary
+from server.models.schemas import RideSummary, RideDetail, RideRecord, RideLap, WeeklySummary, MonthlySummary, DailySummary
 from server.ingest import compute_daily_pmc
 
 
@@ -45,6 +45,57 @@ def list_rides(
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
     return [RideSummary(**dict(r)) for r in rows]
+
+
+def aggregate_daily_rides(rows: list[dict], days: int = 7) -> list[DailySummary]:
+    """Aggregate a list of ride dicts by date. Pure function — no DB access."""
+    from collections import defaultdict
+    daily: dict = defaultdict(lambda: {
+        "rides": 0, "duration_s": 0.0, "tss": 0.0,
+        "total_calories": 0, "distance_m": 0.0, "ascent_m": 0,
+        "_power_x_dur": 0.0, "_powered_dur": 0.0,
+    })
+    for r in rows:
+        d = r.get("date", "")
+        if not d:
+            continue
+        dur = r.get("duration_s") or 0
+        daily[d]["rides"] += 1
+        daily[d]["duration_s"] += dur
+        daily[d]["tss"] += r.get("tss") or 0
+        daily[d]["total_calories"] += r.get("total_calories") or 0
+        daily[d]["distance_m"] += r.get("distance_m") or 0
+        daily[d]["ascent_m"] += r.get("total_ascent") or 0
+        pwr = r.get("avg_power") or 0
+        if pwr > 0 and dur > 0:
+            daily[d]["_power_x_dur"] += pwr * dur
+            daily[d]["_powered_dur"] += dur
+    result = []
+    for date in sorted(daily):
+        v = daily[date]
+        avg_power = round(v["_power_x_dur"] / v["_powered_dur"]) if v["_powered_dur"] > 0 else None
+        result.append(DailySummary(
+            date=date, rides=v["rides"], duration_s=v["duration_s"],
+            tss=v["tss"], total_calories=v["total_calories"],
+            distance_m=v["distance_m"], ascent_m=v["ascent_m"],
+            avg_power=avg_power,
+        ))
+    return result
+
+
+@router.get("/summary/daily", response_model=list[DailySummary])
+def daily_summary(
+    days: int = Query(7, ge=1, le=90),
+    user: CurrentUser = Depends(require_read),
+):
+    from datetime import date as dt_date, timedelta
+    since = (dt_date.today() - timedelta(days=days - 1)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT date, duration_s, tss, total_calories, distance_m, total_ascent, avg_power FROM rides WHERE date >= %s ORDER BY date",
+            (since,),
+        ).fetchall()
+    return aggregate_daily_rides([dict(r) for r in rows], days=days)
 
 
 @router.get("/summary/weekly", response_model=list[WeeklySummary])

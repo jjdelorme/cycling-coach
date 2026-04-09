@@ -54,7 +54,7 @@ function put<T>(path: string, body: unknown) {
 }
 
 import type {
-  RideSummary, RideDetail, PMCEntry, WeeklySummary,
+  RideSummary, RideDetail, PMCEntry, WeeklySummary, DailySummary,
   WorkoutDetail, WeekPlan, PeriodizationPhase, WeeklyOverview,
   ChatResponse, SessionSummary, SyncOverview, SyncStatus,
   CoachSettings,
@@ -76,6 +76,8 @@ export const fetchWeeklySummary = (params?: { start_date?: string; end_date?: st
   if (params?.end_date) q.set('end_date', params.end_date)
   return get<WeeklySummary[]>(`/api/rides/summary/weekly?${q}`)
 }
+export const fetchDailySummary = (days = 7) =>
+  get<DailySummary[]>(`/api/rides/summary/daily?days=${days}`)
 export const updateRideComments = (id: number, body: { post_ride_comments?: string | null }) =>
   put<{ status: string }>(`/api/rides/${id}/comments`, body)
 export const updateRideTitle = (id: number, body: { title?: string | null }) =>

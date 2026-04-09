@@ -191,3 +191,11 @@ export function useWeeklySummary(params?: Parameters<typeof api.fetchWeeklySumma
     queryFn: () => api.fetchWeeklySummary(params),
   })
 }
+
+// Daily summary (rolling window)
+export function useDailySummary(days = 7) {
+  return useQuery({
+    queryKey: ['daily-summary', days],
+    queryFn: () => api.fetchDailySummary(days),
+  })
+}
