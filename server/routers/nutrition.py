@@ -205,6 +205,9 @@ async def update_meal_endpoint(
         if req.meal_type is not None:
             updates.append("meal_type = %s")
             params.append(req.meal_type)
+        if req.date is not None:
+            updates.append("date = %s")
+            params.append(req.date)
 
         if updates:
             updates.append("edited_by_user = TRUE")

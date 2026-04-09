@@ -223,7 +223,7 @@ export const uploadMealPhoto = async (
 
 export const updateMeal = (id: number, body: {
   total_calories?: number; total_protein_g?: number; total_carbs_g?: number;
-  total_fat_g?: number; meal_type?: string; items?: MealDetail['items']
+  total_fat_g?: number; meal_type?: string; date?: string; items?: MealDetail['items']
 }) => put<{ status: string }>(`/api/nutrition/meals/${id}`, body)
 
 export const deleteMeal = (id: number) =>

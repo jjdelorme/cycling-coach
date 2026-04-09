@@ -257,6 +257,7 @@ class MealUpdateRequest(BaseModel):
     total_carbs_g: Optional[float] = None
     total_fat_g: Optional[float] = None
     meal_type: Optional[str] = None
+    date: Optional[str] = None
     items: Optional[list[MealItem]] = None
 
 
