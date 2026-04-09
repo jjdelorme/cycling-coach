@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.1-beta] - 2026-04-09
+
+- feat(ui): display calories on ride detail and calendar preview (combined Avg Power + NP into stacked card, replaced NP with Calories in calendar mini preview)
+- feat(ui): rolling 7-day multi-axis line chart on dashboard with toggleable metrics (TSS, Hours, Kcal, Miles, Climbing, Avg W)
+- feat(api): `GET /api/rides/summary/daily` endpoint with weighted-average power aggregation
+- test: 9 unit tests for `aggregate_daily_rides` pure function
+
 ## [v1.7.11-beta] - 2026-04-08
 
 - fix(ci): push branch and tag atomically so Cloud Build workspace includes the tag and `git describe` resolves the correct version
