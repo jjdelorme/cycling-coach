@@ -72,6 +72,22 @@ sequenceDiagram
 - PostgreSQL (or Podman/Docker)
 - Intervals.icu API Key & Athlete ID
 
+### GCP Permissions
+
+The Cloud Run service account requires the following IAM bindings. Replace `<SERVICE_ACCOUNT>` with the runtime SA (e.g. the Compute Engine default SA or a dedicated SA attached to the Cloud Run service).
+
+```bash
+# Meal photo uploads (Cloud Storage) — required by server/nutrition/photo.py
+gcloud storage buckets add-iam-policy-binding gs://jasondel-coach-data \
+    --member="serviceAccount:<SERVICE_ACCOUNT>" \
+    --role="roles/storage.objectCreator"
+
+# Cloud Trace telemetry — required by server/telemetry.py (OpenTelemetry exporter)
+gcloud projects add-iam-policy-binding jasondel-cloudrun10 \
+    --member="serviceAccount:<SERVICE_ACCOUNT>" \
+    --role="roles/cloudtrace.agent"
+```
+
 ### Installation
 
 1. **Clone the repository**:
