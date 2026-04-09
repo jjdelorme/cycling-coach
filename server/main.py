@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.logging_config import (
@@ -92,8 +93,13 @@ app.add_middleware(
 )
 
 
-class OTelTraceBridge(BaseHTTPMiddleware):
+class OTelTraceBridge:
     """Bridge OTel active span context into structlog's GCP log fields.
+
+    Implemented as a raw ASGI middleware (not BaseHTTPMiddleware) so that
+    bind_trace_id() runs in the same contextvars context as the route handler.
+    BaseHTTPMiddleware.call_next() spawns a new anyio task group with a fresh
+    context, causing the ContextVar set here to be invisible to the route.
 
     FastAPIInstrumentor creates the OTel span before this middleware runs
     (it is registered as the outermost middleware, so it executes after OTel
@@ -103,25 +109,34 @@ class OTelTraceBridge(BaseHTTPMiddleware):
     logging.googleapis.com/spanId that match the Cloud Trace entry.
     """
 
-    async def dispatch(self, request: Request, call_next):
+    def __init__(self, app):
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self._app(scope, receive, send)
+            return
+
         span = otel_trace.get_current_span()
         span_context = span.get_span_context()
-
         if span_context.is_valid:
             trace_id_hex = format(span_context.trace_id, "032x")
             span_id_hex = format(span_context.span_id, "016x")
         else:
-            # No active OTel span (e.g., health check before instrumentation is
-            # fully wired, or unit tests without OTel context). Fall back to a
-            # fresh random trace ID so logs are still correlated within the request.
+            # No active OTel span — fall back to a fresh random trace ID so
+            # logs are still correlated within the request.
             trace_id_hex = generate_trace_id()
             span_id_hex = ""
 
         bind_trace_id(trace_id_hex, span_id_hex)
 
-        response = await call_next(request)
-        response.headers["X-Trace-Id"] = trace_id_hex
-        return response
+        async def send_with_trace_header(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.append("x-trace-id", trace_id_hex)
+            await send(message)
+
+        await self._app(scope, receive, send_with_trace_header)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

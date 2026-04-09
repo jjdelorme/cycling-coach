@@ -62,6 +62,7 @@ def test_generate_week_from_spec_rest_day(db_conn):
         "INSERT INTO planned_workouts (date, name, sport, total_duration_s) VALUES (%s, %s, %s, %s)",
         ("2099-09-03", "Old Workout", "bike", 3600),
     )
+    db_conn.commit()
     result = generate_week_from_spec([{"date": "2099-09-03"}])
     assert result["status"] == "success"
     assert "2099-09-03" in result["rest_days"]
@@ -235,6 +236,7 @@ def test_replace_workout_rest_mode(db_conn):
         "INSERT INTO planned_workouts (date, name, sport, total_duration_s) VALUES (%s, %s, %s, %s)",
         ("2099-07-03", "Existing Workout", "bike", 3600),
     )
+    db_conn.commit()
     result = replace_workout("2099-07-03", workout_type="rest")
     assert result["status"] == "success"
     assert result["action"] == "removed"

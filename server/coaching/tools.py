@@ -277,7 +277,7 @@ def get_ftp_history() -> list[dict]:
         {
             "month": r["month"],
             "ftp": r["ftp"],
-            "weight_kg": r["weight"],
+            "weight_kg": r["weight_kg"],
             "w_per_kg": r["w_per_kg"],
             **({"source": r["source"]} if "source" in r else {}),
         }
