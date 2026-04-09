@@ -1,0 +1,16 @@
+{
+  "name": "cycling-coach-e2e",
+  "private": true,
+  "scripts": {
+    "test": "playwright test --config playwright.config.ts",
+    "test:headed": "playwright test --config playwright.config.ts --headed",
+    "test:debug": "playwright test --config playwright.config.ts --debug",
+    "report": "playwright show-report playwright-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  },
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}
