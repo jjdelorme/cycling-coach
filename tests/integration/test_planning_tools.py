@@ -164,10 +164,13 @@ def test_get_week_summary():
 # Tests for set_workout_coach_notes
 def test_set_workout_coach_notes_success(db_conn):
     """set_workout_coach_notes persists notes to the DB."""
+    db_conn.execute("DELETE FROM planned_workouts WHERE date = '2099-06-01'")
+    db_conn.commit()
     db_conn.execute(
         "INSERT INTO planned_workouts (date, name, sport, total_duration_s) VALUES (%s, %s, %s, %s)",
         ("2099-06-01", "Test Ride", "bike", 3600),
     )
+    db_conn.commit()
     result = set_workout_coach_notes("2099-06-01", "Focus on Z2 cadence, RPE 3")
     assert result["status"] == "success"
     row = db_conn.execute(
@@ -185,10 +188,13 @@ def test_set_workout_coach_notes_no_workout(db_conn):
 
 def test_set_workout_coach_notes_overwrites_existing(db_conn):
     """set_workout_coach_notes overwrites, not appends."""
+    db_conn.execute("DELETE FROM planned_workouts WHERE date = '2099-06-02'")
+    db_conn.commit()
     db_conn.execute(
         "INSERT INTO planned_workouts (date, name, sport, total_duration_s, coach_notes) VALUES (%s, %s, %s, %s, %s)",
         ("2099-06-02", "Test Ride", "bike", 3600, "old note"),
     )
+    db_conn.commit()
     set_workout_coach_notes("2099-06-02", "new note")
     row = db_conn.execute(
         "SELECT coach_notes FROM planned_workouts WHERE date = '2099-06-02'"
@@ -232,6 +238,8 @@ def test_replace_workout_custom_mode_stores_description_as_coach_notes(db_conn):
 
 def test_replace_workout_rest_mode(db_conn):
     """replace_workout rest mode removes the workout."""
+    db_conn.execute("DELETE FROM planned_workouts WHERE date = '2099-07-03'")
+    db_conn.commit()
     db_conn.execute(
         "INSERT INTO planned_workouts (date, name, sport, total_duration_s) VALUES (%s, %s, %s, %s)",
         ("2099-07-03", "Existing Workout", "bike", 3600),

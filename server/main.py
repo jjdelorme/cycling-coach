@@ -75,7 +75,7 @@ app = FastAPI(title="Cycling Coach", version=APP_VERSION, lifespan=lifespan)
 #
 # FastAPIInstrumentor.instrument_app(app) injects its own middleware at the
 # Starlette level *before* our add_middleware() calls take effect, so OTel's
-# span is active by the time OTelTraceBridge.dispatch() runs.
+# span is active by the time OTelTraceBridge.__call__() runs.
 #
 # Execution order on an incoming request:
 #   OTelTraceBridge (reads OTel span, binds trace_id) → RequestLoggingMiddleware → route
@@ -183,7 +183,7 @@ app.add_middleware(OTelTraceBridge)
 # configure_telemetry() selects InMemorySpanExporter (TESTING=true) or
 # CloudTraceSpanExporter (production). FastAPIInstrumentor injects its own
 # middleware before our custom ones so the active span is ready when
-# OTelTraceBridge.dispatch() reads it.
+# OTelTraceBridge.__call__() reads it.
 configure_telemetry()
 FastAPIInstrumentor.instrument_app(app)
 

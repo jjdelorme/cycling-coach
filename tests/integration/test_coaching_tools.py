@@ -79,7 +79,7 @@ def _get_test_date_with_power():
     from server.database import get_db
     with get_db() as conn:
         row = conn.execute(
-            "SELECT r.date FROM rides r WHERE r.avg_power > 0 AND r.duration_s > 1800 ORDER BY r.date DESC LIMIT 1"
+            "SELECT r.date FROM rides r WHERE r.avg_power > 0 AND r.duration_s > 1800 AND r.has_power_data = TRUE ORDER BY r.date DESC LIMIT 1"
         ).fetchone()
     return row["date"] if row else None
 
