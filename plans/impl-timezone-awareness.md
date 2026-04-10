@@ -1,5 +1,7 @@
 # Feature Implementation Plan: fix-timezone-awareness
 
+> ⚠️ **Note for Phase 1+ executor:** The checklist below is accurate. However, the step-by-step implementation details in Phases 1–4 were drafted against a simplified view of the codebase and do not match the real files. Before executing any Phase 1+ step, read the actual target file first. Key divergences: `server/queries.py` does not contain `get_pmc_data()` or `get_upcoming_workouts()` — the real PMC data comes from `daily_metrics` via `get_current_pmc_row()`; `server/ingest.py` is 700+ lines with timezone logic in `parse_ride_json()` (reads `athlete_settings WHERE key='timezone'`). Treat the step descriptions as intent, not copy-paste instructions.
+
 ## 🔍 Analysis & Context
 
 - **Objective:** Complete the timezone-awareness fix by finishing Phase 0 (unit tests + frontend date fixes), then execute Phases 1–4 (switch queries to `start_date_local`, drop `rides.date`, add `user_id` to PMC, rebuild).
