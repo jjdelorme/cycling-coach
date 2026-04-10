@@ -3,6 +3,7 @@
 import uuid
 import base64
 from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException
+from fastapi.responses import Response
 
 from server.auth import CurrentUser, require_read, require_write
 from server.models.schemas import (
@@ -13,11 +14,49 @@ from server.models.schemas import (
 )
 from server.database import get_db
 from server.queries import get_meals_for_date, get_meal_items, get_macro_targets, get_daily_meal_totals
-from server.nutrition.photo import upload_meal_photo, generate_photo_url
+from server.nutrition.photo import upload_meal_photo, download_photo
 
 router = APIRouter(prefix="/api/nutrition", tags=["nutrition"])
 
 DAILY_ANALYSIS_LIMIT = 20
+
+
+def _photo_url(meal_id: int | None, has_photo: bool) -> str:
+    """Build the proxy photo URL for a meal, or empty string if no photo."""
+    if not has_photo or meal_id is None:
+        return ""
+    return f"/api/nutrition/photos/{meal_id}"
+
+
+# ---------------------------------------------------------------------------
+# Meal photos (proxy)
+# ---------------------------------------------------------------------------
+
+@router.get("/photos/{meal_id}")
+async def get_photo(meal_id: int):
+    """Serve a meal photo from GCS via the API.
+
+    No auth required — <img> tags can't send Authorization headers,
+    and meal photos are non-sensitive data.
+    """
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT photo_gcs_path FROM meal_logs WHERE id = %s",
+            (meal_id,),
+        ).fetchone()
+
+    if not row or not row["photo_gcs_path"]:
+        raise HTTPException(404, "No photo for this meal")
+
+    data = download_photo(row["photo_gcs_path"])
+    if data is None:
+        raise HTTPException(404, "Photo not found in storage")
+
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -111,12 +150,12 @@ async def create_meal(
 
         if not row:
             # Agent didn't save -- return the response text as a fallback
-            return {"status": "analysis_only", "response": response_text, "photo_url": generate_photo_url(gcs_path)}
+            return {"status": "analysis_only", "response": response_text}
 
         meal = dict(row)
         items = get_meal_items(conn, meal["id"])
 
-    meal["photo_url"] = generate_photo_url(gcs_path)
+    meal["photo_url"] = _photo_url(meal["id"], bool(meal.get("photo_gcs_path")))
     meal["items"] = items
 
     return meal
@@ -155,7 +194,7 @@ async def list_meals(
     meals = []
     for r in rows:
         m = dict(r)
-        m["photo_url"] = generate_photo_url(m.get("photo_gcs_path", ""))
+        m["photo_url"] = _photo_url(m["id"], bool(m.get("photo_gcs_path")))
         meals.append(m)
 
     return {"meals": meals, "total": total, "limit": limit, "offset": offset}
@@ -171,7 +210,7 @@ async def get_meal(meal_id: int, user: CurrentUser = Depends(require_read)):
         items = get_meal_items(conn, meal_id)
 
     meal = dict(row)
-    meal["photo_url"] = generate_photo_url(meal.get("photo_gcs_path", ""))
+    meal["photo_url"] = _photo_url(meal["id"], bool(meal.get("photo_gcs_path")))
     meal["items"] = items
     return meal
 

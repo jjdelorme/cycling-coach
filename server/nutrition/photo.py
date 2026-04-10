@@ -1,12 +1,10 @@
-"""GCS upload and signed URL helpers for meal photos."""
+"""GCS upload and download helpers for meal photos."""
 
 import io
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
-import google.auth
-from google.auth.transport import requests as auth_requests
 from PIL import Image
 
 MAX_IMAGE_SIZE_MB = 10
@@ -68,41 +66,21 @@ def upload_meal_photo(
     return gcs_path, resized_bytes
 
 
-def generate_photo_url(gcs_path: str, expiry_minutes: int = 60) -> str:
-    """Generate a V4 signed URL for a meal photo.
+def download_photo(gcs_path: str) -> bytes | None:
+    """Download a meal photo from GCS.
 
     Args:
         gcs_path: Full GCS path (gs://bucket/path/to/photo.jpg).
-        expiry_minutes: URL validity in minutes (default 60).
 
     Returns:
-        HTTPS signed URL, or empty string if gcs_path is empty.
+        JPEG bytes, or None if gcs_path is empty or download fails.
     """
     if not gcs_path:
-        return ""
+        return None
 
     parts = gcs_path.replace("gs://", "").split("/", 1)
     bucket_name, blob_name = parts[0], parts[1]
 
     bucket = _get_storage_client().bucket(bucket_name)
     blob = bucket.blob(blob_name)
-
-    credentials, _project = google.auth.default()
-
-    # Compute engine credentials (Cloud Run/GCE) can't sign locally —
-    # pass SA email + access token so the library uses IAM signBlob instead.
-    if hasattr(credentials, "service_account_email"):
-        credentials.refresh(auth_requests.Request())
-        return blob.generate_signed_url(
-            version="v4",
-            expiration=timedelta(minutes=expiry_minutes),
-            method="GET",
-            service_account_email=credentials.service_account_email,
-            access_token=credentials.token,
-        )
-
-    return blob.generate_signed_url(
-        version="v4",
-        expiration=timedelta(minutes=expiry_minutes),
-        method="GET",
-    )
+    return blob.download_as_bytes()
