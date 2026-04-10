@@ -76,6 +76,9 @@ def test_fetch_weight_measurements_decodes_correctly():
         results = fetch_weight_measurements("2023-11-14", "2023-11-15")
         assert len(results) == 2
         assert abs(results[0]["weight_kg"] - 75.0) < 0.001
+        # UTC timestamp preserved from Withings Unix timestamp
+        assert results[0]["measured_at"] == "2023-11-14T22:13:20Z"
+        assert results[0]["date"] == "2023-11-14"
 
 def test_fetch_weight_measurements_sends_category_1():
     """getmeas must include category=1 to exclude Withings goal/objective entries."""

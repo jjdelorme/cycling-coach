@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS body_measurements (
     source TEXT NOT NULL DEFAULT 'withings',
     weight_kg REAL,
     fat_percent REAL,
+    measured_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(date, source)
 );
@@ -554,11 +555,13 @@ def init_db():
             source TEXT NOT NULL DEFAULT 'withings',
             weight_kg REAL,
             fat_percent REAL,
+            measured_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(date, source)
         )""",
         "CREATE INDEX IF NOT EXISTS idx_body_measurements_date ON body_measurements(date)",
         "CREATE INDEX IF NOT EXISTS idx_body_measurements_source ON body_measurements(source)",
+        "ALTER TABLE body_measurements ADD COLUMN IF NOT EXISTS measured_at TEXT",
     ]
     for stmt in withings_migrations:
         try:

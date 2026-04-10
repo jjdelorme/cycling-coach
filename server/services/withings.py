@@ -121,11 +121,15 @@ def fetch_weight_measurements(start_date: str, end_date: str) -> list[dict]:
         return []
     results = []
     for grp in body.get("body", {}).get("measuregrps", []):
-        date_str = datetime.fromtimestamp(grp["date"], tz=timezone.utc).strftime("%Y-%m-%d")
+        ts = grp["date"]
+        dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+        date_str = dt_utc.strftime("%Y-%m-%d")
+        measured_at = dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         for m in grp.get("measures", []):
             if m.get("type") == 1:
                 results.append({
                     "date": date_str,
+                    "measured_at": measured_at,
                     "weight_kg": round(_decode_weight(m["value"], m["unit"]), 3),
                 })
     logger.info("withings_measurements_fetched", count=len(results))
@@ -138,9 +142,9 @@ def store_measurements(measurements: list[dict]) -> int:
     with get_db() as conn:
         for m in measurements:
             conn.execute(
-                "INSERT INTO body_measurements (date, source, weight_kg) VALUES (%s, %s, %s) "
-                "ON CONFLICT (date, source) DO UPDATE SET weight_kg = EXCLUDED.weight_kg",
-                (m["date"], "withings", m["weight_kg"]),
+                "INSERT INTO body_measurements (date, source, weight_kg, measured_at) VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (date, source) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, measured_at = EXCLUDED.measured_at",
+                (m["date"], "withings", m["weight_kg"], m.get("measured_at")),
             )
     return len(measurements)
 
