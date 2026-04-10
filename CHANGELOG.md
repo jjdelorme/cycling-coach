@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.12-beta] - 2026-04-10
+
+- fix(ai): coaching and nutrition routers now return HTTP 429 on `RESOURCE_EXHAUSTED` instead of crashing with 500
+- fix(ai): both coach panels show a "model is busy" warning with a Try Again button on 429; previously showed a generic error with no retry
+
 ## [v1.8.11-beta] - 2026-04-10
 
 - fix(nutrition): remove `capture` attribute from meal photo input so mobile users can choose between camera and photo library
