@@ -308,3 +308,14 @@ export function useNutritionSessions() {
     queryFn: api.fetchNutritionSessions,
   })
 }
+
+// Withings
+export function useWithingsStatus() {
+  const { isAuthenticated } = useAuth()
+  return useQuery({
+    queryKey: ['withings-status'],
+    queryFn: api.fetchWithingsStatus,
+    enabled: isAuthenticated,
+    refetchInterval: 30000,
+  })
+}

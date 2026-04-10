@@ -390,3 +390,12 @@ export interface NutritionChatResponse {
   response: string
   session_id: string
 }
+
+// --- Withings Types ---
+
+export interface WithingsStatus {
+  configured: boolean
+  connected: boolean
+  last_measurement_date?: string
+  latest_weight_kg?: number
+}

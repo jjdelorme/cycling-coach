@@ -27,7 +27,7 @@ from server.telemetry import configure_telemetry, shutdown as telemetry_shutdown
 configure_logging()
 logger = get_logger(__name__)
 
-from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete, admin, nutrition
+from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete, admin, nutrition, withings as withings_router
 from server.database import init_db
 
 
@@ -231,6 +231,7 @@ app.include_router(sync.router)
 app.include_router(athlete.router)
 app.include_router(admin.router)
 app.include_router(nutrition.router)
+app.include_router(withings_router.router)
 
 
 @app.get("/api/health")

@@ -232,6 +232,20 @@ CREATE TABLE IF NOT EXISTS sync_watermarks (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS body_measurements (
+    id SERIAL PRIMARY KEY,
+    date TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'withings',
+    weight_kg REAL,
+    fat_percent REAL,
+    measured_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_body_measurements_date ON body_measurements(date);
+CREATE INDEX IF NOT EXISTS idx_body_measurements_source ON body_measurements(source);
+
 CREATE TABLE IF NOT EXISTS users (
     email TEXT PRIMARY KEY,
     display_name TEXT,
@@ -436,6 +450,12 @@ SETTINGS_DEFAULTS = {
     "gemini_model": "",
     "gcp_location": "",
     "gemini_api_key": "",
+    "withings_access_token": "",
+    "withings_refresh_token": "",
+    "withings_token_expiry": "",
+    "withings_user_id": "",
+    "withings_oauth_state": "",
+    "withings_webhook_url": "",
 }
 
 
@@ -569,7 +589,33 @@ def init_db():
         except Exception as e:
             logger.warning("migration_skipped", reason=str(e), stmt=stmt[:80])
             conn.rollback()
-    
+
+    # Migration: body_measurements table for Withings integration
+    withings_migrations = [
+        """CREATE TABLE IF NOT EXISTS body_measurements (
+            id SERIAL PRIMARY KEY,
+            date TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'withings',
+            weight_kg REAL,
+            fat_percent REAL,
+            measured_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(date, source)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_body_measurements_date ON body_measurements(date)",
+        "CREATE INDEX IF NOT EXISTS idx_body_measurements_source ON body_measurements(source)",
+        "ALTER TABLE body_measurements ADD COLUMN IF NOT EXISTS measured_at TEXT",
+    ]
+    for stmt in withings_migrations:
+        try:
+            cur = conn.cursor()
+            cur.execute(stmt)
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            logger.warning("migration_skipped", reason=str(e), stmt=stmt[:80])
+            conn.rollback()
+
     conn.close()
 
 

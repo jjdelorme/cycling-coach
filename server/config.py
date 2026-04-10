@@ -22,3 +22,8 @@ JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 INTERVALS_ICU_API_KEY = os.getenv("INTERVALS_ICU_API_KEY", "")
 INTERVALS_ICU_ATHLETE_ID = os.getenv("INTERVALS_ICU_ATHLETE_ID", "")
 INTERVALS_ICU_DISABLED = os.getenv("INTERVALS_ICU_DISABLE", "0").lower() in ("1", "true", "yes")
+
+# Withings integration
+WITHINGS_CLIENT_ID = os.getenv("WITHINGS_CLIENT_ID", "")
+WITHINGS_CLIENT_SECRET = os.getenv("WITHINGS_CLIENT_SECRET") or os.getenv("WITHINGS_SECRET", "")
+WITHINGS_REDIRECT_URI = os.getenv("WITHINGS_REDIRECT_URI", "http://localhost:8000/api/withings/callback")

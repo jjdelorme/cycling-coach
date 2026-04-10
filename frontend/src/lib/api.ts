@@ -255,3 +255,12 @@ export const fetchNutritionSession = (id: string) =>
 export const deleteNutritionSession = (id: string) =>
   request<{ status: string }>(`/api/nutrition/sessions/${id}`, { method: 'DELETE' })
 
+// Withings
+export const fetchWithingsStatus = () => get<import('../types/api').WithingsStatus>('/api/withings/status')
+export const fetchWithingsAuthUrl = () => get<{ url: string }>('/api/withings/auth-url')
+export const syncWithingsWeight = (days?: number) =>
+  post<{ status: string; synced: number; start_date: string; end_date: string }>(
+    `/api/withings/sync${days ? `?days=${days}` : ''}`
+  )
+export const disconnectWithings = () =>
+  request<{ status: string }>('/api/withings/disconnect', { method: 'DELETE' })
