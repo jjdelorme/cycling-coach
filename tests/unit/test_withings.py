@@ -204,8 +204,8 @@ def test_store_measurements_upserts_correctly():
     mock_ctx.__exit__ = MagicMock(return_value=False)
 
     measurements = [
-        {"date": "2026-04-01", "weight_kg": 75.0},
-        {"date": "2026-04-02", "weight_kg": 74.8},
+        {"date": "2026-04-01", "measured_at": "2026-04-01T06:30:00Z", "weight_kg": 75.0},
+        {"date": "2026-04-02", "measured_at": "2026-04-02T06:45:00Z", "weight_kg": 74.8},
     ]
     with patch("server.services.withings.get_db", return_value=mock_ctx):
         from server.services.withings import store_measurements
