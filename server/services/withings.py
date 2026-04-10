@@ -111,6 +111,7 @@ def fetch_weight_measurements(start_date: str, end_date: str) -> list[dict]:
     resp = httpx.post(_MEASURE_URL, data={
         "action": "getmeas",
         "meastype": 1,
+        "category": 1,  # 1=real measurements only, excludes Withings goal/objective entries
         "startdate": start_ts,
         "enddate": end_ts,
     }, headers={"Authorization": f"Bearer {token}"}, timeout=30.0)

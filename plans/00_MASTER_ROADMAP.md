@@ -47,5 +47,9 @@ This document serves as the top-level view of all active, planned, and completed
   - *Goal:* Establish comprehensive unit and integration testing suite for React frontend to prevent regressions.
 
 - [ ] **Campaign 11: Withings Body Scale Integration** (`plans/feat_withings_weight.md`)
-  - *Status:* Planned
+  - *Status:* Implemented (feat/withings-weight-integration)
   - *Goal:* OAuth 2.0 integration with Withings Health API to pull daily body weight measurements from scale into `body_measurements` table, use as highest-priority weight source in PMC pipeline, and surface as a Weight Trend chart in the Analysis page.
+
+- [ ] **Campaign 12: Withings Push Notification Webhooks** (`plans/feat_withings_webhooks.md`)
+  - *Status:* Implemented alongside Campaign 11 (feat/withings-weight-integration)
+  - *Goal:* Subscribe to Withings push notifications so new weight measurements sync automatically without polling. Withings calls our webhook when new data arrives; we fetch only the notified window and recompute PMC.

@@ -77,6 +77,25 @@ def test_fetch_weight_measurements_decodes_correctly():
         assert len(results) == 2
         assert abs(results[0]["weight_kg"] - 75.0) < 0.001
 
+def test_fetch_weight_measurements_sends_category_1():
+    """getmeas must include category=1 to exclude Withings goal/objective entries."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"status": 0, "body": {"measuregrps": []}}
+    captured = {}
+
+    def capture_post(url, data=None, **kwargs):
+        captured.update(data or {})
+        return mock_response
+
+    with patch("server.services.withings._get_valid_access_token", return_value="tok"), \
+         patch("httpx.post", side_effect=capture_post):
+        from server.services.withings import fetch_weight_measurements
+        fetch_weight_measurements("2023-11-14", "2023-11-15")
+
+    assert captured.get("category") == 1, (
+        f"Expected category=1 in getmeas request, got {captured.get('category')!r}"
+    )
+
 def test_fetch_weight_measurements_skips_non_weight_types():
     mock_response = MagicMock()
     mock_response.json.return_value = {
