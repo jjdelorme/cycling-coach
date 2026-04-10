@@ -74,6 +74,9 @@ export function useZones(params?: api.DateRange) {
 export function useFTPHistory(params?: api.DateRange) {
   return useQuery({ queryKey: ['ftp-history', params], queryFn: () => api.fetchFTPHistory(params) })
 }
+export function useWeightHistory(params?: api.DateRange) {
+  return useQuery({ queryKey: ['weight-history', params], queryFn: () => api.fetchWeightHistory(params) })
+}
 
 // Athlete settings
 export function useAthleteSettings() {

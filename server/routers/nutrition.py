@@ -36,10 +36,10 @@ async def create_meal(
     user: CurrentUser = Depends(require_write),
 ):
     """Analyze and log a meal photo. Rate-limited to 20 analyses/day."""
-    from datetime import datetime
+    from datetime import datetime, timezone
     from server.nutrition.agent import chat as nutrition_chat
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     # Rate limit check — uses existing idx_meal_logs_date index
     with get_db() as conn:

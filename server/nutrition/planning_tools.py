@@ -1,6 +1,6 @@
 """Write tools for the Nutritionist agent -- permission-gated at the agent level."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from server.database import get_db
 from server.logging_config import get_logger
 
@@ -65,7 +65,7 @@ def save_meal_analysis(
             difference_pct=round(abs(macro_cal - total_calories) / total_calories * 100, 1),
         )
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
     logged_at = now.isoformat()
 

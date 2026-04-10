@@ -119,6 +119,8 @@ export const fetchZones = async (params?: DateRange): Promise<ZoneDistribution[]
 }
 export const fetchFTPHistory = (params?: DateRange) =>
   get<FTPHistoryPoint[]>(`/api/analysis/ftp-history${dateQuery(params)}`)
+export const fetchWeightHistory = (params?: DateRange) =>
+  get<{ date: string; weight_kg: number }[]>(`/api/analysis/weight-history${dateQuery(params)}`)
 import type { EfficiencyPoint, ZoneDistribution, FTPHistoryPoint } from '../types/api'
 
 // Athlete settings

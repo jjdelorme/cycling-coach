@@ -7,11 +7,12 @@ import {
   useMacroPlan,
   useWeeklyOverview,
   useAthleteSettings,
-  usePMC,
   useWithingsStatus,
+  useWeightHistory,
 } from '../hooks/useApi'
 import { useChartColors } from '../lib/theme'
 import { fmtWeight } from '../lib/format'
+import { useUnits } from '../lib/units'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -662,23 +663,17 @@ function FTPHistoryChart({ dateRange }: { dateRange: DateRange }) {
 }
 
 function WeightChart({ dateRange }: { dateRange: DateRange }) {
-  const { data: pmcData, isLoading, error } = usePMC()
+  const { data: measurements, isLoading, error } = useWeightHistory(dateRange)
   const { data: withingsStatus } = useWithingsStatus()
   const cc = useChartColors()
-
-  const weightPoints = useMemo(() => {
-    if (!pmcData) return []
-    return pmcData.filter((d) => {
-      if (d.weight == null || d.weight <= 0) return false
-      if (dateRange.start_date && d.date < dateRange.start_date) return false
-      if (dateRange.end_date && d.date > dateRange.end_date) return false
-      return true
-    })
-  }, [pmcData, dateRange])
+  const units = useUnits()
+  const imperial = units === 'imperial'
+  const unitLabel = imperial ? 'lbs' : 'kg'
+  const toDisplay = (kg: number) => imperial ? kg * 2.20462 : kg
 
   if (isLoading) return <div className="h-96 flex items-center justify-center text-text-muted animate-pulse italic">Loading weight data...</div>
   if (error) return <div className="h-96 flex items-center justify-center text-red">Error loading weight data</div>
-  if (weightPoints.length === 0) return (
+  if (!measurements || measurements.length === 0) return (
     <div className="h-96 flex flex-col items-center justify-center gap-2 text-text-muted">
       <Scale size={32} className="opacity-30" />
       <p className="text-sm italic">No weight data for this range</p>
@@ -688,9 +683,10 @@ function WeightChart({ dateRange }: { dateRange: DateRange }) {
     </div>
   )
 
-  const minWeight = Math.min(...weightPoints.map((d) => d.weight!))
-  const maxWeight = Math.max(...weightPoints.map((d) => d.weight!))
-  const padding = (maxWeight - minWeight) * 0.1 || 1
+  const displayWeights = measurements.map((d) => toDisplay(d.weight_kg))
+  const minWeight = Math.min(...displayWeights)
+  const maxWeight = Math.max(...displayWeights)
+  const padding = (maxWeight - minWeight) * 0.1 || (imperial ? 2 : 1)
 
   return (
     <div>
@@ -702,17 +698,18 @@ function WeightChart({ dateRange }: { dateRange: DateRange }) {
       <div className="h-80">
         <Line
           data={{
-            labels: weightPoints.map((d) => d.date),
+            labels: measurements.map((d) => d.date),
             datasets: [{
-              label: 'Weight (kg)',
-              data: weightPoints.map((d) => d.weight),
+              label: `Weight (${unitLabel})`,
+              data: displayWeights,
               borderColor: '#00d4aa',
               backgroundColor: 'rgba(0, 212, 170, 0.08)',
               fill: true,
               tension: 0.3,
+              spanGaps: true,
               pointBackgroundColor: '#00d4aa',
-              pointRadius: 2,
-              pointHoverRadius: 5,
+              pointRadius: 3,
+              pointHoverRadius: 6,
             }],
           }}
           options={{
@@ -725,7 +722,7 @@ function WeightChart({ dateRange }: { dateRange: DateRange }) {
                 titleColor: cc.tooltipTitle,
                 bodyColor: cc.tooltipBody,
                 callbacks: {
-                  label: (ctx) => `${(ctx.parsed.y as number).toFixed(1)} kg`,
+                  label: (ctx) => `${(ctx.parsed.y as number).toFixed(1)} ${unitLabel}`,
                 },
               },
             },
@@ -736,8 +733,8 @@ function WeightChart({ dateRange }: { dateRange: DateRange }) {
               },
               y: {
                 grid: { color: 'rgba(148, 163, 184, 0.1)' },
-                ticks: { color: cc.tickColor, callback: (v) => `${v} kg` },
-                title: { display: true, text: 'WEIGHT (KG)', color: cc.tickColor, font: { size: 9, weight: 'bold' } },
+                ticks: { color: cc.tickColor, callback: (v) => `${v} ${unitLabel}` },
+                title: { display: true, text: `WEIGHT (${unitLabel.toUpperCase()})`, color: cc.tickColor, font: { size: 9, weight: 'bold' } },
                 min: Math.floor(minWeight - padding),
                 max: Math.ceil(maxWeight + padding),
               },
