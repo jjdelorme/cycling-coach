@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.8-beta] - 2026-04-10
+
+- fix(deploy): `cloudbuild-test.yaml` — use `jq` to dynamically resolve the stable `test`-tagged Cloud Run URL for `WITHINGS_REDIRECT_URI`; remove hardcoded URL substitution
+
 ## [v1.8.7-beta] - 2026-04-10
 
 - fix(deploy): `cloudbuild-test.yaml` — remove embedded multi-line Python that broke YAML parsing; use stable `_TEST_URL` substitution for Withings redirect URI instead
