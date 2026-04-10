@@ -1,0 +1,125 @@
+"""Unit tests for nutrition tool logic."""
+
+
+def test_estimate_daily_bmr_defaults():
+    """BMR returns 1750 when athlete settings are incomplete."""
+    from server.nutrition.tools import _estimate_daily_bmr
+    # With no DB, this will use defaults (weight_kg=0) -> 1750
+    result = _estimate_daily_bmr()
+    assert result == 1750
+
+
+def test_photo_validation():
+    """Photo module rejects invalid MIME types."""
+    from server.nutrition.photo import ALLOWED_MIME_TYPES
+    assert "image/jpeg" in ALLOWED_MIME_TYPES
+    assert "image/png" in ALLOWED_MIME_TYPES
+    assert "image/webp" in ALLOWED_MIME_TYPES
+    assert "image/gif" not in ALLOWED_MIME_TYPES
+    assert "application/pdf" not in ALLOWED_MIME_TYPES
+
+
+def test_save_meal_validation_calories_zero():
+    """save_meal_analysis rejects zero calories."""
+    from server.nutrition.planning_tools import save_meal_analysis
+    result = save_meal_analysis("test", [{"name": "x"}], 0, 10, 10, 10, "high")
+    assert "error" in result
+
+
+def test_save_meal_validation_calories_too_high():
+    """save_meal_analysis rejects absurdly high calories."""
+    from server.nutrition.planning_tools import save_meal_analysis
+    result = save_meal_analysis("test", [{"name": "x"}], 15000, 10, 10, 10, "high")
+    assert "error" in result
+
+
+def test_save_meal_validation_negative_macros():
+    """save_meal_analysis rejects negative macro values."""
+    from server.nutrition.planning_tools import save_meal_analysis
+    result = save_meal_analysis("test", [{"name": "x"}], 500, -10, 10, 10, "high")
+    assert "error" in result
+
+
+def test_save_meal_validation_invalid_confidence():
+    """save_meal_analysis rejects invalid confidence level."""
+    from server.nutrition.planning_tools import save_meal_analysis
+    result = save_meal_analysis("test", [{"name": "x"}], 500, 10, 10, 10, "unknown")
+    assert "error" in result
+    assert "confidence" in result["error"]
+
+
+def test_save_meal_validation_empty_items():
+    """save_meal_analysis rejects empty items list."""
+    from server.nutrition.planning_tools import save_meal_analysis
+    result = save_meal_analysis("test", [], 500, 10, 10, 10, "high")
+    assert "error" in result
+    assert "items" in result["error"]
+
+
+def test_set_macro_targets_validation():
+    """set_macro_targets rejects invalid input."""
+    from server.nutrition.planning_tools import set_macro_targets
+    result = set_macro_targets(0, 150, 300, 80)
+    assert "error" in result
+    result = set_macro_targets(15000, 150, 300, 80)
+    assert "error" in result
+    result = set_macro_targets(2500, -10, 300, 80)
+    assert "error" in result
+
+
+def test_update_meal_no_values():
+    """update_meal rejects empty updates."""
+    from server.nutrition.planning_tools import update_meal
+    result = update_meal(1)
+    assert "error" in result
+    assert "No values" in result["error"]
+
+
+def test_ask_clarification_returns_question():
+    """ask_clarification echoes the question back."""
+    from server.nutrition.planning_tools import ask_clarification
+    result = ask_clarification("Is that grilled or fried chicken?", "cooking method")
+    assert result["status"] == "clarification_needed"
+    assert "grilled" in result["question"]
+    assert result["context"] == "cooking method"
+
+
+def test_photo_constants():
+    """Photo module constants are set correctly."""
+    from server.nutrition.photo import MAX_IMAGE_SIZE_MB, MAX_IMAGE_DIMENSION
+    assert MAX_IMAGE_SIZE_MB == 10
+    assert MAX_IMAGE_DIMENSION == 1200
+
+
+def test_nutrition_schemas():
+    """Nutrition Pydantic schemas validate correctly."""
+    from server.models.schemas import (
+        MealItem, MealSummary, MacroTargets,
+        NutritionChatRequest, NutritionChatResponse,
+        MealUpdateRequest,
+    )
+
+    # MealItem
+    item = MealItem(name="Chicken", calories=200, protein_g=30, carbs_g=0, fat_g=8)
+    assert item.name == "Chicken"
+    assert item.serving_size is None
+
+    # MacroTargets
+    targets = MacroTargets(calories=2500, protein_g=150, carbs_g=300, fat_g=80)
+    assert targets.calories == 2500
+
+    # NutritionChatRequest
+    req = NutritionChatRequest(message="What should I eat?")
+    assert req.session_id is None
+    assert req.image_data is None
+
+    # MealUpdateRequest
+    update = MealUpdateRequest(total_calories=600)
+    assert update.total_calories == 600
+    assert update.total_protein_g is None
+
+
+def test_agent_app_name():
+    """Nutritionist agent has correct app name."""
+    from server.nutrition.agent import APP_NAME
+    assert APP_NAME == "nutrition-coach"

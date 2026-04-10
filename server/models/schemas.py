@@ -193,3 +193,81 @@ class SessionDetail(BaseModel):
     created_at: str
     updated_at: str
     messages: list[SessionMessage] = []
+
+
+# --- Nutrition Schemas ---
+
+class MealItem(BaseModel):
+    id: Optional[int] = None
+    name: str
+    serving_size: Optional[str] = None
+    calories: int
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+
+
+class MealSummary(BaseModel):
+    id: int
+    date: str
+    logged_at: str
+    meal_type: Optional[str] = None
+    description: str
+    total_calories: int
+    total_protein_g: float
+    total_carbs_g: float
+    total_fat_g: float
+    confidence: str
+    photo_url: Optional[str] = None
+    edited_by_user: bool = False
+
+
+class MealDetail(MealSummary):
+    items: list[MealItem] = []
+    agent_notes: Optional[str] = None
+
+
+class MacroTargets(BaseModel):
+    calories: int
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    updated_at: Optional[str] = None
+
+
+class DailyNutritionSummary(BaseModel):
+    date: str
+    total_calories_in: int
+    total_protein_g: float
+    total_carbs_g: float
+    total_fat_g: float
+    meal_count: int
+    target_calories: int
+    target_protein_g: float
+    target_carbs_g: float
+    target_fat_g: float
+    remaining_calories: int
+    calories_out: dict
+    net_caloric_balance: int
+
+
+class MealUpdateRequest(BaseModel):
+    total_calories: Optional[int] = None
+    total_protein_g: Optional[float] = None
+    total_carbs_g: Optional[float] = None
+    total_fat_g: Optional[float] = None
+    meal_type: Optional[str] = None
+    date: Optional[str] = None
+    items: Optional[list[MealItem]] = None
+
+
+class NutritionChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    image_data: Optional[str] = None
+    image_mime_type: Optional[str] = None
+
+
+class NutritionChatResponse(BaseModel):
+    response: str
+    session_id: str

@@ -27,6 +27,7 @@ import {
   ChevronRight
 } from 'lucide-react'
 import SportIcon from '../components/SportIcon'
+import NutritionDashboardWidget from '../components/NutritionDashboardWidget'
 import { isoWeekToMonday, buildPlannedByMonday } from '../lib/chart-helpers'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
@@ -209,9 +210,10 @@ function SevenDayStrip({ data, today, days: numDays = 7 }: { data: DailySummary[
 interface Props {
   onRideSelect?: (id: number) => void
   onWorkoutSelect?: (id: number, date: string) => void
+  onNavigateToNutrition?: () => void
 }
 
-export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
+export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToNutrition }: Props) {
   const units = useUnits()
   const { data: pmcData, isLoading: pmcLoading } = usePMC()
   const { data: rides, isLoading: ridesLoading } = useRides({ limit: 7 })
@@ -429,6 +431,9 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
             )}
           </div>
         </div>
+
+        {/* Energy Balance Widget */}
+        <NutritionDashboardWidget onNavigateToNutrition={onNavigateToNutrition} />
       </div>
 
       {/* Main Charts */}

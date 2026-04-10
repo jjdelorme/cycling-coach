@@ -253,6 +253,48 @@ ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_hr INTEGER;
 ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS avg_cadence INTEGER;
 ALTER TABLE power_bests ADD COLUMN IF NOT EXISTS start_offset_s INTEGER;
 CREATE INDEX IF NOT EXISTS idx_power_bests_composite ON power_bests(duration_s, date DESC);
+
+CREATE TABLE IF NOT EXISTS macro_targets (
+    user_id TEXT PRIMARY KEY DEFAULT 'athlete',
+    calories INTEGER NOT NULL DEFAULT 2500,
+    protein_g REAL NOT NULL DEFAULT 150,
+    carbs_g REAL NOT NULL DEFAULT 300,
+    fat_g REAL NOT NULL DEFAULT 80,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS meal_logs (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT 'athlete',
+    date TEXT NOT NULL,
+    logged_at TEXT NOT NULL,
+    meal_type TEXT,
+    description TEXT NOT NULL,
+    total_calories INTEGER NOT NULL,
+    total_protein_g REAL NOT NULL,
+    total_carbs_g REAL NOT NULL,
+    total_fat_g REAL NOT NULL,
+    confidence TEXT NOT NULL DEFAULT 'medium',
+    photo_gcs_path TEXT,
+    agent_notes TEXT,
+    edited_by_user BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_meal_logs_date ON meal_logs(date);
+CREATE INDEX IF NOT EXISTS idx_meal_logs_user_date ON meal_logs(user_id, date);
+
+CREATE TABLE IF NOT EXISTS meal_items (
+    id SERIAL PRIMARY KEY,
+    meal_id INTEGER NOT NULL REFERENCES meal_logs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    serving_size TEXT,
+    calories INTEGER NOT NULL,
+    protein_g REAL NOT NULL,
+    carbs_g REAL NOT NULL,
+    fat_g REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_meal_items_meal_id ON meal_items(meal_id);
 """
 
 # ---------------------------------------------------------------------------
@@ -497,6 +539,7 @@ def init_db():
             cur.execute(stmt)
     conn.commit()
     _seed_workout_templates(conn)
+    _seed_macro_targets(conn)
     # Migrations: add sync tracking columns to planned_workouts
     for col, col_type in [("icu_event_id", "INTEGER"), ("sync_hash", "TEXT"), ("synced_at", "TEXT")]:
         try:
@@ -545,6 +588,19 @@ def _seed_workout_templates(conn):
         cur.execute(
             "INSERT INTO workout_templates (key, name, description, category, steps, source) VALUES (%s, %s, %s, %s, %s, %s)",
             (t["key"], t["name"], t["description"], t["category"], json.dumps(t["steps"]), "built-in"),
+        )
+    conn.commit()
+    cur.close()
+
+
+def _seed_macro_targets(conn):
+    """Insert default macro targets if table is empty."""
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM macro_targets")
+    if cur.fetchone()[0] == 0:
+        cur.execute(
+            "INSERT INTO macro_targets (user_id, calories, protein_g, carbs_g, fat_g, updated_at) "
+            "VALUES ('athlete', 2500, 150, 300, 80, CURRENT_TIMESTAMP)"
         )
     conn.commit()
     cur.close()
