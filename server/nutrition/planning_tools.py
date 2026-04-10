@@ -107,9 +107,9 @@ def save_meal_analysis(
 def update_meal(
     meal_id: int,
     total_calories: int = 0,
-    total_protein_g: float = 0,
-    total_carbs_g: float = 0,
-    total_fat_g: float = 0,
+    total_protein_g: float = 0.0,
+    total_carbs_g: float = 0.0,
+    total_fat_g: float = 0.0,
     meal_type: str = "",
 ) -> dict:
     """Update macro values on an existing meal (user corrections).
