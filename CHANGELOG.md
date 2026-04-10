@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.15-beta] - 2026-04-10
+
+- fix(nutrition): serve meal photos via API proxy (`/api/nutrition/photos/{id}`) instead of GCS signed URLs — eliminates signBlob permission issues and URL expiry on Cloud Run
+
 ## [v1.8.14-beta] - 2026-04-10
 
 - fix(nutrition): use IAM `signBlob` for meal photo signed URLs on Cloud Run — compute engine credentials lack a private key, so `generate_signed_url` now delegates signing via the IAM API
