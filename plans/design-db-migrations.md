@@ -240,18 +240,18 @@ All subsequent migrations (0002+) represent changes made after the baseline.
 
 ---
 
-## Open Questions
+## Decisions
 
-1. **Should `migrate.py` run at startup or only in Cloud Build?** Running at startup is safe but adds latency on every cold start (even if no migrations are pending — it still queries `schema_migrations`). Cloud Build-only is cleaner for production but requires a separate invocation for local dev.
+1. **`migrate.py` runs only in Cloud Build — not at startup.** Removes startup latency entirely. For local dev, developers run `python -m server.migrate` manually when pulling branches with new migration files. The Cloud Build pipeline applies migrations as a pre-deploy step before routing traffic.
 
-2. **Baseline from prod or from `_SCHEMA`?** `pg_dump` from prod is authoritative but may include data-specific artifacts. Using `_SCHEMA` + migration replay is reproducible from scratch but requires careful ordering.
+2. **Baseline from `_SCHEMA`, not `pg_dump`.** Deriving `0001_baseline.sql` from the existing `_SCHEMA` blob makes the schema reproducible from scratch and allows replaying migrations to any point in time. A prod dump is environment-specific and not suitable as a canonical baseline.
 
-3. **How do integration tests get the schema?** Currently `init_db()` is called by the test fixture. With numbered migrations, the test fixture should call `run_migrations(conn)` instead — but the baseline SQL must be fast to apply (it will run on every test suite invocation).
+3. **Test fixture calls `run_migrations()` (idempotent).** `tests/integration/conftest.py` replaces its `init_db()` call with `run_migrations(conn)`. Since every migration is guarded by `schema_migrations` tracking, this is safe to call on every test suite invocation against the disposable test container.
 
-4. **Seed data:** Should seed data live in `migrations/` (e.g., `0001_baseline_seed.sql`) or remain in Python? Keeping it in Python (`_seed_workout_templates`) is simpler since it has conditional logic (skip if already seeded).
+4. **Seed data lives in the baseline migration.** `_seed_workout_templates` and `_seed_macro_targets` are only needed in new dev environments and integration tests. Seed inserts belong in `migrations/0001_baseline.sql` as `INSERT ... ON CONFLICT DO NOTHING` statements, removing the Python seeding functions entirely.
 
-5. **Modified migration detection:** If `checksum` is stored, what happens when a developer edits an already-applied migration file? The runner should warn (not fail) — the change is ignored but logged. Enforcing immutability of applied migrations requires team discipline, not tooling.
+5. **The `/release` skill is updated to be migration-aware.** The skill gains a pre-tag check: if any `migrations/*.sql` files are new or modified and not yet committed, the release is blocked until they are staged. For prod releases, the skill notes that Cloud Build applies pending migrations automatically before traffic shifts. See `.claude/commands/release.md`.
 
-6. **Rollback strategy:** No downgrade support is planned. Rollback = write a new forward migration that reverses the change. This is the standard approach for `IF NOT EXISTS`-style migrations where the schema is always additive.
+6. **Rollback is roll-forward only.** No downgrade support. To revert a schema change, write a new forward migration that reverses it. Acceptable trade-off given the additive nature of schema changes so far.
 
-7. **`plans/bug-fix-integration-test-failures.md`:** The existing bug fix plan references `init_db()` as a known test fixture dependency. The migration refactor must keep the test fixture working — update `conftest.py` to call `run_migrations()` after the schema is replaced.
+7. **`plans/bug-fix-integration-test-failures.md` deleted.** Dated and irrelevant; removed from the repo.
