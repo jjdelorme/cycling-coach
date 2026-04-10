@@ -50,7 +50,7 @@ steps:
           --revision-suffix "$${REVISION_SUFFIX}" \
           --allow-unauthenticated \
           --set-secrets "CYCLING_COACH_DATABASE_URL=CYCLING_COACH_DATABASE_URL:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,JWT_SECRET=JWT_SECRET:latest,WITHINGS_CLIENT_ID=WITHINGS_CLIENT_ID:latest,WITHINGS_CLIENT_SECRET=WITHINGS_CLIENT_SECRET:latest" \
-          --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL},WITHINGS_REDIRECT_URI=$${SERVICE_URL}/api/withings/callback"
+          --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL}"
 
 substitutions:
   _SERVICE_NAME: cycling-coach

@@ -10,13 +10,16 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/withings", tags=["withings"])
 
 
-def _webhook_url_from_request(request: Request) -> str:
-    """Derive the public webhook URL from the incoming request base URL."""
-    from server.config import WITHINGS_REDIRECT_URI
-    # In production the redirect URI is the public Cloud Run URL; swap /callback → /webhook.
-    # In local dev this won't be reachable by Withings, but we still register it so
-    # the subscription is in place when deployed.
-    return WITHINGS_REDIRECT_URI.replace("/callback", "/webhook")
+def _public_base_url(request: Request) -> str:
+    """Derive the public-facing base URL from request headers.
+
+    Cloud Run terminates TLS and sets X-Forwarded-Proto to 'https'.
+    The Host header reflects the actual hostname the client used, including
+    Cloud Run tagged URLs (e.g. test---cycling-coach-xxxx-uc.a.run.app).
+    """
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host", request.url.netloc)
+    return f"{scheme}://{host}"
 
 
 @router.get("/status")
@@ -25,14 +28,14 @@ async def status(user: CurrentUser = Depends(require_read)):
 
 
 @router.get("/auth-url")
-async def auth_url(user: CurrentUser = Depends(require_write)):
+async def auth_url(request: Request, user: CurrentUser = Depends(require_write)):
     if not svc.is_configured():
         raise HTTPException(
             status_code=400,
             detail="Withings not configured. Set WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET.",
         )
-    from server.config import WITHINGS_REDIRECT_URI
-    url = svc.get_auth_url(WITHINGS_REDIRECT_URI)
+    redirect_uri = f"{_public_base_url(request)}/api/withings/callback"
+    url = svc.get_auth_url(redirect_uri)
     return {"url": url}
 
 
@@ -51,8 +54,8 @@ async def callback(
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
 
-    from server.config import WITHINGS_REDIRECT_URI
-    result = svc.exchange_code(code, state, WITHINGS_REDIRECT_URI)
+    redirect_uri = f"{_public_base_url(request)}/api/withings/callback"
+    result = svc.exchange_code(code, state, redirect_uri)
     if result["status"] == "error":
         logger.error("withings_exchange_failed", message=result.get("message"))
         return HTMLResponse(
@@ -60,7 +63,7 @@ async def callback(
         )
 
     # Subscribe to push notifications so Withings calls us when new data arrives.
-    webhook_url = _webhook_url_from_request(request)
+    webhook_url = f"{_public_base_url(request)}/api/withings/webhook"
     svc.subscribe_notifications(webhook_url)
 
     return HTMLResponse(

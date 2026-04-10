@@ -40,10 +40,6 @@ steps:
           --region ${_REGION} \
           --format 'value(status.url)' 2>/dev/null || echo '')
 
-        TEST_URL="$$(echo "$${SERVICE_URL}" | sed 's|https://|https://test---|')"
-
-        WITHINGS_REDIRECT="$${TEST_URL}/api/withings/callback"
-
         REVISION_SUFFIX="v$$(cat /workspace/VERSION | tr '.' '-')"
 
         gcloud run deploy ${_SERVICE_NAME} \
@@ -54,7 +50,7 @@ steps:
           --no-traffic \
           --allow-unauthenticated \
           --set-secrets "CYCLING_COACH_DATABASE_URL=CYCLING_COACH_DATABASE_URL:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,JWT_SECRET=JWT_SECRET:latest,WITHINGS_CLIENT_ID=WITHINGS_CLIENT_ID:latest,WITHINGS_CLIENT_SECRET=WITHINGS_CLIENT_SECRET:latest" \
-          --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL},WITHINGS_REDIRECT_URI=$${WITHINGS_REDIRECT}"
+          --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL}"
 
         echo ""
         echo "================================================================"

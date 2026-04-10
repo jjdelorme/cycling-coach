@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.10-beta] - 2026-04-10
+
+- fix(withings): derive OAuth redirect URI from incoming request headers (`x-forwarded-proto` + `host`) instead of a static env var — works correctly for any Cloud Run URL including tagged test deployments
+- fix(withings): webhook subscription URL now also derived from the request instead of config
+- chore(deploy): remove `WITHINGS_REDIRECT_URI` env var from both cloudbuild files (no longer needed)
+
 ## [v1.8.9-beta] - 2026-04-10
 
 - fix(deploy): derive `test---` Cloud Run URL from production URL via `sed` — simpler and more reliable than `jq` traffic array lookup
