@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.4-beta] - 2026-04-10
+
+- feat(weight): add `server/services/weight.py` — single source of truth for athlete weight with Withings-priority chain (body_measurements → rides → athlete_settings → 75 kg default)
+- feat(weight): Withings sync and webhook now push each measurement to Intervals.icu wellness endpoint; ICU failure never breaks the Withings sync
+- fix(weight): FTP history W/kg used `MAX(weight)` per month — changed to `AVG(weight)` for a representative monthly figure
+- feat(settings): weight field shows "Managed by Withings" and is disabled when Withings is connected with measurements (prevents conflicting manual overrides)
+- refactor(weight): coaching agent, coaching tools, nutrition agent, nutrition BMR, and ride ingest all route through the weight resolver instead of reading `athlete_settings` directly
+- test: 16 new/updated unit tests — 8 for weight service priority chain, 8 for Withings→ICU push and failure isolation
+
 ## [v1.8.3] - 2026-04-10
 
 - fix(tests): 7 integration test bug fixes (weight_kg alias, structlog event key, READ COMMITTED cross-connection visibility, float("") crash on empty HR/age defaults, mock patch namespace, ASGI middleware contextvars)
