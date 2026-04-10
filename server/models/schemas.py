@@ -108,6 +108,17 @@ class WeeklySummary(BaseModel):
     best_20min: Optional[int] = None
 
 
+class DailySummary(BaseModel):
+    date: str
+    rides: int = 0
+    duration_s: float = 0
+    tss: float = 0
+    total_calories: int = 0
+    distance_m: float = 0
+    ascent_m: int = 0
+    avg_power: Optional[int] = None
+
+
 class MonthlySummary(BaseModel):
     month: str
     rides: int = 0

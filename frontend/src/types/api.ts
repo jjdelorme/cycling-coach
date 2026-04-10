@@ -102,6 +102,17 @@ export interface WeeklySummary {
   best_20min?: number
 }
 
+export interface DailySummary {
+  date: string
+  rides: number
+  duration_s: number
+  tss: number
+  total_calories: number
+  distance_m: number
+  ascent_m: number
+  avg_power?: number
+}
+
 export interface PlannedWorkout {
   id: number
   date?: string

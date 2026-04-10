@@ -59,23 +59,30 @@ def test_get_trace_id_returns_otel_trace_id_during_request():
     import os
     os.environ["TESTING"] = "true"
 
+    from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from server.main import app
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from server.main import OTelTraceBridge
     from server.logging_config import get_trace_id
     from server.telemetry import get_test_exporter
 
     captured = {}
 
-    # Add a test route that reads the trace_id from context
-    @app.get("/api/test-trace-id")
-    def _test_endpoint():
-        captured["trace_id"] = get_trace_id()
-        return {"trace_id": captured["trace_id"]}
+    # Use a standalone minimal app so the SPA catch-all in server.main (only
+    # present when frontend/dist exists) cannot shadow our probe route.
+    probe_app = FastAPI()
+    probe_app.add_middleware(OTelTraceBridge)
+    FastAPIInstrumentor.instrument_app(probe_app)
 
-    client = TestClient(app)
+    @probe_app.get("/probe")
+    def _probe():
+        captured["trace_id"] = get_trace_id()
+        return {"ok": True}
+
+    client = TestClient(probe_app)
     get_test_exporter().clear()
 
-    client.get("/api/test-trace-id")
+    client.get("/probe")
 
     finished = get_test_exporter().get_finished_spans()
     otel_trace_ids = {format(s.get_span_context().trace_id, "032x") for s in finished}

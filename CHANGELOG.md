@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.3-beta] - 2026-04-09
+
+- fix(tests): 7 integration test bug fixes (weight_kg alias, structlog event key, READ COMMITTED cross-connection visibility, float("") crash on empty HR/age defaults, mock patch namespace, ASGI middleware contextvars)
+- fix(tests): harden all planning tool tests for persistent DB (pre-clean DELETE+commit before inserts, has_power_data=TRUE filter for power ride lookups)
+- fix(tests): OTel trace ID test now uses standalone probe app — immune to SPA catch-all shadowing when frontend/dist is present
+- test: 75 Playwright E2E tests covering health, dashboard, rides, calendar, analysis, settings, and navigation
+- test: `scripts/run_integration_tests.sh --use-svc-pgdb` runs integration suite against shared k8s svc-pgdb (no Podman required)
+- test: `scripts/seed_svc_pgdb.sh` seeds svc-pgdb with schema + historical data + synthetic recent rows (inline, no committed file mutations)
+
+## [v1.8.2-beta] - 2026-04-09
+
+- feat(dashboard): rolling 7-day multi-axis line chart with toggleable metrics (TSS, Hours, Kcal, Distance, Climbing, Avg W), each with its own Y-axis; default: TSS + Hours + Kcal
+- feat(api): `GET /api/rides/summary/daily` endpoint with weighted-average power aggregation across multiple rides per day
+- test: 9 unit tests for `aggregate_daily_rides`
+
+## [v1.8.1-beta] - 2026-04-09
+
+- feat(ui): display calories on ride detail and calendar preview (combined Avg Power + NP into stacked card, replaced NP with Calories in calendar mini preview)
+- feat(ui): rolling 7-day multi-axis line chart on dashboard with toggleable metrics (TSS, Hours, Kcal, Miles, Climbing, Avg W)
+- feat(api): `GET /api/rides/summary/daily` endpoint with weighted-average power aggregation
+- test: 9 unit tests for `aggregate_daily_rides` pure function
+
 ## [v1.7.11-beta] - 2026-04-08
 
 - fix(ci): push branch and tag atomically so Cloud Build workspace includes the tag and `git describe` resolves the correct version

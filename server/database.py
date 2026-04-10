@@ -430,12 +430,12 @@ def get_all_settings() -> dict:
 # ---------------------------------------------------------------------------
 
 ATHLETE_SETTINGS_DEFAULTS = {
-    "lthr": "",             # Lactate threshold HR (bpm)
-    "max_hr": "",           # Max heart rate (bpm)
-    "resting_hr": "",       # Resting heart rate (bpm)
+    "lthr": "0",            # Lactate threshold HR (bpm)
+    "max_hr": "0",          # Max heart rate (bpm)
+    "resting_hr": "0",      # Resting heart rate (bpm)
     "ftp": "0",             # Functional threshold power (watts)
     "weight_kg": "0",       # Weight in kg
-    "age": "",              # Age
+    "age": "0",             # Age
     "gender": "",           # Gender (for hrTSS scaling)
 }
 

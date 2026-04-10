@@ -37,7 +37,7 @@ def test_slow_query_logs_warning(db_conn):
         db.execute("SELECT 1")
         mock_logger.warning.assert_called_once()
         args = mock_logger.warning.call_args[0]
-        assert "Slow query" in args[0]
+        assert args[0] == "slow_query"
 
 
 def test_fast_query_no_warning(db_conn):

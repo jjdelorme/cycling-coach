@@ -124,7 +124,7 @@ async def test_background_sync_uses_existing_id(isolated_test_workout):
     mock_push_result = {"status": "success", "event_id": 88888}
 
     with patch("server.services.sync.is_configured", return_value=True), \
-         patch("server.services.intervals_icu.fetch_calendar_events", return_value=mock_events), \
+         patch("server.services.sync.fetch_calendar_events", return_value=mock_events), \
          patch("server.services.sync.push_workout", return_value=mock_push_result) as mock_push, \
          patch("server.services.sync.find_matching_workout", wraps=find_matching_workout):
 

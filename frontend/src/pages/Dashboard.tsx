@@ -10,25 +10,201 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Bar } from 'react-chartjs-2'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { usePMC, useRides, useWeeklySummary } from '../hooks/useApi'
+import { usePMC, useRides, useWeeklySummary, useDailySummary } from '../hooks/useApi'
+import type { DailySummary } from '../types/api'
 import { fetchWeekPlan } from '../lib/api'
 import { fmtDuration, fmtDistance, fmtWeight, fmtSport } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
-import { 
-  TrendingUp, 
-  Zap, 
-  Activity, 
-  Weight, 
-  Calendar, 
+import {
+  TrendingUp,
+  Zap,
+  Activity,
+  Weight,
+  Calendar,
   ChevronRight
 } from 'lucide-react'
 import SportIcon from '../components/SportIcon'
 import { isoWeekToMonday, buildPlannedByMonday } from '../lib/chart-helpers'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+type MetricKey = 'tss' | 'hours' | 'calories' | 'distance' | 'ascent' | 'power'
+
+interface MetricDef {
+  key: MetricKey
+  label: string
+  color: string
+  yAxisID: string
+  fmt: (v: number, imperial: boolean) => string
+  getValue: (s: DailySummary, imperial: boolean) => number | null
+}
+
+const METRICS: MetricDef[] = [
+  {
+    key: 'tss', label: 'TSS', color: 'rgb(233,69,96)', yAxisID: 'y_tss',
+    fmt: (v) => `${Math.round(v)}`,
+    getValue: (s) => s.tss > 0 ? Math.round(s.tss) : null,
+  },
+  {
+    key: 'hours', label: 'Hours', color: 'rgb(74,158,255)', yAxisID: 'y_hrs',
+    fmt: (v) => `${v.toFixed(1)}h`,
+    getValue: (s) => s.duration_s > 0 ? parseFloat((s.duration_s / 3600).toFixed(2)) : null,
+  },
+  {
+    key: 'calories', label: 'Kcal', color: 'rgb(251,146,60)', yAxisID: 'y_cal',
+    fmt: (v) => v.toLocaleString(),
+    getValue: (s) => s.total_calories > 0 ? s.total_calories : null,
+  },
+  {
+    key: 'distance', label: 'Miles', color: 'rgb(0,212,170)', yAxisID: 'y_dist',
+    fmt: (v, imp) => `${v.toFixed(1)}${imp ? 'mi' : 'km'}`,
+    getValue: (s, imp) => s.distance_m > 0 ? parseFloat((s.distance_m / (imp ? 1609.34 : 1000)).toFixed(2)) : null,
+  },
+  {
+    key: 'ascent', label: 'Climbing', color: 'rgb(234,179,8)', yAxisID: 'y_asc',
+    fmt: (v, imp) => `${Math.round(v)}${imp ? 'ft' : 'm'}`,
+    getValue: (s, imp) => s.ascent_m > 0 ? Math.round(s.ascent_m * (imp ? 3.28084 : 1)) : null,
+  },
+  {
+    key: 'power', label: 'Avg W', color: 'rgb(167,139,250)', yAxisID: 'y_pwr',
+    fmt: (v) => `${Math.round(v)}w`,
+    getValue: (s) => s.avg_power ?? null,
+  },
+]
+
+function SevenDayStrip({ data, today, days: numDays = 7 }: { data: DailySummary[]; today: string; days?: number }) {
+  const cc = useChartColors()
+  const units = useUnits()
+  const imperial = units === 'imperial'
+  const [active, setActive] = useState<Set<MetricKey>>(new Set(['tss', 'hours', 'calories']))
+
+  const byDate = new Map(data.map((d) => [d.date, d]))
+  const dates: string[] = []
+  for (let i = numDays - 1; i >= 0; i--) {
+    const d = new Date(today + 'T00:00:00')
+    d.setDate(d.getDate() - i)
+    dates.push(d.toISOString().slice(0, 10))
+  }
+
+  const entries = dates.map((date) => ({ date, summary: byDate.get(date) ?? null }))
+  const todayIdx = entries.findIndex((e) => e.date === today)
+  const labels = entries.map((e) => {
+    const d = new Date(e.date + 'T00:00:00')
+    return `${DAY_LABELS[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`
+  })
+
+  const pointRadii = entries.map((_, i) => (i === todayIdx ? 5 : 3))
+
+  // Build one Y-axis per metric (all hidden except left/right for first two active)
+  const activeList = METRICS.filter((m) => active.has(m.key))
+  const scales: Record<string, object> = {
+    x: {
+      ticks: { color: cc.tickColor, font: { size: 10 }, maxTicksLimit: 7 },
+      grid: { display: false },
+    },
+  }
+  METRICS.forEach((m) => {
+    const isFirst = activeList[0]?.key === m.key
+    const isSecond = activeList[1]?.key === m.key
+    scales[m.yAxisID] = {
+      position: isSecond ? 'right' : 'left',
+      display: isFirst || isSecond,
+      beginAtZero: true,
+      ticks: {
+        color: isFirst ? activeList[0].color : isSecond ? activeList[1].color : cc.tickColor,
+        font: { size: 9 },
+        maxTicksLimit: 5,
+      },
+      grid: isFirst
+        ? { color: 'rgba(148, 163, 184, 0.08)' }
+        : { drawOnChartArea: false },
+    }
+  })
+
+  const datasets = METRICS.filter((m) => active.has(m.key)).map((m) => ({
+    label: m.label,
+    yAxisID: m.yAxisID,
+    data: entries.map((e) => (e.summary ? m.getValue(e.summary, imperial) : null)),
+    borderColor: m.color,
+    backgroundColor: m.color.replace('rgb(', 'rgba(').replace(')', ', 0.06)'),
+    fill: false,
+    spanGaps: false,
+    tension: 0.3,
+    borderWidth: 2,
+    pointRadius: pointRadii,
+    pointBackgroundColor: entries.map((_, i) => (i === todayIdx ? '#4a9eff' : m.color)),
+    pointHoverRadius: 6,
+  }))
+
+  const chartData = { labels, datasets }
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: cc.tooltipBg,
+        titleColor: cc.tooltipTitle,
+        bodyColor: cc.tooltipBody,
+        borderColor: cc.tooltipBorder,
+        borderWidth: 1,
+        callbacks: {
+          label: (ctx: any) => {
+            const m = METRICS.find((m) => m.label === ctx.dataset.label)
+            const v = ctx.parsed.y
+            return v !== null ? `${ctx.dataset.label}: ${m ? m.fmt(v, imperial) : v}` : ''
+          },
+        },
+      },
+    },
+    scales,
+  }
+
+  const toggle = (key: MetricKey) => {
+    setActive((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) { if (next.size > 1) next.delete(key) }
+      else next.add(key)
+      return next
+    })
+  }
+
+  return (
+    <div className="bg-surface rounded-xl border border-border p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-bold text-text uppercase tracking-wider">Last 7 Days</h2>
+        <div className="flex flex-wrap gap-2">
+          {METRICS.map((m) => {
+            const on = active.has(m.key)
+            return (
+              <button
+                key={m.key}
+                onClick={() => toggle(m.key)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest border transition-all"
+                style={on
+                  ? { borderColor: m.color, color: m.color, background: m.color.replace('rgb(', 'rgba(').replace(')', ', 0.12)') }
+                  : { borderColor: 'rgba(148,163,184,0.2)', color: 'rgba(148,163,184,0.5)', background: 'transparent' }
+                }
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: on ? m.color : 'rgba(148,163,184,0.3)' }} />
+                {m.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div style={{ height: '220px' }}>
+        <Line data={chartData} options={chartOptions as any} />
+      </div>
+    </div>
+  )
+}
 
 interface Props {
   onRideSelect?: (id: number) => void
@@ -40,6 +216,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
   const { data: pmcData, isLoading: pmcLoading } = usePMC()
   const { data: rides, isLoading: ridesLoading } = useRides({ limit: 7 })
   const { data: weekly, isLoading: weeklyLoading } = useWeeklySummary()
+  const { data: dailyData } = useDailySummary(7)
   const cc = useChartColors()
 
   // Compute Monday dates for this week + next 3
@@ -154,6 +331,9 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
           </div>
         ))}
       </div>
+
+      {/* 7-day strip */}
+      <SevenDayStrip data={dailyData ?? []} today={today} days={7} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Next Workout */}
