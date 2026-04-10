@@ -1,47 +1,51 @@
-# 🗺️ Master Roadmap
+# Master Roadmap
 
 This document serves as the top-level view of all active, planned, and completed Strategic Campaigns. 
 
 > **Rule:** Do NOT track individual tasks here. Detailed task breakdowns and micro-steps belong in the specific Campaign Plan files.
 
-## 🚀 Active Campaigns
+## Active Campaigns
 
 ### Campaign: v1.5.2 Data Science & Dashboard Overhaul
-**Status:** 🟡 Planning
-**Goal:** Upgrade the platform from simple data ingestion to a sophisticated "Data Science & Coaching" engine. This release addresses critical data quality issues (power anomalies, sensor failures), implements dynamic athlete state management (Weight/FTP), and restores the "Actual vs. Planned" visual context to the dashboard.
+**Status:** Mostly Complete
 **Tracking Plan:** `plans/v1.5.2-roadmap.md`
 
 #### Campaigns
 - [x] **Campaign 1: Foundations & Metric Integrity** (`plans/v1.5.2-01-foundations-metrics.md`)
-  - *Status:* Completed ✅
-  - *Goal:* DB Schema updates, data science tooling (numpy, scipy), and unified source-of-truth metrics.
 - [x] **Campaign 2: Sophisticated Ingestion Engine** (`plans/v1.5.2-02-ingestion-engine.md`)
-  - *Status:* Completed ✅
-  - *Goal:* Statistical outlier removal (Z-score), physiological HR cleaning, and robust handling of sensor errors.
 - [x] **Campaign 3: Dynamic Agent Intelligence** (`plans/v1.5.2-03-agent-intelligence.md`)
-  - *Status:* Completed ✅
-  - *Goal:* Tool-based metric retrieval and dynamic prompt injection to ensure the AI uses live DB state.
 - [x] **Campaign 4: Enhanced Analysis API** (`plans/v1.5.2-04-analysis-api.md`)
-  - *Status:* Completed ✅
-  - *Goal:* Delivery of Aggregated Power Curves, Time-in-Zones, and Efficiency Trends APIs.
 - [ ] **Campaign 5: Dashboard & UI Restoration** (`plans/v1.5.2-05-dashboard-restoration.md`)
-  - *Status:* Planned
-  - *Goal:* Weekly Volume Chart (Actual vs Planned) overlay, 3-week projections, and friendly sport names.
 - [x] **Campaign 6: Sync Recalculation** (`plans/v1.5.2-06-sync-recalculation.md`)
-  - *Status:* Completed ✅
-  - *Goal:* Unify the metric calculation pipeline for Intervals.icu synced rides to ensure power bests and metrics are consistent with JSON imports.
 - [x] **Campaign 7: Intervals.icu Bi-directional Sync** (`plans/v1.5.2-07-intervals-integration.md`)
-  - *Status:* Completed ✅
-  - *Goal:* Implement write-back capabilities for FTP, Weight, and Workouts to Intervals.icu, and resolve duplicate workout issues.
-
 - [x] **Campaign 8: Delete Ride Feature** (`plans/feat_delete_ride.md`)
-  - *Status:* Completed ✅
-  - *Goal:* Full-stack capability to hard-delete rides and cascade DB deletions while recalculating PMC logic.
-
 - [x] **Campaign 9: UI Maintenance & Infrastructure** (`plans/v1.5.2-09-ui-maintenance.md`)
-- *Status:* Completed ✅
-  - *Goal:* Distinct calendar hover/selection color, dev build version string, and UI version footer.
-
 - [ ] **Campaign 10: Frontend Testing Infrastructure** (`plans/feat_frontend_unit_tests.md`)
-  - *Status:* Planned
-  - *Goal:* Establish comprehensive unit and integration testing suite for React frontend to prevent regressions.
+
+---
+
+### Campaign: Macro Tracker v1.9.x — Core Meal Logging
+
+**Status:** In Progress
+**Goal:** Add meal photo logging, AI-powered macronutrient estimation, and a dedicated Nutritionist agent. Users snap a photo, the Nutritionist agent analyzes it via Gemini multimodal vision, and structured macro data is persisted alongside the photo.
+
+#### Design Docs
+- `plans/macro-tracker-design.md` — master spec with v1/v2 scope split
+- `plans/design-ux-ui.md` — UX/UI
+- `plans/design-ai-integration.md` — AI architecture
+- `plans/design-backend.md` — backend architecture
+
+#### Implementation Plans
+- `plans/impl_backend_v1.md` — backend engineer's single source of truth
+- `plans/impl_frontend_v1.md` — frontend engineer's single source of truth
+
+#### Sub-campaigns
+- [ ] **Campaign 1: Macro Tracker v1 — Core Logging**
+  - *Status:* In Progress
+  - *Scope:* DB schema (3 new tables), GCS photo upload, Nutritionist ADK agent, `/api/nutrition` REST API, Nutrition tab + page, MacroCard, MealTimeline, DailySummaryStrip, Nutritionist chat tab in CoachPanel, meal CRUD, React Query hooks, tests
+- [ ] **Campaign 2: Macro Tracker v2 — Intelligence Layer**
+  - *Status:* Planned (deferred)
+  - *Scope:* AgentTool wiring (Coach→Nutritionist for complex fueling reasoning), Dashboard energy balance widget with sparkline, weekly summary stacked bar chart, rate limiting on photo analysis, voice notes (audio Part to Gemini), swipe gestures
+- [ ] **Campaign 3: Macro Tracker v3 — Offline Support**
+  - *Status:* Planned (deferred)
+  - *Scope:* IndexedDB meal queuing, retry on connectivity, CloudOff indicator on pending meals, background sync for photos, offline macro entry without AI analysis
