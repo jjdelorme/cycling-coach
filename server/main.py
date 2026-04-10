@@ -28,7 +28,6 @@ configure_logging()
 logger = get_logger(__name__)
 
 from server.routers import rides, pmc, analysis, planning, coaching, sync, athlete, admin, nutrition, withings as withings_router
-from server.database import init_db
 
 
 def _read_version() -> str:
@@ -55,7 +54,6 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("JWT_SECRET is required when GOOGLE_AUTH_ENABLED=true. "
                            "Set it via environment variable or Secret Manager.")
     logger.info("Starting cycling-coach", version=APP_VERSION)
-    init_db()
     yield
     logger.info("Shutting down cycling-coach")
     telemetry_shutdown()

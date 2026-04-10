@@ -17,13 +17,12 @@ def cmd_ingest(args):
 def cmd_mint_token(args):
     from server.config import JWT_SECRET
     from server.auth import create_api_token
-    from server.database import get_db, init_db
+    from server.database import get_db
 
     if not JWT_SECRET:
         print("Error: JWT_SECRET not set.", file=sys.stderr)
         sys.exit(1)
 
-    init_db()
     with get_db() as conn:
         row = conn.execute(
             "SELECT email, display_name, role FROM users WHERE email = %s",
