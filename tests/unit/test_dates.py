@@ -4,6 +4,10 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+from starlette.testclient import TestClient
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from server.utils.dates import _request_tz, get_request_tz, set_request_tz, user_today
 
@@ -85,3 +89,32 @@ def test_set_and_get_request_tz_roundtrip():
     ctx = copy_context()
     result = ctx.run(_run)
     assert result == ZoneInfo("Europe/London")
+
+
+def test_asgi_middleware_propagates_contextvar():
+    """ClientTimezoneMiddleware (raw ASGI) must propagate ContextVar to route handlers."""
+    from server.main import ClientTimezoneMiddleware
+
+    async def tz_endpoint(request):
+        tz = get_request_tz()
+        return JSONResponse({"tz": str(tz)})
+
+    app = Starlette(routes=[Route("/tz", tz_endpoint)])
+    app = ClientTimezoneMiddleware(app)
+
+    client = TestClient(app)
+
+    # With explicit timezone header
+    resp = client.get("/tz", headers={"X-Client-Timezone": "America/Chicago"})
+    assert resp.status_code == 200
+    assert resp.json()["tz"] == "America/Chicago"
+
+    # Without header — should default to UTC
+    resp = client.get("/tz")
+    assert resp.status_code == 200
+    assert resp.json()["tz"] == "UTC"
+
+    # With invalid timezone — should fall back to UTC
+    resp = client.get("/tz", headers={"X-Client-Timezone": "Not/A/Timezone"})
+    assert resp.status_code == 200
+    assert resp.json()["tz"] == "UTC"

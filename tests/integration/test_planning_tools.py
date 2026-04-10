@@ -155,7 +155,7 @@ def test_adjust_phase_not_found():
 def test_get_week_summary():
     from server.coaching.planning_tools import get_week_summary
 
-    result = get_week_summary("2026-03-16")
+    result = get_week_summary("2026-03-09")
     assert "planned_workouts" in result
     assert "actual_rides" in result
     assert result["rides_count"] > 0  # Should have rides in this week

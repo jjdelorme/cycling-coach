@@ -176,27 +176,45 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class ClientTimezoneMiddleware(BaseHTTPMiddleware):
-    """Extract X-Client-Timezone header; set ContextVar and request.state.
+class ClientTimezoneMiddleware:
+    """Extract X-Client-Timezone header; set ContextVar for the request.
+
+    Implemented as raw ASGI middleware (not BaseHTTPMiddleware) so that
+    set_request_tz() runs in the same contextvars context as the route handler.
+    BaseHTTPMiddleware.call_next() spawns a new anyio task group with a fresh
+    context, causing the ContextVar set here to be invisible to the route.
 
     Stores the validated IANA timezone in two places:
-    - request.state.client_tz_str  (for FastAPI dependency injection via get_client_tz)
+    - scope["state"]["client_tz_str"]  (for FastAPI dependency injection via get_client_tz)
     - server.utils.dates._request_tz ContextVar (for user_today() calls anywhere in the
       request path, including the coaching agent and planning tools)
     """
 
-    async def dispatch(self, request: Request, call_next):
+    def __init__(self, app):
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self._app(scope, receive, send)
+            return
+
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         from server.utils.dates import set_request_tz
-        tz_name = request.headers.get("X-Client-Timezone", "UTC")
+
+        # Extract timezone from headers
+        headers = dict(scope.get("headers", []))
+        tz_name = (headers.get(b"x-client-timezone", b"UTC")).decode("utf-8", errors="replace")
         try:
             tz = ZoneInfo(tz_name)
         except (ZoneInfoNotFoundError, KeyError):
             tz_name = "UTC"
             tz = ZoneInfo("UTC")
-        request.state.client_tz_str = tz_name
+
+        # Store in scope state (accessible via request.state in FastAPI)
+        scope.setdefault("state", {})["client_tz_str"] = tz_name
         set_request_tz(tz)
-        return await call_next(request)
+
+        await self._app(scope, receive, send)
 
 
 app.add_middleware(RequestLoggingMiddleware)

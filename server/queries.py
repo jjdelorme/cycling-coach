@@ -40,7 +40,7 @@ def get_current_ftp(conn) -> int:
         return val
 
     row = conn.execute(
-        "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY start_time DESC LIMIT 1"
     ).fetchone()
     return row["ftp"] if row else 0
 
@@ -90,17 +90,17 @@ def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | No
 
 def get_ftp_history_rows(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Get FTP progression by month from daily_metrics."""
-    query = """SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as ftp, MAX(weight) as weight_kg
+    query = """SELECT TO_CHAR(date, 'YYYY-MM') as month, MAX(ftp) as ftp, MAX(weight) as weight_kg
                FROM daily_metrics
                WHERE ftp > 0"""
     params = []
     if start_date:
-        query += " AND date >= %s"
+        query += " AND date >= %s::DATE"
         params.append(start_date)
     if end_date:
-        query += " AND date <= %s"
+        query += " AND date <= %s::DATE"
         params.append(end_date)
-    query += " GROUP BY SUBSTR(date, 1, 7) ORDER BY month"
+    query += " GROUP BY TO_CHAR(date, 'YYYY-MM') ORDER BY month"
 
     rows = conn.execute(query, params).fetchall()
 
@@ -123,8 +123,14 @@ def get_periodization_phases(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_week_planned_and_actual(conn, start_str: str, end_str: str) -> tuple[list[dict], list[dict]]:
+def get_week_planned_and_actual(conn, start_str: str, end_str: str, tz_name: str = "UTC") -> tuple[list[dict], list[dict]]:
     """Get planned workouts and actual rides for a Mon-Sun date range.
+
+    Args:
+        conn: Database connection.
+        start_str: Week start YYYY-MM-DD.
+        end_str: Week end YYYY-MM-DD.
+        tz_name: IANA timezone for deriving ride local date from start_time.
 
     Returns (planned_rows, actual_rows) as lists of dicts.
     """
@@ -134,10 +140,13 @@ def get_week_planned_and_actual(conn, start_str: str, end_str: str) -> tuple[lis
     ).fetchall()
 
     actual = conn.execute(
-        """SELECT id, date, sport, sub_sport, duration_s, tss, avg_power,
+        """SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE::TEXT AS date,
+                  sport, sub_sport, duration_s, tss, avg_power,
                   normalized_power, avg_hr, distance_m, total_ascent
-           FROM rides WHERE date >= %s AND date <= %s ORDER BY date""",
-        (start_str, end_str),
+           FROM rides
+           WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE BETWEEN %s::DATE AND %s::DATE
+           ORDER BY start_time""",
+        (tz_name, tz_name, start_str, end_str),
     ).fetchall()
 
     return [dict(p) for p in planned], [dict(a) for a in actual]

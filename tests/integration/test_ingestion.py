@@ -54,7 +54,7 @@ def test_parse_ride_json(tmp_path):
     ride, records, power_bests, laps = parse_ride_json(str(filepath))
 
     assert ride is not None
-    assert ride["date"] == "2025-06-01"
+    assert ride["start_time"] == "2025-06-01T10:00:00"
     assert ride["avg_power"] == 180
     assert ride["weight"] == 75.0
     assert len(records) == 120
@@ -96,7 +96,7 @@ def test_ingest_rides(tmp_path):
         ],
         "sport": [{"sport": "cycling", "sub_sport": "road"}],
         "user_profile": [{}],
-        "record": [{"power": 180, "heart_rate": 145} for _ in range(60)],
+        "record": [{"timestamp": f"2025-06-01T10:00:{i:02d}", "power": 180, "heart_rate": 145} for i in range(60)],
     }
 
     (tmp_path / test_fname).write_text(json.dumps(ride_data))

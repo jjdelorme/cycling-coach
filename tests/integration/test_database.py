@@ -22,14 +22,13 @@ def test_schema_creation():
 def test_insert_and_query_ride():
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO rides (date, filename, sport, sub_sport, duration_s, avg_power, tss, ftp)
-            VALUES ('2025-06-01', 'test_ride_db.json', 'cycling', 'mountain', 3600, 200, 100, 250)
+            """INSERT INTO rides (start_time, filename, sport, sub_sport, duration_s, avg_power, tss, ftp)
+            VALUES ('2025-06-01T10:00:00+00:00', 'test_ride_db.json', 'cycling', 'mountain', 3600, 200, 100, 250)
             ON CONFLICT (filename) DO NOTHING"""
         )
         row = conn.execute("SELECT * FROM rides WHERE filename='test_ride_db.json'").fetchone()
 
     assert row is not None
-    assert row["date"] == "2025-06-01"
     assert row["avg_power"] == 200
     assert row["tss"] == 100
 
@@ -41,12 +40,12 @@ def test_insert_and_query_ride():
 def test_insert_ride_records():
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO rides (date, filename, sport, duration_s) VALUES ('2025-06-01', 'test_records.json', 'cycling', 3600)
+            """INSERT INTO rides (start_time, filename, sport, duration_s) VALUES ('2025-06-01T10:00:00+00:00', 'test_records.json', 'cycling', 3600)
             ON CONFLICT (filename) DO NOTHING"""
         )
         ride_id = conn.execute("SELECT id FROM rides WHERE filename='test_records.json'").fetchone()["id"]
         conn.execute(
-            "INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate) VALUES (%s, '2025-06-01T10:00:00', 200, 150)",
+            "INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate) VALUES (%s, '2025-06-01T10:00:00+00:00', 200, 150)",
             (ride_id,),
         )
         records = conn.execute("SELECT * FROM ride_records WHERE ride_id=%s", (ride_id,)).fetchall()

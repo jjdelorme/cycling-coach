@@ -45,14 +45,18 @@ def _tlog(msg: str) -> str:
 
 
 def _get_athlete_tz():
-    """Read the stored athlete timezone from athlete_settings; fall back to UTC."""
+    """Return UTC for background sync date windows.
+
+    Background sync runs without an HTTP request context, so there is no
+    X-Client-Timezone header. Using UTC means the fetch window could be off
+    by up to one calendar day at timezone boundaries. This is acceptable
+    because:
+      - Ride dedup (filename + date+distance fingerprint) prevents duplicates
+      - The watermark prevents re-downloading already-synced rides
+      - Planned workout dedup uses (date, name) pairs
+    """
     from zoneinfo import ZoneInfo
-    from server.database import get_athlete_setting
-    tz_name = get_athlete_setting("timezone") or "UTC"
-    try:
-        return ZoneInfo(tz_name)
-    except Exception:
-        return ZoneInfo("UTC")
+    return ZoneInfo("UTC")
 
 
 # ---------------------------------------------------------------------------
@@ -414,13 +418,15 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     # differs between sources (Garmin auto-pause, Strava, intervals.icu).
     existing_filenames = set()
     existing_fingerprints = set()
-    rows = conn.execute("SELECT filename, date, distance_m FROM rides").fetchall()
+    rows = conn.execute("SELECT filename, start_time, distance_m FROM rides").fetchall()
     for r in rows:
         row = dict(r)
         existing_filenames.add(row["filename"])
-        # Fingerprint: (date, distance rounded to nearest 100m)
+        # Fingerprint: (date from start_time, distance rounded to nearest 100m)
+        st = row.get("start_time") or ""
+        date_str = str(st)[:10] if st else ""
         dist = round((row["distance_m"] or 0) / 100) * 100
-        existing_fingerprints.add((row["date"], dist))
+        existing_fingerprints.add((date_str, dist))
 
     # Early exit: check if all activities already exist locally
     has_new = False
@@ -431,7 +437,8 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
         if ride["filename"] in existing_filenames:
             continue
         dist = round((ride["distance_m"] or 0) / 100) * 100
-        if (ride["date"], dist) in existing_fingerprints:
+        rd = ride["start_time"][:10] if ride.get("start_time") else ""
+        if (rd, dist) in existing_fingerprints:
             continue
         has_new = True
         break
@@ -458,8 +465,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
 
         # Check fingerprint match (cross-source dedup: JSON import vs intervals.icu)
         # Same date + same distance (within 100m) = same ride
+        ride_date_str = ride["start_time"][:10] if ride.get("start_time") else ""
         dist = round((ride["distance_m"] or 0) / 100) * 100
-        fingerprint = (ride["date"], dist)
+        fingerprint = (ride_date_str, dist)
         if fingerprint in existing_fingerprints:
             skipped += 1
             continue
@@ -484,9 +492,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
             downloaded += 1
             existing_filenames.add(ride["filename"])
             existing_fingerprints.add(fingerprint)
-            if earliest_date is None or ride["date"] < earliest_date:
-                earliest_date = ride["date"]
-            detail = f"Downloaded ride: {ride['date']} ({ride.get('sport', 'ride')})"
+            if earliest_date is None or ride_date_str < earliest_date:
+                earliest_date = ride_date_str
+            detail = f"Downloaded ride: {ride_date_str} ({ride.get('sport', 'ride')})"
             logger.info(detail)
             log_lines.append(_tlog(detail))
 
@@ -503,7 +511,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         _store_streams(ride_db_id, streams, conn=conn)
                         # Backfill start_lat/start_lon from stream GPS data
                         _backfill_start_location(ride_db_id, streams, conn=conn)
-                        log_lines.append(_tlog(f"  + stored stream data for {ride['date']} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
+                        log_lines.append(_tlog(f"  + stored stream data for {ride_date_str} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
 
                         # Step 3.A: Process ride samples for metrics and power bests
                         stream_map = _extract_streams(streams)
@@ -512,7 +520,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         raw_cadences = stream_map.get("cadence", [])
 
                         # Fetch HR benchmarks for hrTSS fallback
-                        ride_date = ride["date"]
+                        ride_date = ride_date_str
                         lthr = get_latest_metric(conn, "lthr", ride_date)
                         max_hr_setting = get_latest_metric(conn, "max_hr", ride_date)
                         resting_hr = get_latest_metric(conn, "resting_hr", ride_date)
@@ -583,12 +591,13 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
 
                         # Insert all power bests
                         if metrics["power_bests"]:
+                            pb_date = ride_date_str
                             conn.executemany(
                                 "INSERT INTO power_bests (ride_id, date, duration_s, power, avg_hr, avg_cadence, start_offset_s) VALUES (?, ?, ?, ?, ?, ?, ?)",
                                 [
                                     (
                                         ride_db_id,
-                                        ride["date"],
+                                        pb_date,
                                         pb["duration_s"],
                                         pb["power"],
                                         pb.get("avg_hr"),
@@ -612,7 +621,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         if is_cycling and stream_map:
                             _enrich_laps_with_np(laps, stream_map)
                         _store_laps(ride_db_id, laps, conn=conn)
-                        log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride['date']}"))
+                        log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride_date_str}"))
                 except Exception as le:
                     logger.warning("laps_fetch_failed", icu_id=icu_id, error=str(le))
 
@@ -777,7 +786,7 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
 
     for i, w in enumerate(local_workouts):
         w = dict(w)
-        w_date = w["date"]
+        w_date = str(w["date"])
         w_name = w["name"] or "Workout"
         moving_time = int(w.get("total_duration_s") or 0)
 

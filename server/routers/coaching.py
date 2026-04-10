@@ -21,11 +21,6 @@ async def chat_endpoint(req: ChatRequest, request: Request, user: CurrentUser = 
 
     session_id = req.session_id or str(uuid.uuid4())
 
-    from server.database import get_athlete_setting, set_athlete_setting
-    tz_str = getattr(request.state, "client_tz_str", "UTC")
-    if tz_str != "UTC" and get_athlete_setting("timezone") != tz_str:
-        set_athlete_setting("timezone", tz_str)
-
     response = await chat(
         message=req.message,
         session_id=session_id,

@@ -3,7 +3,7 @@
 import hashlib
 import os
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import fitparse
 import httpx
 
@@ -168,9 +168,9 @@ def fetch_activities(oldest: str | None = None, newest: str | None = None) -> li
         raise RuntimeError("intervals.icu not configured")
 
     if not oldest:
-        oldest = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        oldest = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
     if not newest:
-        newest = datetime.now().strftime("%Y-%m-%d")
+        newest = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/activities"
     params = {"oldest": oldest, "newest": newest}
@@ -301,12 +301,15 @@ def map_activity_to_ride(activity: dict) -> dict | None:
 
     Returns None if the activity doesn't have enough data to be useful.
     """
-    start_date = activity.get("start_date_local", "")
-    if not start_date:
+    # Prefer UTC start_date for storage; fall back to start_date_local for existence check.
+    # intervals.icu follows the Strava convention: start_date = UTC, start_date_local = local.
+    start_date_utc = activity.get("start_date")
+    start_date_local = activity.get("start_date_local", "")
+    if not start_date_utc and not start_date_local:
         return None
 
-    # intervals.icu uses ISO format; extract date portion
-    date = start_date[:10] if len(start_date) >= 10 else start_date
+    # Store UTC timestamp in start_time (used for AT TIME ZONE queries).
+    start_time_value = start_date_utc or start_date_local
 
     # Use the intervals.icu activity id as a stable filename for dedup
     icu_id = activity.get("id", "")
@@ -320,8 +323,7 @@ def map_activity_to_ride(activity: dict) -> dict | None:
     is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
 
     ride = {
-        "date": date,
-        "start_time": start_date,
+        "start_time": start_time_value,
         "title": activity.get("name"),
         "filename": f"icu_{icu_id}",
         "sport": sport,
@@ -411,7 +413,8 @@ def update_weight(weight: float, date: str = None) -> dict:
         return {"status": "error", "message": "intervals.icu not configured"}
 
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        from server.utils.dates import user_today
+        date = user_today()
 
     url = f"{BASE_URL}/api/v1/athlete/{athlete_id}/wellness/{date}"
     payload = {"weight": weight}

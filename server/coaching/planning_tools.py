@@ -95,7 +95,7 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
         cursor = datetime.fromisoformat(new_end_date) + timedelta(days=1)
 
         for s in subsequent:
-            original_duration = (datetime.fromisoformat(s["end_date"]) - datetime.fromisoformat(s["start_date"])).days
+            original_duration = (datetime.fromisoformat(str(s["end_date"])) - datetime.fromisoformat(str(s["start_date"]))).days
             new_start = cursor.strftime("%Y-%m-%d")
             new_end = (cursor + timedelta(days=original_duration)).strftime("%Y-%m-%d")
             conn.execute(
@@ -401,7 +401,7 @@ def get_week_summary(date: str = "") -> dict:
     end_str = end.strftime("%Y-%m-%d")
 
     with get_db() as conn:
-        planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
+        planned, actual = get_week_planned_and_actual(conn, start_str, end_str, tz_name=get_request_tz().key)
 
         # Weekly totals
         total_tss = sum(r["tss"] or 0 for r in actual)
@@ -725,9 +725,12 @@ def set_ride_coach_comments(date: str, comments: str) -> dict:
         Status of the update.
     """
     with get_db() as conn:
+        tz_name = get_request_tz().key
         row = conn.execute(
-            "SELECT id, sub_sport FROM rides WHERE date = ? ORDER BY duration_s DESC LIMIT 1",
-            (date,),
+            """SELECT id, sub_sport FROM rides
+               WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE = ?::DATE
+               ORDER BY duration_s DESC LIMIT 1""",
+            (tz_name, date),
         ).fetchone()
         if not row:
             return {"status": "error", "message": f"No ride found on {date}"}

@@ -98,7 +98,7 @@ def test_map_activity_to_ride():
 
     ride = map_activity_to_ride(activity)
     assert ride is not None
-    assert ride["date"] == "2026-03-24"
+    assert ride["start_time"] == "2026-03-24T08:30:00"
     assert ride["filename"] == "icu_i12345_abc"
     assert ride["duration_s"] == 3600
     assert ride["avg_power"] == 180

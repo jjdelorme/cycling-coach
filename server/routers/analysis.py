@@ -2,9 +2,11 @@
 
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from server.auth import CurrentUser, require_read
 from server.database import get_db, get_athlete_setting
+from server.dependencies import get_client_tz
 from server.models.schemas import PowerBestEntry
 from server.queries import get_power_bests_rows, get_ftp_history_rows
 from server.zones import POWER_ZONES
@@ -33,9 +35,9 @@ def power_curve_history(user: CurrentUser = Depends(require_read)):
     """Power curve by month for tracking progression."""
     with get_db() as conn:
         rows = conn.execute("""
-            SELECT SUBSTR(date, 1, 7) as month, duration_s, MAX(power) as power
+            SELECT TO_CHAR(date, 'YYYY-MM') as month, duration_s, MAX(power) as power
             FROM power_bests
-            GROUP BY month, duration_s
+            GROUP BY TO_CHAR(date, 'YYYY-MM'), duration_s
             ORDER BY month, duration_s
         """).fetchall()
 
@@ -54,6 +56,7 @@ def zone_distribution(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
     """Power zone distribution from ride records.
 
@@ -64,6 +67,7 @@ def zone_distribution(
       CREATE INDEX IF NOT EXISTS idx_ride_records_ride_id_power ON ride_records(ride_id, power);
       CREATE INDEX IF NOT EXISTS idx_rides_date ON rides(date);
     """
+    tz_name = str(tz)
     query = """
         SELECT r.ftp, rr.power
         FROM ride_records rr
@@ -73,11 +77,11 @@ def zone_distribution(
     """
     params = []
     if start_date:
-        query += " AND r.date >= ?"
-        params.append(start_date)
+        query += " AND (r.start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+        params.extend([tz_name, start_date])
     if end_date:
-        query += " AND r.date <= ?"
-        params.append(end_date)
+        query += " AND (r.start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
+        params.extend([tz_name, end_date])
 
     zones = {"z0": 0, "z1": 0, "z2": 0, "z3": 0, "z4": 0, "z5": 0, "z6": 0}
     total = 0
@@ -114,16 +118,19 @@ def efficiency_factor(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
     """Efficiency Factor (NP/avgHR) over time with 30-day rolling average.
 
     Filters for cycling sports and endurance rides (duration >= 30min, IF 0.5-0.8).
     """
+    tz_name = str(tz)
     query = """
-        SELECT id, date, normalized_power, avg_hr, duration_s, sub_sport,
+        SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,
+               normalized_power, avg_hr, duration_s, sub_sport,
                (CAST(normalized_power AS FLOAT) / avg_hr) as ef,
                AVG(CAST(normalized_power AS FLOAT) / avg_hr) OVER (
-                   ORDER BY CAST(date AS DATE)
+                   ORDER BY start_time
                    RANGE BETWEEN INTERVAL '30 days' PRECEDING AND CURRENT ROW
                ) as rolling_ef
         FROM rides
@@ -134,14 +141,14 @@ def efficiency_factor(
           AND duration_s >= 1800
           AND intensity_factor BETWEEN 0.5 AND 0.8
     """
-    params = []
+    params: list = [tz_name]
     if start_date:
-        query += " AND date >= ?"
-        params.append(start_date)
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+        params.extend([tz_name, start_date])
     if end_date:
-        query += " AND date <= ?"
-        params.append(end_date)
-    query += " ORDER BY date"
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
+        params.extend([tz_name, end_date])
+    query += " ORDER BY start_time"
 
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -186,14 +193,15 @@ def route_matches(ride_id: int, threshold: float = Query(0.8), user: CurrentUser
 
         # Find rides starting within ~1km and similar distance/ascent
         rows = conn.execute("""
-            SELECT id, date, sub_sport, duration_s, distance_m, total_ascent,
+            SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE 'UTC')::DATE::TEXT AS date,
+                   sub_sport, duration_s, distance_m, total_ascent,
                    avg_power, normalized_power, avg_hr, tss, start_lat, start_lon
             FROM rides
             WHERE start_lat IS NOT NULL
               AND id != ?
               AND ABS(start_lat - ?) < 0.01
               AND ABS(start_lon - ?) < 0.01
-            ORDER BY date
+            ORDER BY start_time
         """, (ride_id, target["start_lat"], target["start_lon"])).fetchall()
 
     # Filter by similar distance (within 20%)

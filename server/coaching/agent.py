@@ -146,11 +146,15 @@ def _build_system_instruction(ctx) -> str:
     # Add last 7 days of rides for immediate adaptive context
     from datetime import timedelta
     seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+    tz_name = get_request_tz().key
     with get_db() as conn:
         recent_rides = conn.execute(
-            """SELECT date, sub_sport, duration_s, tss, normalized_power
-               FROM rides WHERE date >= ? ORDER BY date DESC LIMIT 7""",
-            (seven_days_ago,),
+            """SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,
+                      sub_sport, duration_s, tss, normalized_power
+               FROM rides
+               WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE
+               ORDER BY start_time DESC LIMIT 7""",
+            (tz_name, tz_name, seven_days_ago),
         ).fetchall()
 
     if recent_rides:

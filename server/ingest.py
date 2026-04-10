@@ -33,19 +33,9 @@ def _semicircles_to_degrees(val):
     return val
 
 
-def _utc_to_local_date(start_time: str, tz_name: str) -> str:
-    """Convert a UTC ISO8601 FIT timestamp to a local YYYY-MM-DD date."""
-    if not start_time or len(start_time) < 10:
-        return start_time[:10] if start_time else ""
-    try:
-        from zoneinfo import ZoneInfo
-        from datetime import timezone
-        dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
-    except Exception:
-        return start_time[:10]
+def _start_time_to_date(start_time: str) -> str:
+    """Extract YYYY-MM-DD from a UTC ISO8601 timestamp (best-effort for rides.date backward compat)."""
+    return start_time[:10] if start_time and len(start_time) >= 10 else ""
 
 
 def file_hash(filepath):
@@ -70,9 +60,11 @@ def get_benchmark_for_date(conn, key: str, date_str: str) -> float:
             return val
 
     # 2. Look back to the most recent ride with this metric
+    # Uses start_time for ordering; date_str comparison works because
+    # ISO timestamp strings sort correctly against YYYY-MM-DD prefixes.
     col = "ftp" if key == "ftp" else "weight"
     row = conn.execute(
-        f"SELECT {col} FROM rides WHERE {col} > 0 AND date <= %s ORDER BY date DESC LIMIT 1",
+        f"SELECT {col} FROM rides WHERE {col} > 0 AND start_time <= %s ORDER BY start_time DESC LIMIT 1",
         (date_str,)
     ).fetchone()
     if row and row[col]:
@@ -96,14 +88,8 @@ def parse_ride_json(filepath, conn=None):
     if not start_time or not session.get("total_timer_time"):
         return None, None, None, None
 
-    _tz_name = "UTC"
-    if conn:
-        _tz_row = conn.execute(
-            "SELECT value FROM athlete_settings WHERE key = 'timezone' AND is_active = TRUE"
-        ).fetchone()
-        if _tz_row:
-            _tz_name = _tz_row["value"] or "UTC"
-    ride_date = _utc_to_local_date(start_time, _tz_name)
+    # FIT timestamps are UTC; derive ride_date for benchmark lookups
+    ride_date = _start_time_to_date(start_time)
     sport = (session.get("sport") or sport_info.get("sport") or "cycling").lower()
 
     # 1. Extract & Hierarchy for FTP/Weight
@@ -197,7 +183,6 @@ def parse_ride_json(filepath, conn=None):
     total_work = session.get("total_work", 0) or 0
 
     ride = {
-        "date": ride_date,
         "start_time": start_time,
         "filename": os.path.basename(filepath),
         "sport": sport_info.get("sport", "unknown"),
@@ -347,14 +332,16 @@ def backfill_hr_tss(conn):
     from server.queries import get_latest_metric
 
     rows = conn.execute(
-        "SELECT id, date, avg_hr, duration_s FROM rides WHERE (tss IS NULL OR tss = 0) AND avg_hr > 0 AND duration_s > 0"
+        "SELECT id, start_time, avg_hr, duration_s FROM rides WHERE (tss IS NULL OR tss = 0) AND avg_hr > 0 AND duration_s > 0"
     ).fetchall()
 
     updated = 0
     for r in rows:
-        lthr = get_latest_metric(conn, "lthr", r["date"])
-        max_hr = get_latest_metric(conn, "max_hr", r["date"])
-        resting_hr = get_latest_metric(conn, "resting_hr", r["date"])
+        st = r["start_time"]
+        date_str = st.strftime("%Y-%m-%d") if hasattr(st, "strftime") else (str(st)[:10] if st else "")
+        lthr = get_latest_metric(conn, "lthr", date_str)
+        max_hr = get_latest_metric(conn, "max_hr", date_str)
+        resting_hr = get_latest_metric(conn, "resting_hr", date_str)
 
         if lthr <= 0:
             continue
@@ -374,7 +361,7 @@ def backfill_hr_tss(conn):
     return updated
 
 
-def compute_daily_pmc(conn, since_date: str | None = None):
+def compute_daily_pmc(conn, since_date: str | None = None, tz_name: str = "UTC"):
     """Compute CTL/ATL/TSB for every day from first ride (or since_date) to today.
 
     Args:
@@ -382,9 +369,15 @@ def compute_daily_pmc(conn, since_date: str | None = None):
         since_date: Optional YYYY-MM-DD string. If provided, carry forward
             CTL/ATL from the previous day and only recompute from this date.
             Falls back to full recompute if no previous day data exists.
+        tz_name: IANA timezone for deriving ride local dates from start_time.
+            Background jobs pass "UTC"; request-triggered recomputation passes
+            the user's timezone from get_client_tz().
     """
     cursor = conn.execute(
-        "SELECT date, SUM(tss) as total_tss FROM rides WHERE tss > 0 GROUP BY date ORDER BY date"
+        "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE::TEXT AS date, "
+        "SUM(tss) as total_tss FROM rides WHERE tss > 0 "
+        "GROUP BY (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE ORDER BY date",
+        (tz_name, tz_name),
     )
     daily_tss = {row["date"]: row["total_tss"] for row in cursor.fetchall()}
 
@@ -393,7 +386,9 @@ def compute_daily_pmc(conn, since_date: str | None = None):
 
     # Prefetch all weight and ftp data (eliminates N+1 queries)
     ride_data_rows = conn.execute(
-        "SELECT date, weight, ftp FROM rides ORDER BY date"
+        "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE::TEXT AS date, "
+        "weight, ftp FROM rides ORDER BY start_time",
+        (tz_name,),
     ).fetchall()
     ride_dates = [r["date"] for r in ride_data_rows]
     weight_values = [r["weight"] for r in ride_data_rows]
@@ -411,8 +406,8 @@ def compute_daily_pmc(conn, since_date: str | None = None):
         "SELECT date_set, key, value FROM athlete_settings WHERE key IN ('ftp', 'weight_kg') ORDER BY date_set"
     ).fetchall()
     
-    ftp_settings = [(r["date_set"], float(r["value"])) for r in settings_rows if r["key"] == "ftp"]
-    weight_settings = [(r["date_set"], float(r["value"])) for r in settings_rows if r["key"] == "weight_kg"]
+    ftp_settings = [(str(r["date_set"]), float(r["value"])) for r in settings_rows if r["key"] == "ftp"]
+    weight_settings = [(str(r["date_set"]), float(r["value"])) for r in settings_rows if r["key"] == "weight_kg"]
 
     def _lookup_setting_metric(ds: str, settings_list):
         if not settings_list:
@@ -521,24 +516,26 @@ def sync_athlete_settings_from_latest_ride(conn):
     """Update active athlete_settings to match benchmarks from the most recent ride."""
     # Get the most recent ride with FTP and Weight
     row = conn.execute(
-        "SELECT date, ftp, weight FROM rides WHERE ftp > 0 AND weight > 0 ORDER BY date DESC LIMIT 1"
+        "SELECT start_time, ftp, weight FROM rides WHERE ftp > 0 AND weight > 0 ORDER BY start_time DESC LIMIT 1"
     ).fetchone()
     if row:
         from server.database import set_athlete_setting, get_athlete_setting
-        
+
         current_ftp = get_athlete_setting("ftp")
         current_weight = get_athlete_setting("weight_kg")
-        
+
         new_ftp = str(int(row["ftp"]))
         new_weight = str(round(row["weight"], 2))
-        
+        st = row["start_time"]
+        source_date = st.strftime("%Y-%m-%d") if hasattr(st, "strftime") else (str(st)[:10] if st else "")
+
         if new_ftp != current_ftp:
-            logger.info("ftp_auto_synced", previous=current_ftp, new=new_ftp, source_date=row["date"])
-            set_athlete_setting("ftp", new_ftp, date_set=row["date"])
-            
+            logger.info("ftp_auto_synced", previous=current_ftp, new=new_ftp, source_date=source_date)
+            set_athlete_setting("ftp", new_ftp, date_set=source_date)
+
         if new_weight != current_weight:
-            logger.info("weight_auto_synced", previous=current_weight, new=new_weight, source_date=row["date"])
-            set_athlete_setting("weight_kg", new_weight, date_set=row["date"])
+            logger.info("weight_auto_synced", previous=current_weight, new=new_weight, source_date=source_date)
+            set_athlete_setting("weight_kg", new_weight, date_set=source_date)
 
 
 def ingest_rides(conn, rides_dir=None):
@@ -567,13 +564,13 @@ def ingest_rides(conn, rides_dir=None):
             continue
 
         cursor = conn.execute(
-            """INSERT INTO rides (date, start_time, filename, sport, sub_sport, duration_s, distance_m,
+            """INSERT INTO rides (start_time, filename, sport, sub_sport, duration_s, distance_m,
                avg_power, normalized_power, max_power, avg_hr, max_hr, avg_cadence,
                total_ascent, total_descent, total_calories, tss, intensity_factor,
                ftp, total_work_kj, training_effect, variability_index,
                best_1min_power, best_5min_power, best_20min_power, best_60min_power,
                weight, start_lat, start_lon, has_power_data, data_status)
-            VALUES (:date, :start_time, :filename, :sport, :sub_sport, :duration_s, :distance_m,
+            VALUES (:start_time, :filename, :sport, :sub_sport, :duration_s, :distance_m,
                :avg_power, :normalized_power, :max_power, :avg_hr, :max_hr, :avg_cadence,
                :total_ascent, :total_descent, :total_calories, :tss, :intensity_factor,
                :ftp, :total_work_kj, :training_effect, :variability_index,
@@ -601,9 +598,10 @@ def ingest_rides(conn, rides_dir=None):
 
         # Insert power bests
         if power_bests:
+            pb_date = ride["start_time"][:10] if ride.get("start_time") else ""
             conn.executemany(
                 "INSERT INTO power_bests (ride_id, date, duration_s, power, avg_hr, avg_cadence, start_offset_s) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [(ride_id, ride["date"], pb["duration_s"], pb["power"], pb.get("avg_hr"), pb.get("avg_cadence"), pb.get("start_offset_s")) for pb in power_bests],
+                [(ride_id, pb_date, pb["duration_s"], pb["power"], pb.get("avg_hr"), pb.get("avg_cadence"), pb.get("start_offset_s")) for pb in power_bests],
             )
 
         # Insert laps

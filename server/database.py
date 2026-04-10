@@ -27,7 +27,6 @@ DATABASE_URL = os.environ.get(
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS rides (
     id SERIAL PRIMARY KEY,
-    date TEXT NOT NULL,
     filename TEXT UNIQUE NOT NULL,
     sport TEXT,
     sub_sport TEXT,
@@ -58,13 +57,13 @@ CREATE TABLE IF NOT EXISTS rides (
     post_ride_comments TEXT,
     coach_comments TEXT,
     title TEXT,
-    start_time TEXT
+    start_time TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ride_records (
     id SERIAL PRIMARY KEY,
     ride_id INTEGER NOT NULL REFERENCES rides(id),
-    timestamp_utc TEXT,
+    timestamp_utc TIMESTAMPTZ,
     power INTEGER,
     heart_rate INTEGER,
     cadence INTEGER,
@@ -111,7 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_ride_laps_ride_id ON ride_laps(ride_id);
 
 CREATE TABLE IF NOT EXISTS planned_workouts (
     id SERIAL PRIMARY KEY,
-    date TEXT,
+    date DATE,
     name TEXT,
     sport TEXT,
     total_duration_s REAL,
@@ -122,7 +121,7 @@ CREATE TABLE IF NOT EXISTS planned_workouts (
 );
 
 CREATE TABLE IF NOT EXISTS daily_metrics (
-    date TEXT PRIMARY KEY,
+    date DATE PRIMARY KEY,
     total_tss REAL,
     ctl REAL,
     atl REAL,
@@ -135,7 +134,7 @@ CREATE TABLE IF NOT EXISTS daily_metrics (
 CREATE TABLE IF NOT EXISTS power_bests (
     id SERIAL PRIMARY KEY,
     ride_id INTEGER NOT NULL REFERENCES rides(id),
-    date TEXT NOT NULL,
+    date DATE NOT NULL,
     duration_s INTEGER NOT NULL,
     power REAL NOT NULL,
     avg_hr INTEGER,
@@ -146,8 +145,8 @@ CREATE TABLE IF NOT EXISTS power_bests (
 CREATE TABLE IF NOT EXISTS periodization_phases (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
-    start_date TEXT NOT NULL,
-    end_date TEXT NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
     focus TEXT,
     hours_per_week_low REAL,
     hours_per_week_high REAL,
@@ -155,7 +154,7 @@ CREATE TABLE IF NOT EXISTS periodization_phases (
     tss_target_high REAL
 );
 
-CREATE INDEX IF NOT EXISTS idx_rides_date ON rides(date);
+CREATE INDEX IF NOT EXISTS idx_rides_start_time ON rides(start_time);
 CREATE INDEX IF NOT EXISTS idx_ride_records_ride_id ON ride_records(ride_id);
 CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date);
 CREATE INDEX IF NOT EXISTS idx_power_bests_date ON power_bests(date);
@@ -196,7 +195,7 @@ CREATE TABLE IF NOT EXISTS athlete_settings (
     id SERIAL PRIMARY KEY,
     key TEXT NOT NULL,
     value TEXT NOT NULL,
-    date_set TEXT NOT NULL,
+    date_set DATE NOT NULL,
     is_active BOOLEAN DEFAULT TRUE
 );
 
@@ -272,8 +271,8 @@ class _DbConnection:
         """Convert SQLite-style placeholders to psycopg2 format."""
         # Convert ? positional params to %s
         sql = sql.replace("?", "%s")
-        # Convert :name named params to %(name)s
-        sql = re.sub(r":([a-zA-Z_]\w*)", r"%(\1)s", sql)
+        # Convert :name named params to %(name)s (skip :: PostgreSQL casts)
+        sql = re.sub(r"(?<!:):([a-zA-Z_]\w*)", r"%(\1)s", sql)
         return sql
 
     def execute(self, sql, params=None):
