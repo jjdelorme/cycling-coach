@@ -42,6 +42,8 @@ Priority 4 (default): 75 kg fallback
 
 When Withings is synced, weight measurements are written to the local database **and** pushed to Intervals.icu's wellness log per date. This ensures that subsequent ride syncs from Intervals.icu carry the correct scale weight.
 
+> **Overriding Withings weight:** When Withings is connected, the weight field in Settings is read-only. To enter a manual weight (e.g. a race-day override), disconnect Withings via Settings → Withings → Disconnect, update the weight field, then reconnect. Reconnecting just re-runs the OAuth flow — your Withings account remains linked and no data is lost.
+
 ```mermaid
 flowchart LR
     W([Withings Scale]) -->|OAuth sync| BM[(body_measurements)]
