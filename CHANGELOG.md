@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.14-beta] - 2026-04-10
+
+- fix(nutrition): use IAM `signBlob` for meal photo signed URLs on Cloud Run — compute engine credentials lack a private key, so `generate_signed_url` now delegates signing via the IAM API
+
 ## [v1.8.13-beta] - 2026-04-10
 
 - fix(nutrition): float parameter defaults in `update_meal` ADK tool changed from `0` to `0.0` — newer ADK strictly rejects int defaults for float params
