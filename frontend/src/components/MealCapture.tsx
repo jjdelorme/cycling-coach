@@ -47,7 +47,6 @@ export default function MealCapture({ onMealSaved }: Props) {
         ref={fileRef}
         type="file"
         accept="image/*"
-        capture="environment"
         onChange={handleCapture}
         className="hidden"
       />
