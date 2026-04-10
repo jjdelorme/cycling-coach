@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.8.3-beta] - 2026-04-09
+## [v1.8.3] - 2026-04-10
 
 - fix(tests): 7 integration test bug fixes (weight_kg alias, structlog event key, READ COMMITTED cross-connection visibility, float("") crash on empty HR/age defaults, mock patch namespace, ASGI middleware contextvars)
 - fix(tests): harden all planning tool tests for persistent DB (pre-clean DELETE+commit before inserts, has_power_data=TRUE filter for power ride lookups)
