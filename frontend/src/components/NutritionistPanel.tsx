@@ -10,6 +10,7 @@ import {
   RefreshCw,
   User as UserIcon,
   ChevronRight,
+  AlertCircle,
 } from 'lucide-react'
 
 interface Props {
@@ -17,8 +18,8 @@ interface Props {
 }
 
 interface Message {
-  role: 'user' | 'assistant'
-  content: string
+  role: 'user' | 'assistant' | 'rate-limited'
+  content: string  // for 'rate-limited': stores original user message for retry
 }
 
 export default function NutritionistPanel({ initialContext }: Props) {
@@ -53,8 +54,30 @@ export default function NutritionistPanel({ initialContext }: Props) {
       const res = await chat.mutateAsync({ message: msg.trim(), session_id: sessionId })
       setSessionId(res.session_id)
       setMessages(prev => [...prev, { role: 'assistant', content: res.response }])
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error getting response. Please try again.' }])
+    } catch (err) {
+      const isRateLimit = err instanceof Error && err.message.toLowerCase().includes('rate limit')
+      setMessages(prev => [...prev,
+        isRateLimit
+          ? { role: 'rate-limited' as const, content: msg.trim() }
+          : { role: 'assistant', content: 'Error getting response. Please try again.' }
+      ])
+    }
+  }
+
+  const retryMessage = async (originalMsg: string) => {
+    setMessages(prev => prev.filter(m => m.role !== 'rate-limited'))
+    setMessages(prev => [...prev, { role: 'user', content: originalMsg }])
+    try {
+      const res = await chat.mutateAsync({ message: originalMsg, session_id: sessionId })
+      setSessionId(res.session_id)
+      setMessages(prev => [...prev, { role: 'assistant', content: res.response }])
+    } catch (err) {
+      const isRateLimit = err instanceof Error && err.message.toLowerCase().includes('rate limit')
+      setMessages(prev => [...prev,
+        isRateLimit
+          ? { role: 'rate-limited' as const, content: originalMsg }
+          : { role: 'assistant', content: 'Error getting response. Please try again.' }
+      ])
     }
   }
 
@@ -153,28 +176,47 @@ export default function NutritionistPanel({ initialContext }: Props) {
 
         {messages.map((m, i) => (
           <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-            <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm ${
-              m.role === 'user'
-                ? 'bg-green/10 border-green/20 text-green'
-                : 'bg-surface-high border-border text-text-muted'
-            }`}>
-              {m.role === 'user' ? <UserIcon size={14} /> : <UtensilsCrossed size={14} />}
-            </div>
-            <div className={`max-w-[85%] text-sm leading-relaxed ${
-              m.role === 'user'
-                ? 'bg-green text-white rounded-2xl rounded-tr-none px-4 py-2.5 shadow-md shadow-green/10'
-                : 'text-text'
-            }`}>
-              {m.role === 'assistant' ? (
-                <div className="prose prose-sm prose-invert max-w-none
-                  [&_p]:my-1.5 [&_ul]:my-2 [&_li]:my-1 [&_strong]:text-green [&_strong]:font-bold
-                  [&_code]:bg-surface-low [&_code]:px-1 [&_code]:rounded [&_code]:text-blue">
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
+            {m.role === 'rate-limited' ? (
+              <div className="flex items-start gap-2.5 px-4 py-3 bg-yellow/10 border border-yellow/30 rounded-xl text-sm text-text max-w-[85%]">
+                <AlertCircle size={15} className="text-yellow shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-text-muted text-xs mb-2">The AI model is currently busy.</p>
+                  <button
+                    onClick={() => retryMessage(m.content)}
+                    disabled={chat.isPending}
+                    className="flex items-center gap-1.5 text-xs font-bold text-green hover:opacity-80 disabled:opacity-40 transition-opacity"
+                  >
+                    <RefreshCw size={12} className={chat.isPending ? 'animate-spin' : ''} />
+                    Try Again
+                  </button>
                 </div>
-              ) : (
-                <p className="whitespace-pre-wrap">{m.content}</p>
-              )}
-            </div>
+              </div>
+            ) : (
+              <>
+                <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm ${
+                  m.role === 'user'
+                    ? 'bg-green/10 border-green/20 text-green'
+                    : 'bg-surface-high border-border text-text-muted'
+                }`}>
+                  {m.role === 'user' ? <UserIcon size={14} /> : <UtensilsCrossed size={14} />}
+                </div>
+                <div className={`max-w-[85%] text-sm leading-relaxed ${
+                  m.role === 'user'
+                    ? 'bg-green text-white rounded-2xl rounded-tr-none px-4 py-2.5 shadow-md shadow-green/10'
+                    : 'text-text'
+                }`}>
+                  {m.role === 'assistant' ? (
+                    <div className="prose prose-sm prose-invert max-w-none
+                      [&_p]:my-1.5 [&_ul]:my-2 [&_li]:my-1 [&_strong]:text-green [&_strong]:font-bold
+                      [&_code]:bg-surface-low [&_code]:px-1 [&_code]:rounded [&_code]:text-blue">
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         ))}
 

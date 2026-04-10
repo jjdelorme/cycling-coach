@@ -98,7 +98,7 @@ async def create_meal(
         from server.logging_config import get_logger as _gl
         _gl(__name__).error("nutrition_agent_error", exc_info=e, error_type=type(e).__name__, error_str=str(e))
         if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
-            raise HTTPException(503, "The AI model is temporarily overloaded — please try again in a moment.")
+            raise HTTPException(429, "The AI model is currently busy. Please try again in a moment.")
         raise
 
     # The agent should have called save_meal_analysis tool.
@@ -347,7 +347,7 @@ async def nutrition_chat_endpoint(req: NutritionChatRequest, user: CurrentUser =
         )
     except Exception as e:
         if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
-            raise HTTPException(503, "The AI model is temporarily overloaded — please try again in a moment.")
+            raise HTTPException(429, "The AI model is currently busy. Please try again in a moment.")
         raise
 
     return NutritionChatResponse(response=response, session_id=session_id)
