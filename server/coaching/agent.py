@@ -92,6 +92,7 @@ def _build_system_instruction(ctx) -> str:
     from datetime import datetime
     from server.database import get_all_settings, get_all_athlete_settings, get_db
     from server.queries import get_current_pmc_row
+    from server.services.weight import get_current_weight
     settings = get_all_settings()
     benchmarks = get_all_athlete_settings()
 
@@ -104,10 +105,12 @@ def _build_system_instruction(ctx) -> str:
         ftp = float(benchmarks.get("ftp", 0))
     except (ValueError, TypeError):
         ftp = 0.0
-    try:
-        weight_kg = float(benchmarks.get("weight_kg", 0))
-    except (ValueError, TypeError):
-        weight_kg = 0.0
+
+    # Resolve weight via priority chain (Withings → ride → settings → default)
+    with get_db() as conn:
+        weight_kg = get_current_weight(conn)
+    # Keep benchmarks dict consistent so formatted output reflects resolved weight
+    benchmarks["weight_kg"] = str(weight_kg)
 
     weight_lbs = round(weight_kg * 2.20462, 1) if weight_kg > 0 else 0.0
     w_kg = round(ftp / weight_kg, 2) if weight_kg > 0 else 0.0

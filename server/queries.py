@@ -88,7 +88,7 @@ def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | No
 
 def get_ftp_history_rows(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Get FTP progression by month from daily_metrics."""
-    query = """SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as ftp, MAX(weight) as weight_kg
+    query = """SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as ftp, AVG(weight) as weight_kg
                FROM daily_metrics
                WHERE ftp > 0"""
     params = []

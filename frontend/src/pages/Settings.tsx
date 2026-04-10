@@ -107,6 +107,7 @@ export default function Settings() {
   const { data: withingsStatus, refetch: refetchWithingsStatus } = useWithingsStatus()
   const [withingsSyncing, setWithingsSyncing] = useState(false)
   const [withingsResult, setWithingsResult] = useState<string | null>(null)
+  const isWithingsManaged = !!(withingsStatus?.connected && withingsStatus?.latest_weight_kg)
 
   // Populate athlete form
   useEffect(() => {
@@ -465,24 +466,33 @@ export default function Settings() {
                     { key: 'ftp', label: 'FTP', unit: 'Watts', hint: 'Functional threshold power' },
                     { key: 'weight_kg', label: 'Weight', unit: 'kg', hint: 'Body weight' },
                     { key: 'age', label: 'Age', unit: 'yrs', hint: 'Current age' },
-                  ].map((field) => (
-                    <div key={field.key} className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{field.label}</label>
-                        <span className="text-[10px] font-medium text-text-muted/60">{field.unit}</span>
+                  ].map((field) => {
+                    const isWeightManagedByWithings = field.key === 'weight_kg' && isWithingsManaged
+                    return (
+                      <div key={field.key} className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">
+                            {field.label}
+                            {isWeightManagedByWithings && (
+                              <span className="ml-2 text-[9px] font-bold text-green uppercase tracking-widest">Managed by Withings</span>
+                            )}
+                          </label>
+                          <span className="text-[10px] font-medium text-text-muted/60">{field.unit}</span>
+                        </div>
+                        <input
+                          type="number"
+                          disabled={isReadOnly || isWeightManagedByWithings}
+                          className="w-full bg-surface-low text-text border border-border rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          value={isWeightManagedByWithings ? withingsStatus!.latest_weight_kg : (athleteForm[field.key] ?? '')}
+                          onChange={(e) => {
+                            if (isWeightManagedByWithings) return
+                            setAthleteForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                            setAthleteSaveStatus('idle')
+                          }}
+                        />
                       </div>
-                      <input
-                        type="number"
-                        disabled={isReadOnly}
-                        className="w-full bg-surface-low text-text border border-border rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        value={athleteForm[field.key] ?? ''}
-                        onChange={(e) => {
-                          setAthleteForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                          setAthleteSaveStatus('idle')
-                        }}
-                      />
-                    </div>
-                  ))}
+                    )
+                  })}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Gender</label>
                     <select

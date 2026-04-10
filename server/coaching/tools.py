@@ -635,22 +635,20 @@ def get_athlete_status() -> dict:
     Returns:
         Dictionary with all athlete benchmarks, computed metrics, and current training load.
     """
+    from server.services.weight import get_current_weight
     settings = get_all_athlete_settings()
 
     try:
         ftp = float(settings.get("ftp", 0))
     except (ValueError, TypeError):
         ftp = 0.0
-    try:
-        weight_kg = float(settings.get("weight_kg", 0))
-    except (ValueError, TypeError):
-        weight_kg = 0.0
+
+    with get_db() as conn:
+        weight_kg = get_current_weight(conn)
+        pmc = get_current_pmc_row(conn)
 
     weight_lbs = round(weight_kg * 2.20462, 1) if weight_kg > 0 else 0.0
     w_kg = round(ftp / weight_kg, 2) if weight_kg > 0 else 0.0
-
-    with get_db() as conn:
-        pmc = get_current_pmc_row(conn)
 
     return {
         "ftp": int(ftp) if ftp else 0,

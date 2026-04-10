@@ -408,3 +408,82 @@ def test_handle_webhook_notification_ignores_userid_mismatch():
         result = handle_webhook_notification("different_user", 0, 1)
 
     assert result["status"] == "ignored"
+
+
+# ---------------------------------------------------------------------------
+# Gap 1: Withings → ICU wellness push
+# ---------------------------------------------------------------------------
+
+def test_sync_weight_pushes_to_icu_after_store():
+    """sync_weight calls intervals_icu.update_weight for each measurement stored."""
+    import time
+    measurements = [
+        {"date": "2026-04-01", "measured_at": "2026-04-01T07:00:00Z", "weight_kg": 74.5},
+        {"date": "2026-04-02", "measured_at": "2026-04-02T07:00:00Z", "weight_kg": 74.3},
+    ]
+    with patch("server.services.withings.is_connected", return_value=True), \
+         patch("server.services.withings.fetch_weight_measurements", return_value=measurements), \
+         patch("server.services.withings.store_measurements", return_value=2), \
+         patch("server.services.withings.intervals_icu.update_weight") as mock_icu:
+        from server.services.withings import sync_weight
+        result = sync_weight()
+
+    assert result["status"] == "success"
+    assert mock_icu.call_count == 2
+    calls = [c[0] for c in mock_icu.call_args_list]
+    assert calls[0] == (74.5, "2026-04-01")
+    assert calls[1] == (74.3, "2026-04-02")
+
+
+def test_sync_weight_icu_failure_does_not_break_sync():
+    """sync_weight returns success even when the ICU push raises an exception."""
+    measurements = [{"date": "2026-04-01", "measured_at": "2026-04-01T07:00:00Z", "weight_kg": 74.5}]
+    with patch("server.services.withings.is_connected", return_value=True), \
+         patch("server.services.withings.fetch_weight_measurements", return_value=measurements), \
+         patch("server.services.withings.store_measurements", return_value=1), \
+         patch("server.services.withings.intervals_icu.update_weight", side_effect=RuntimeError("ICU down")):
+        from server.services.withings import sync_weight
+        result = sync_weight()
+
+    assert result["status"] == "success"
+    assert result["synced"] == 1
+
+
+def test_webhook_pushes_to_icu_after_store():
+    """handle_webhook_notification calls update_weight for each measurement."""
+    import time
+    start_ts = int(time.mktime((2026, 4, 1, 0, 0, 0, 0, 0, 0)))
+    end_ts   = int(time.mktime((2026, 4, 2, 0, 0, 0, 0, 0, 0)))
+    measurements = [{"date": "2026-04-01", "measured_at": "2026-04-01T07:00:00Z", "weight_kg": 73.8}]
+
+    with patch("server.services.withings.get_setting", return_value="user123"), \
+         patch("server.services.withings.fetch_weight_measurements", return_value=measurements), \
+         patch("server.services.withings.store_measurements", return_value=1), \
+         patch("server.services.withings.intervals_icu.update_weight") as mock_icu, \
+         patch("server.database.get_db"), \
+         patch("server.ingest.compute_daily_pmc"):
+        from server.services.withings import handle_webhook_notification
+        result = handle_webhook_notification("user123", start_ts, end_ts)
+
+    assert result["status"] == "success"
+    mock_icu.assert_called_once_with(73.8, "2026-04-01")
+
+
+def test_webhook_icu_failure_does_not_break_sync():
+    """handle_webhook_notification returns success even when ICU push raises."""
+    import time
+    start_ts = int(time.mktime((2026, 4, 1, 0, 0, 0, 0, 0, 0)))
+    end_ts   = int(time.mktime((2026, 4, 2, 0, 0, 0, 0, 0, 0)))
+    measurements = [{"date": "2026-04-01", "measured_at": "2026-04-01T07:00:00Z", "weight_kg": 73.8}]
+
+    with patch("server.services.withings.get_setting", return_value="user123"), \
+         patch("server.services.withings.fetch_weight_measurements", return_value=measurements), \
+         patch("server.services.withings.store_measurements", return_value=1), \
+         patch("server.services.withings.intervals_icu.update_weight", side_effect=Exception("timeout")), \
+         patch("server.database.get_db"), \
+         patch("server.ingest.compute_daily_pmc"):
+        from server.services.withings import handle_webhook_notification
+        result = handle_webhook_notification("user123", start_ts, end_ts)
+
+    assert result["status"] == "success"
+    assert result["synced"] == 1

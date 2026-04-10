@@ -91,7 +91,8 @@ def parse_ride_json(filepath, conn=None):
     
     if conn:
         ftp = get_benchmark_for_date(conn, "ftp", ride_date)
-        weight = get_benchmark_for_date(conn, "weight_kg", ride_date)
+        from server.services.weight import get_weight_for_date
+        weight = get_weight_for_date(conn, ride_date)
     
     # 2. Fallback to Source File ONLY if hierarchy returned 0/default
     # AND only extract FTP if this is a cycling activity

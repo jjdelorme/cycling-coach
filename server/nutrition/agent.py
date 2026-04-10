@@ -69,6 +69,7 @@ def _build_system_instruction(ctx) -> str:
     from datetime import datetime, timedelta
     from server.database import get_all_athlete_settings, get_db
     from server.queries import get_current_pmc_row, get_macro_targets
+    from server.services.weight import get_current_weight
 
     settings = get_all_athlete_settings()
     today = datetime.now()
@@ -79,12 +80,9 @@ def _build_system_instruction(ctx) -> str:
         ftp = float(settings.get("ftp", 0))
     except (ValueError, TypeError):
         ftp = 0.0
-    try:
-        weight_kg = float(settings.get("weight_kg", 0))
-    except (ValueError, TypeError):
-        weight_kg = 0.0
 
     with get_db() as conn:
+        weight_kg = get_current_weight(conn)
         pmc = get_current_pmc_row(conn)
         targets = get_macro_targets(conn)
 

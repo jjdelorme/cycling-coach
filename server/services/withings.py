@@ -9,6 +9,7 @@ import httpx
 from server.config import WITHINGS_CLIENT_ID, WITHINGS_CLIENT_SECRET, WITHINGS_REDIRECT_URI
 from server.database import get_db, get_setting, set_setting
 from server.logging_config import get_logger
+from server.services import intervals_icu
 
 logger = get_logger(__name__)
 
@@ -156,6 +157,11 @@ def sync_weight(days: int = 90) -> dict:
     start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     measurements = fetch_weight_measurements(start_date, end_date)
     count = store_measurements(measurements)
+    try:
+        for m in measurements:
+            intervals_icu.update_weight(m["weight_kg"], m["date"])
+    except Exception as e:
+        logger.warning("withings_icu_push_failed", error=str(e))
     logger.info("withings_sync_complete", synced=count, start_date=start_date, end_date=end_date)
     return {"status": "success", "synced": count, "start_date": start_date, "end_date": end_date}
 
@@ -262,6 +268,11 @@ def handle_webhook_notification(userid: str, startdate: int, enddate: int) -> di
     try:
         measurements = fetch_weight_measurements(start_date, end_date)
         count = store_measurements(measurements)
+        try:
+            for m in measurements:
+                intervals_icu.update_weight(m["weight_kg"], m["date"])
+        except Exception as e:
+            logger.warning("withings_webhook_icu_push_failed", error=str(e))
         if count:
             # Recompute PMC to pick up new weight data
             from server.database import get_db

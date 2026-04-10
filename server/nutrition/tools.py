@@ -129,6 +129,7 @@ def get_caloric_balance(date: str = "") -> dict:
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
 
+    from server.services.weight import get_weight_for_date
     with get_db() as conn:
         totals = get_daily_meal_totals(conn, date)
         ride_row = conn.execute(
@@ -136,8 +137,9 @@ def get_caloric_balance(date: str = "") -> dict:
             (date,),
         ).fetchone()
         ride_cal = int(ride_row["total"]) if ride_row else 0
+        weight_kg = get_weight_for_date(conn, date)
 
-    bmr = _estimate_daily_bmr()
+    bmr = _estimate_daily_bmr(weight_kg)
     total_out = ride_cal + bmr
 
     return {
@@ -234,11 +236,16 @@ def get_recent_workouts(days_back: int = 3) -> list[dict]:
     ]
 
 
-def _estimate_daily_bmr() -> int:
-    """Estimate BMR from athlete settings using Mifflin-St Jeor equation."""
+def _estimate_daily_bmr(weight_kg: float = 0) -> int:
+    """Estimate BMR from athlete settings using Mifflin-St Jeor equation.
+
+    Args:
+        weight_kg: Weight in kg. If 0 or not provided, falls back to athlete_settings.
+    """
     settings = get_all_athlete_settings()
     try:
-        weight_kg = float(settings.get("weight_kg", 0))
+        if weight_kg <= 0:
+            weight_kg = float(settings.get("weight_kg", 0))
         age = int(settings.get("age", 0))
         gender = settings.get("gender", "").lower()
     except (ValueError, TypeError):
