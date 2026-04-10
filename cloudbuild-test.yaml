@@ -40,12 +40,9 @@ steps:
           --region ${_REGION} \
           --format 'value(status.url)' 2>/dev/null || echo '')
 
-        TEST_URL=$$(gcloud run services describe ${_SERVICE_NAME} \
-          --region ${_REGION} \
-          --format 'json' 2>/dev/null | \
-          jq -r '(.status.traffic // [])[] | select(.tag=="test") | .url // ""' 2>/dev/null || echo '')
+        TEST_URL="$$(echo "$${SERVICE_URL}" | sed 's|https://|https://test---|')"
 
-        WITHINGS_REDIRECT="$${TEST_URL:-$${SERVICE_URL}}/api/withings/callback"
+        WITHINGS_REDIRECT="$${TEST_URL}/api/withings/callback"
 
         REVISION_SUFFIX="v$$(cat /workspace/VERSION | tr '.' '-')"
 
