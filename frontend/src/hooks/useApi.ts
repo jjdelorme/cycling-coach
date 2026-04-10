@@ -199,3 +199,14 @@ export function useDailySummary(days = 7) {
     queryFn: () => api.fetchDailySummary(days),
   })
 }
+
+// Withings
+export function useWithingsStatus() {
+  const { isAuthenticated } = useAuth()
+  return useQuery({
+    queryKey: ['withings-status'],
+    queryFn: api.fetchWithingsStatus,
+    enabled: isAuthenticated,
+    refetchInterval: 30000,
+  })
+}

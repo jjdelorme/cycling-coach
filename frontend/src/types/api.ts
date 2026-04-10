@@ -291,3 +291,10 @@ export interface CoachSettings {
   gcp_location?: string
   gemini_api_key?: string
 }
+
+export interface WithingsStatus {
+  configured: boolean
+  connected: boolean
+  last_measurement_date?: string
+  latest_weight_kg?: number
+}

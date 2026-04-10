@@ -45,3 +45,7 @@ This document serves as the top-level view of all active, planned, and completed
 - [ ] **Campaign 10: Frontend Testing Infrastructure** (`plans/feat_frontend_unit_tests.md`)
   - *Status:* Planned
   - *Goal:* Establish comprehensive unit and integration testing suite for React frontend to prevent regressions.
+
+- [ ] **Campaign 11: Withings Body Scale Integration** (`plans/feat_withings_weight.md`)
+  - *Status:* Planned
+  - *Goal:* OAuth 2.0 integration with Withings Health API to pull daily body weight measurements from scale into `body_measurements` table, use as highest-priority weight source in PMC pipeline, and surface as a Weight Trend chart in the Analysis page.

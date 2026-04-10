@@ -183,3 +183,13 @@ export const deleteUser = (email: string) =>
 
 export const syncSingleRide = (icuId: string) => post<{ status: string; sync_id: string }>(`/api/sync/ride/${icuId}`)
 
+// Withings
+export const fetchWithingsStatus = () => get<import('../types/api').WithingsStatus>('/api/withings/status')
+export const fetchWithingsAuthUrl = () => get<{ url: string }>('/api/withings/auth-url')
+export const syncWithingsWeight = (days?: number) =>
+  post<{ status: string; synced: number; start_date: string; end_date: string }>(
+    `/api/withings/sync${days ? `?days=${days}` : ''}`
+  )
+export const disconnectWithings = () =>
+  request<{ status: string }>('/api/withings/disconnect', { method: 'DELETE' })
+
