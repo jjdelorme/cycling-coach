@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.7-beta] - 2026-04-10
+
+- fix(deploy): `cloudbuild-test.yaml` — remove embedded multi-line Python that broke YAML parsing; use stable `_TEST_URL` substitution for Withings redirect URI instead
+
 ## [v1.8.6-beta] - 2026-04-10
 
 - fix(withings): set `WITHINGS_REDIRECT_URI` env var in Cloud Run deployments — OAuth flow was falling back to `localhost:8000` causing redirect_uri_mismatch errors
