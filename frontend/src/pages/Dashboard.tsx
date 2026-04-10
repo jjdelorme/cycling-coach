@@ -334,9 +334,6 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
         ))}
       </div>
 
-      {/* 7-day strip */}
-      <SevenDayStrip data={dailyData ?? []} today={today} days={7} />
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Next Workout */}
         <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
@@ -434,6 +431,9 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
 
         {/* Energy Balance Widget */}
         <NutritionDashboardWidget onNavigateToNutrition={onNavigateToNutrition} />
+
+        {/* Last 7 Days — sits beside Energy Balance */}
+        <SevenDayStrip data={dailyData ?? []} today={today} days={7} />
       </div>
 
       {/* Main Charts */}
