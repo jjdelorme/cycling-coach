@@ -1,7 +1,7 @@
 # Database Migration System — Design Overview
 
 **Branch:** `refactor/db-migrations`  
-**Status:** Proposal / Open for Review  
+**Status:** Decisions finalized — ready for implementation  
 **Date:** 2026-04-10
 
 ---
@@ -200,43 +200,45 @@ if __name__ == "__main__":
 
 ### `init_db()` After Migration
 
-After migration, `init_db()` becomes a thin bootstrap that:
-1. Calls `run_migrations(conn)` — applies any pending SQL files
-2. Calls `_seed_workout_templates(conn)` and `_seed_macro_targets(conn)` — unchanged
-3. Does **not** contain any inline DDL
+`init_db()` is removed entirely. `server/database.py` no longer contains any DDL or seeding logic. The app startup path no longer calls it.
 
-The `_SCHEMA` blob and all migration groups are removed from `database.py` and replaced by `migrations/0001_baseline.sql`.
+The `_SCHEMA` blob, all migration groups, `_seed_workout_templates()`, and `_seed_macro_targets()` are removed from `database.py`. All of that content moves to `migrations/0001_baseline.sql`.
 
 ### Cloud Build Integration
 
-Add a migration step to `cloudbuild.yaml` before the Cloud Run deploy step:
+Add a migration step to **both** `cloudbuild.yaml` (prod) and `cloudbuild-test.yaml` (beta) immediately before the Cloud Run deploy step. The step runs the already-built image against the database before any traffic is routed to the new revision.
 
 ```yaml
-- name: 'gcr.io/cloud-builders/docker'
-  id: 'migrate'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      docker run --rm \
-        -e DATABASE_URL=$$DATABASE_URL \
-        $_IMAGE_NAME \
-        python -m server.migrate
-  secretEnv: ['DATABASE_URL']
+  # Run database migrations before deploying
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'migrate'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker run --rm \
+          -e DATABASE_URL=$$CYCLING_COACH_DATABASE_URL \
+          ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION) \
+          python -m server.migrate
+    secretEnv: ['CYCLING_COACH_DATABASE_URL']
 ```
 
-This ensures migrations run once against the production database before any new Cloud Run revision receives traffic. A migration failure aborts the deploy.
+The secret must also be declared in the `availableSecrets` block of each file (it is already present for the deploy step — verify it is accessible here too).
+
+A migration failure causes a non-zero exit, which aborts the Cloud Build pipeline before `gcloud run deploy` runs. No partial deploy.
 
 ### Baseline Migration Strategy
 
-The first migration (`0001_baseline.sql`) must reproduce the current schema exactly as it exists in production. The safest approach:
+`0001_baseline.sql` is derived from the existing `_SCHEMA` blob in `server/database.py`, not from a prod dump. This makes the schema reproducible from scratch and allows replaying migrations to any point in time without prod-specific artifacts.
 
-1. `pg_dump --schema-only` against the production database
-2. Strip `ALTER TABLE` migration noise (the columns already exist in prod)
-3. Add `IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS` guards throughout
-4. Review and commit
+Steps:
+1. Extract `_SCHEMA` from `database.py` verbatim — it already uses `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` throughout
+2. Append the three migration groups currently inline in `init_db()` (they represent schema that already exists in prod, so they must be in the baseline, not as separate migrations)
+3. Append seed data as `INSERT ... ON CONFLICT DO NOTHING` for `workout_templates` and `macro_targets` (replaces `_seed_workout_templates` / `_seed_macro_targets`)
+4. Add `CREATE TABLE IF NOT EXISTS schema_migrations (...)` at the top so the baseline is self-bootstrapping
+5. Review, test against a clean Postgres container, commit
 
-All subsequent migrations (0002+) represent changes made after the baseline.
+All subsequent migrations (0002+) represent schema changes made after this baseline is established.
 
 ---
 
