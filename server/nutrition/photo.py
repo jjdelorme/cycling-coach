@@ -5,6 +5,8 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
+import google.auth
+from google.auth.transport import requests as auth_requests
 from PIL import Image
 
 MAX_IMAGE_SIZE_MB = 10
@@ -84,6 +86,20 @@ def generate_photo_url(gcs_path: str, expiry_minutes: int = 60) -> str:
 
     bucket = _get_storage_client().bucket(bucket_name)
     blob = bucket.blob(blob_name)
+
+    credentials, _project = google.auth.default()
+
+    # Compute engine credentials (Cloud Run/GCE) can't sign locally —
+    # pass SA email + access token so the library uses IAM signBlob instead.
+    if hasattr(credentials, "service_account_email"):
+        credentials.refresh(auth_requests.Request())
+        return blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=expiry_minutes),
+            method="GET",
+            service_account_email=credentials.service_account_email,
+            access_token=credentials.token,
+        )
 
     return blob.generate_signed_url(
         version="v4",
