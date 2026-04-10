@@ -40,6 +40,20 @@ steps:
           --region ${_REGION} \
           --format 'value(status.url)' 2>/dev/null || echo '')
 
+        # The test-tagged URL is stable per service/project/region — get it from the existing service
+        TEST_URL=$$(gcloud run services describe ${_SERVICE_NAME} \
+          --region ${_REGION} \
+          --format 'json' 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    t = next((x for x in d.get('status',{}).get('traffic',[]) if x.get('tag')=='test'), {})
+    print(t.get('url',''))
+except: print('')
+" || echo '')
+
+        WITHINGS_REDIRECT="$${TEST_URL:-$${SERVICE_URL}}/api/withings/callback"
+
         REVISION_SUFFIX="v$$(cat /workspace/VERSION | tr '.' '-')"
 
         gcloud run deploy ${_SERVICE_NAME} \
@@ -50,7 +64,7 @@ steps:
           --no-traffic \
           --allow-unauthenticated \
           --set-secrets "CYCLING_COACH_DATABASE_URL=CYCLING_COACH_DATABASE_URL:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,JWT_SECRET=JWT_SECRET:latest,WITHINGS_CLIENT_ID=WITHINGS_CLIENT_ID:latest,WITHINGS_CLIENT_SECRET=WITHINGS_CLIENT_SECRET:latest" \
-          --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL}"
+          --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL},WITHINGS_REDIRECT_URI=$${WITHINGS_REDIRECT}"
 
         echo ""
         echo "================================================================"

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.6-beta] - 2026-04-10
+
+- fix(withings): set `WITHINGS_REDIRECT_URI` env var in Cloud Run deployments — OAuth flow was falling back to `localhost:8000` causing redirect_uri_mismatch errors
+- fix(deploy): `cloudbuild-test.yaml` derives the stable `test---` tagged URL for the Withings redirect URI; falls back to main service URL on first deploy
+
 ## [v1.8.4-beta] - 2026-04-10
 
 - feat(weight): add `server/services/weight.py` — single source of truth for athlete weight with Withings-priority chain (body_measurements → rides → athlete_settings → 75 kg default)
