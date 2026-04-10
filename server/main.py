@@ -177,16 +177,25 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 class ClientTimezoneMiddleware(BaseHTTPMiddleware):
-    """Extract X-Client-Timezone header; store validated IANA name in request.state."""
+    """Extract X-Client-Timezone header; set ContextVar and request.state.
+
+    Stores the validated IANA timezone in two places:
+    - request.state.client_tz_str  (for FastAPI dependency injection via get_client_tz)
+    - server.utils.dates._request_tz ContextVar (for user_today() calls anywhere in the
+      request path, including the coaching agent and planning tools)
+    """
 
     async def dispatch(self, request: Request, call_next):
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        from server.utils.dates import set_request_tz
         tz_name = request.headers.get("X-Client-Timezone", "UTC")
         try:
-            ZoneInfo(tz_name)  # validate only
+            tz = ZoneInfo(tz_name)
         except (ZoneInfoNotFoundError, KeyError):
             tz_name = "UTC"
+            tz = ZoneInfo("UTC")
         request.state.client_tz_str = tz_name
+        set_request_tz(tz)
         return await call_next(request)
 
 
