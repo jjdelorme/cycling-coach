@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.13-beta] - 2026-04-10
+
+- fix(nutrition): float parameter defaults in `update_meal` ADK tool changed from `0` to `0.0` — newer ADK strictly rejects int defaults for float params
+- chore(deps): upgrade `google-adk` to 1.29.0 and `google-cloud-aiplatform` to 1.147.0
+- chore(docker): switch to `python:3.12-slim` to match local dev environment and eliminate package version drift
+
 ## [v1.8.12-beta] - 2026-04-10
 
 - fix(ai): coaching and nutrition routers now return HTTP 429 on `RESOURCE_EXHAUSTED` instead of crashing with 500
