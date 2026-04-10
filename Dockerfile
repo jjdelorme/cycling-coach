@@ -11,7 +11,7 @@ ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 RUN npm run build
 
 # Stage 2: Python app serving built frontend
-FROM python:3.13-slim
+FROM python:3.12-slim
 WORKDIR /app
 ARG APP_VERSION=dev
 RUN echo "${APP_VERSION}" > VERSION
