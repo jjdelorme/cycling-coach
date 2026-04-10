@@ -3,6 +3,7 @@
 import math
 from datetime import datetime, timedelta
 from server.database import get_db, get_athlete_setting, get_all_athlete_settings
+from server.utils.dates import get_request_tz, user_today
 from server.queries import get_current_pmc_row, get_pmc_row_for_date, get_power_bests_rows, get_ftp_history_rows, get_periodization_phases
 from server.zones import compute_power_zones, compute_hr_zones
 
@@ -146,7 +147,7 @@ def get_recent_rides(days_back: int = 7) -> list[dict]:
     Returns:
         List of ride summaries with date, sport, duration, TSS, power, HR.
     """
-    cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(get_request_tz()) - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
     with get_db() as conn:
         rows = conn.execute(
@@ -186,8 +187,9 @@ def get_upcoming_workouts(days_ahead: int = 7) -> list[dict]:
     Returns:
         List of planned workouts with date, name, duration.
     """
-    today = datetime.now().strftime("%Y-%m-%d")
-    end = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    _now = datetime.now(get_request_tz())
+    today = _now.strftime("%Y-%m-%d")
+    end = (_now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
 
     with get_db() as conn:
         rows = conn.execute(
@@ -241,7 +243,7 @@ def get_training_summary(period: str = "month") -> dict:
     else:
         days = 365
 
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(get_request_tz()) - timedelta(days=days)).strftime("%Y-%m-%d")
 
     with get_db() as conn:
         row = conn.execute(
@@ -291,7 +293,7 @@ def get_periodization_status() -> dict:
     Returns:
         Current phase info and all phases with dates.
     """
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = user_today()
 
     with get_db() as conn:
         phases = get_periodization_phases(conn)
@@ -590,8 +592,9 @@ def get_power_curve(start_date: str = "", end_date: str = "", last_n_days: int =
         Dictionary with best power at each standard duration.
     """
     if last_n_days > 0:
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=last_n_days)).strftime("%Y-%m-%d")
+        _now = datetime.now(get_request_tz())
+        end_date = _now.strftime("%Y-%m-%d")
+        start_date = (_now - timedelta(days=last_n_days)).strftime("%Y-%m-%d")
     elif not start_date and not end_date:
         start_date = None
         end_date = None

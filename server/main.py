@@ -176,7 +176,22 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class ClientTimezoneMiddleware(BaseHTTPMiddleware):
+    """Extract X-Client-Timezone header; store validated IANA name in request.state."""
+
+    async def dispatch(self, request: Request, call_next):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        tz_name = request.headers.get("X-Client-Timezone", "UTC")
+        try:
+            ZoneInfo(tz_name)  # validate only
+        except (ZoneInfoNotFoundError, KeyError):
+            tz_name = "UTC"
+        request.state.client_tz_str = tz_name
+        return await call_next(request)
+
+
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(ClientTimezoneMiddleware)
 app.add_middleware(OTelTraceBridge)
 
 # --- OpenTelemetry setup ---

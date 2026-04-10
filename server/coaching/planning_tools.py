@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from server.database import get_db, get_setting, set_setting, get_all_settings, get_athlete_setting, set_athlete_setting
+from server.utils.dates import get_request_tz, user_today
 from server.queries import get_current_ftp, get_periodization_phases, get_week_planned_and_actual
 from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates, calculate_planned_tss
 from server.services.intervals_icu import push_workout, delete_event, compute_sync_hash, is_configured as icu_is_configured
@@ -391,7 +392,7 @@ def get_week_summary(date: str = "") -> dict:
         Weekly overview with planned, actual rides, and compliance.
     """
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     dt = datetime.fromisoformat(date)
     start = dt - timedelta(days=dt.weekday())
@@ -447,7 +448,8 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
     if not icu_is_configured():
         return {"status": "error", "message": "intervals.icu is not configured. Cannot sync to Garmin."}
 
-    now_iso = datetime.now().isoformat(timespec="seconds")
+    _now = datetime.now(get_request_tz())
+    now_iso = _now.isoformat(timespec="seconds")
 
     with get_db() as conn:
         ftp = get_current_ftp(conn)
@@ -466,9 +468,8 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
                 ).fetchall()
         else:
             # Sync all upcoming workouts for the current week
-            today = datetime.now().strftime("%Y-%m-%d")
-            dt = datetime.now()
-            end = dt + timedelta(days=(6 - dt.weekday()))
+            today = _now.strftime("%Y-%m-%d")
+            end = _now + timedelta(days=(6 - _now.weekday()))
             end_str = end.strftime("%Y-%m-%d")
             rows = conn.execute(
                 "SELECT id, date, name, workout_xml, total_duration_s, icu_event_id, sync_hash FROM planned_workouts WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL",
@@ -811,7 +812,7 @@ def update_athlete_setting(key: str, value: str, date_set: str = "") -> dict:
         "status": "success",
         "key": key,
         "value": value,
-        "date_set": date_set or datetime.now().strftime("%Y-%m-%d"),
+        "date_set": date_set or user_today(),
         "sync_status": sync_status,
         "message": f"Updated {key} to {value}. This structured benchmark will be used for future metric calculations and interval analysis. Changes were {'successfully' if sync_status == 'synced' else 'not'} pushed to Intervals.icu.",
     }

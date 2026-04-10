@@ -113,7 +113,12 @@ function TrainingPlanOverview() {
     d.setHours(0, 0, 0, 0)
     return d
   }, [])
-  const todayStr = useMemo(() => today.toISOString().slice(0, 10), [today])
+  const todayStr = useMemo(() => {
+    const y = today.getFullYear()
+    const m = String(today.getMonth() + 1).padStart(2, '0')
+    const d = String(today.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }, [today])
 
   const todayIdx = useMemo(() => {
     if (!overview) return -1

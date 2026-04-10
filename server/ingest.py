@@ -33,6 +33,21 @@ def _semicircles_to_degrees(val):
     return val
 
 
+def _utc_to_local_date(start_time: str, tz_name: str) -> str:
+    """Convert a UTC ISO8601 FIT timestamp to a local YYYY-MM-DD date."""
+    if not start_time or len(start_time) < 10:
+        return start_time[:10] if start_time else ""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone
+        dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    except Exception:
+        return start_time[:10]
+
+
 def file_hash(filepath):
     return hashlib.md5(open(filepath, "rb").read()).hexdigest()
 
@@ -81,7 +96,14 @@ def parse_ride_json(filepath, conn=None):
     if not start_time or not session.get("total_timer_time"):
         return None, None, None, None
 
-    ride_date = start_time[:10] if len(start_time) >= 10 else start_time
+    _tz_name = "UTC"
+    if conn:
+        _tz_row = conn.execute(
+            "SELECT value FROM athlete_settings WHERE key = 'timezone' AND is_active = TRUE"
+        ).fetchone()
+        if _tz_row:
+            _tz_name = _tz_row["value"] or "UTC"
+    ride_date = _utc_to_local_date(start_time, _tz_name)
     sport = (session.get("sport") or sport_info.get("sport") or "cycling").lower()
 
     # 1. Extract & Hierarchy for FTP/Weight
@@ -175,7 +197,7 @@ def parse_ride_json(filepath, conn=None):
     total_work = session.get("total_work", 0) or 0
 
     ride = {
-        "date": start_time[:10] if len(start_time) >= 10 else start_time,
+        "date": ride_date,
         "start_time": start_time,
         "filename": os.path.basename(filepath),
         "sport": sport_info.get("sport", "unknown"),
@@ -401,7 +423,8 @@ def compute_daily_pmc(conn, since_date: str | None = None):
         return settings_list[idx][1] if idx >= 0 else None
 
     all_ride_dates = list(daily_tss.keys())
-    end = datetime.today()
+    from server.utils.dates import user_today
+    end = datetime.fromisoformat(user_today())
 
     ctl = 0.0
     atl = 0.0

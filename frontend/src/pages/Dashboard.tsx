@@ -88,7 +88,8 @@ function SevenDayStrip({ data, today, days: numDays = 7 }: { data: DailySummary[
   for (let i = numDays - 1; i >= 0; i--) {
     const d = new Date(today + 'T00:00:00')
     d.setDate(d.getDate() - i)
-    dates.push(d.toISOString().slice(0, 10))
+    const y = d.getFullYear(), mo = String(d.getMonth() + 1).padStart(2, '0'), dy = String(d.getDate()).padStart(2, '0')
+    dates.push(`${y}-${mo}-${dy}`)
   }
 
   const entries = dates.map((date) => ({ date, summary: byDate.get(date) ?? null }))
@@ -247,7 +248,8 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect }: Props) {
   )
 
   // Find next upcoming workout (today if no ride yet, otherwise tomorrow+)
-  const today = new Date().toISOString().slice(0, 10)
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const rodeTodayAlready = rides?.some((r) => r.date === today) ?? false
 
   const nextWorkout = useMemo(() => {

@@ -34,7 +34,8 @@ def get_latest_metric(conn, key: str, as_of_date: str) -> float:
 
 def get_current_ftp(conn) -> int:
     """Get current FTP: prefer athlete_log/settings, fall back to latest ride."""
-    val = int(get_latest_metric(conn, "ftp", datetime.now().strftime("%Y-%m-%d")))
+    from server.utils.dates import user_today
+    val = int(get_latest_metric(conn, "ftp", user_today()))
     if val > 0:
         return val
 
@@ -69,7 +70,8 @@ def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | No
     """
     if start_date or end_date:
         sd = start_date or "2000-01-01"
-        ed = end_date or datetime.now().strftime("%Y-%m-%d")
+        from server.utils.dates import user_today
+        ed = end_date or user_today()
         rows = conn.execute(
             """SELECT DISTINCT ON (duration_s) duration_s, power, avg_hr, date, ride_id
                FROM power_bests

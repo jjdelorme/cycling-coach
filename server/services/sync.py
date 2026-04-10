@@ -44,6 +44,17 @@ def _tlog(msg: str) -> str:
     return f"[{_now_iso()}] {msg}"
 
 
+def _get_athlete_tz():
+    """Read the stored athlete timezone from athlete_settings; fall back to UTC."""
+    from zoneinfo import ZoneInfo
+    from server.database import get_athlete_setting
+    tz_name = get_athlete_setting("timezone") or "UTC"
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
 # ---------------------------------------------------------------------------
 # Watermark helpers
 # ---------------------------------------------------------------------------
@@ -360,6 +371,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     earliest_date: str | None = None
 
     # Determine date range from watermark
+    _tz = _get_athlete_tz()
     watermark = get_watermark("rides_newest", conn=conn)
     if watermark:
         # Re-fetch from watermark date (not day after) — a ride may have been
@@ -367,9 +379,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
         # Dedup logic handles any rides we already have.
         oldest = datetime.fromisoformat(watermark).strftime("%Y-%m-%d")
     else:
-        oldest = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        oldest = (datetime.now(_tz) - timedelta(days=365)).strftime("%Y-%m-%d")
 
-    newest = datetime.now().strftime("%Y-%m-%d")
+    newest = datetime.now(_tz).strftime("%Y-%m-%d")
 
     if oldest > newest:
         msg = "Rides already up to date"
@@ -636,8 +648,10 @@ async def _download_planned_workouts(sync_id: str, log_lines: list[str], conn) -
     Returns the number of workouts imported.
     """
     t0 = time.monotonic()
-    today = datetime.now().strftime("%Y-%m-%d")
-    end_date = (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d")
+    _tz = _get_athlete_tz()
+    _now_local = datetime.now(_tz)
+    today = _now_local.strftime("%Y-%m-%d")
+    end_date = (_now_local + timedelta(days=28)).strftime("%Y-%m-%d")
 
     msg = f"Checking intervals.icu for planned workouts ({today} to {end_date})..."
     logger.info(msg)
@@ -705,12 +719,14 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
 
     # Get watermark - tracks the newest date we've synced workouts for
     watermark = get_watermark("workouts_synced_through", conn=conn)
-    today = datetime.now().strftime("%Y-%m-%d")
+    _tz = _get_athlete_tz()
+    _now_local = datetime.now(_tz)
+    today = _now_local.strftime("%Y-%m-%d")
 
     # Only sync workouts from today onward (no point syncing past workouts)
     start_date = today
     # Look ahead 4 weeks
-    end_date = (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d")
+    end_date = (_now_local + timedelta(days=28)).strftime("%Y-%m-%d")
 
     msg = f"Checking workouts to sync: {start_date} to {end_date}"
     logger.info(msg)

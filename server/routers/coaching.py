@@ -1,10 +1,12 @@
 """AI coaching chat and session endpoints."""
 
 import uuid
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from zoneinfo import ZoneInfo
 
 from server.auth import CurrentUser, require_read, require_write
+from server.dependencies import get_client_tz
 from server.models.schemas import (
     ChatRequest, ChatResponse, SessionSummary, SessionDetail, SessionMessage,
 )
@@ -14,15 +16,21 @@ router = APIRouter(prefix="/api/coaching", tags=["coaching"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(require_read)):
+async def chat_endpoint(req: ChatRequest, request: Request, user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     from server.coaching.agent import chat
 
     session_id = req.session_id or str(uuid.uuid4())
+
+    from server.database import get_athlete_setting, set_athlete_setting
+    tz_str = getattr(request.state, "client_tz_str", "UTC")
+    if tz_str != "UTC" and get_athlete_setting("timezone") != tz_str:
+        set_athlete_setting("timezone", tz_str)
 
     response = await chat(
         message=req.message,
         session_id=session_id,
         user=user,
+        tz=tz,
     )
 
     return ChatResponse(response=response, session_id=session_id)

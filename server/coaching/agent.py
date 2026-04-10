@@ -89,10 +89,12 @@ def _build_system_instruction(ctx) -> str:
     from datetime import datetime
     from server.database import get_all_settings, get_all_athlete_settings, get_db
     from server.queries import get_current_pmc_row
+    from server.utils.dates import get_request_tz
     settings = get_all_settings()
     benchmarks = get_all_athlete_settings()
 
-    today = datetime.now()
+    tz = get_request_tz()
+    today = datetime.now(tz)
     today_str = today.strftime("%A, %B %d, %Y")  # e.g. "Friday, March 28, 2026"
     today_iso = today.strftime("%Y-%m-%d")
 
@@ -250,7 +252,7 @@ def get_runner():
     return _runner, _session_service, _memory_service
 
 
-async def chat(message: str, user_id: str = "athlete", session_id: str = "default", user=None) -> str:
+async def chat(message: str, user_id: str = "athlete", session_id: str = "default", user=None, tz=None) -> str:
     """Send a message to the coaching agent and get a response."""
     import os
 
@@ -287,6 +289,10 @@ async def chat(message: str, user_id: str = "athlete", session_id: str = "defaul
         _current_user_role.role = user.role
     else:
         _current_user_role.role = "admin"
+
+    from server.utils.dates import set_request_tz
+    from zoneinfo import ZoneInfo
+    set_request_tz(tz if tz is not None else ZoneInfo("UTC"))
 
     runner, session_service, memory_service = get_runner()
 

@@ -3,8 +3,10 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from server.auth import CurrentUser, require_read, require_write
+from server.dependencies import get_client_tz
 from server.database import get_db
 from server.models.schemas import RideSummary, RideDetail, RideRecord, RideLap, WeeklySummary, MonthlySummary, DailySummary
 from server.ingest import compute_daily_pmc
@@ -87,9 +89,11 @@ def aggregate_daily_rides(rows: list[dict], days: int = 7) -> list[DailySummary]
 def daily_summary(
     days: int = Query(7, ge=1, le=90),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
-    from datetime import date as dt_date, timedelta
-    since = (dt_date.today() - timedelta(days=days - 1)).isoformat()
+    from datetime import datetime, timedelta
+    from server.utils.dates import user_today
+    since = (datetime.fromisoformat(user_today(tz)) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     with get_db() as conn:
         rows = conn.execute(
             "SELECT date, duration_s, tss, total_calories, distance_m, total_ascent, avg_power FROM rides WHERE date >= %s ORDER BY date",
