@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.11-beta] - 2026-04-10
+
+- fix(nutrition): remove `capture` attribute from meal photo input so mobile users can choose between camera and photo library
+- docs: document Withings weight override flow (disconnect → update → reconnect) in README
+
 ## [v1.8.10-beta] - 2026-04-10
 
 - fix(withings): derive OAuth redirect URI from incoming request headers (`x-forwarded-proto` + `host`) instead of a static env var — works correctly for any Cloud Run URL including tagged test deployments
