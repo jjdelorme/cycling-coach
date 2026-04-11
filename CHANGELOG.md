@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.18-beta] - 2026-04-11
+
+- fix(ingest): add missing `RIDES_DIR` and `WORKOUTS_DIR` module constants — `python -m server.ingest` crashed with `NameError` on startup
+- refactor(db): replace `init_db()` with numbered SQL migration system (`migrations/` + `server/migrate.py`)
+- fix(calendar,rides): improve sync UX, batch week plans, add elevation chart
+- docs: document database migration system in AGENTS.md
+
 ## [v1.8.17-beta] - 2026-04-11
 
 - fix(sessions): add `session_type` column to `chat_sessions` to properly distinguish coaching vs nutrition sessions — replaces broken `LIKE 'nutrition-%'` filter, includes data migration for existing sessions
