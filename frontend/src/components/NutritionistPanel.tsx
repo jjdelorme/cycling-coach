@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useNutritionistChat, useNutritionSessions } from '../hooks/useApi'
 import { fetchNutritionSession } from '../lib/api'
 import {
@@ -190,8 +191,9 @@ export default function NutritionistPanel({ initialContext }: Props) {
                   {m.role === 'assistant' ? (
                     <div className="prose prose-sm prose-invert max-w-none
                       [&_p]:my-1.5 [&_ul]:my-2 [&_li]:my-1 [&_strong]:text-green [&_strong]:font-bold
-                      [&_code]:bg-surface-low [&_code]:px-1 [&_code]:rounded [&_code]:text-blue">
-                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                      [&_code]:bg-surface-low [&_code]:px-1 [&_code]:rounded [&_code]:text-blue
+                      coach-prose">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                     </div>
                   ) : (
                     <p className="whitespace-pre-wrap">{m.content}</p>
