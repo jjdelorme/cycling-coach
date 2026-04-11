@@ -23,6 +23,9 @@ from server.metrics import (
 
 logger = get_logger(__name__)
 
+RIDES_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "json")
+WORKOUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "planned_workouts")
+
 
 def _semicircles_to_degrees(val):
     """Convert Garmin semicircle coordinates to decimal degrees, or return None."""
