@@ -38,11 +38,11 @@ export default function NutritionistPanel({ initialContext }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto-send initial context if provided (from "Ask Nutritionist" on a MacroCard)
+  // Pre-fill input with context if provided (from "Ask Nutritionist" on a MacroCard)
   useEffect(() => {
     if (initialContext && !sentInitialRef.current) {
       sentInitialRef.current = true
-      sendMessage(initialContext)
+      setInput(initialContext)
     }
   }, [initialContext])
 
