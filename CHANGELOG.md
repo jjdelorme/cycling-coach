@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.20-beta] - 2026-04-11
+
+- feat(ui): add markdown table rendering in coach and nutritionist panels — GFM tables from AI responses now display as styled HTML tables instead of raw text
+
 ## [v1.8.19-beta] - 2026-04-11
 
 - fix(deploy): add Cloud SQL Auth Proxy to migration step in `cloudbuild-test.yaml` — Cloud Build lacks VPC access to the Cloud SQL Unix socket; proxy creates the socket at build time
