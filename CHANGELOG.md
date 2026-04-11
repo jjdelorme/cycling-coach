@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.16-beta] - 2026-04-11
+
+- fix(nutrition): pre-fill nutritionist chat input instead of auto-sending — "Ask Nutritionist" now queues context for review, and recent sessions list is visible per tab
+- chore: add `/dev` slash command for building frontend and starting server
+
 ## [v1.8.15-beta] - 2026-04-10
 
 - fix(nutrition): serve meal photos via API proxy (`/api/nutrition/photos/{id}`) instead of GCS signed URLs — eliminates signBlob permission issues and URL expiry on Cloud Run
