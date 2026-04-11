@@ -2,89 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.8.20-beta] - 2026-04-11
+## [v1.9.0] - 2026-04-11
 
-- feat(ui): add markdown table rendering in coach and nutritionist panels — GFM tables from AI responses now display as styled HTML tables instead of raw text
+### Features
+- **Withings weight integration:** unified weight resolver (`server/services/weight.py`) with Withings-priority chain; Withings sync and webhook push measurements to Intervals.icu; Settings field disabled when managed by Withings
+- **AI nutritionist agent:** full nutrition tab with meal capture (photo + voice), macro tracking cards, meal timeline, daily summary strip, and dedicated nutritionist chat panel
+- **AI coach markdown tables:** GFM table rendering in coach and nutritionist chat panels
+- **Dashboard:** rolling 7-day multi-axis line chart with toggleable metrics (TSS, Hours, Kcal, Distance, Climbing, Avg W)
+- **Ride detail:** calories displayed on ride detail and calendar preview
+- **Rate limiting UX:** coaching and nutrition panels show "model is busy" warning with retry button on 429
 
-## [v1.8.19-beta] - 2026-04-11
+### Architecture
+- **Database migrations:** replaced `init_db()` with numbered SQL migration system (`migrations/` + `server/migrate.py`); Cloud Build applies pending migrations on beta deploy
+- **Weight service:** all components (coaching, nutrition, ingest) route through the weight resolver instead of reading `athlete_settings` directly
+- **Chat sessions:** `session_type` column distinguishes coaching vs nutrition sessions; replaces broken `LIKE 'nutrition-%'` filter
+- **Meal photos:** served via API proxy (`/api/nutrition/photos/{id}`) instead of GCS signed URLs
 
-- fix(deploy): add Cloud SQL Auth Proxy to migration step in `cloudbuild-test.yaml` — Cloud Build lacks VPC access to the Cloud SQL Unix socket; proxy creates the socket at build time
-- fix(deploy): remove migration step from prod `cloudbuild.yaml` — test and prod share the same database, so migrations are applied once during beta deploy
-- fix(deploy): add `COPY migrations/ migrations/` to Dockerfile — SQL migration files were missing from the container image
-- docs: document Cloud Build deployer SA permissions (Cloud SQL Client, Secret Manager) in README
+### Deploy & Infrastructure
+- **Withings OAuth:** redirect URI derived from request headers — works for any Cloud Run URL including tagged test deployments
+- **Cloud Build:** Cloud SQL Auth Proxy added to test migration step; `COPY migrations/` added to Dockerfile; deployer SA permissions documented
+- **Dependencies:** `google-adk` 1.29.0, `google-cloud-aiplatform` 1.147.0, Docker base image switched to `python:3.12-slim`
 
-## [v1.8.18-beta] - 2026-04-11
-
-- fix(ingest): add missing `RIDES_DIR` and `WORKOUTS_DIR` module constants — `python -m server.ingest` crashed with `NameError` on startup
-- refactor(db): replace `init_db()` with numbered SQL migration system (`migrations/` + `server/migrate.py`)
-- fix(calendar,rides): improve sync UX, batch week plans, add elevation chart
-- docs: document database migration system in AGENTS.md
-
-## [v1.8.17-beta] - 2026-04-11
-
-- fix(sessions): add `session_type` column to `chat_sessions` to properly distinguish coaching vs nutrition sessions — replaces broken `LIKE 'nutrition-%'` filter, includes data migration for existing sessions
-- fix(sessions): invalidate nutrition session list cache after sending a chat message so new sessions appear immediately
-
-## [v1.8.16-beta] - 2026-04-11
-
-- fix(nutrition): pre-fill nutritionist chat input instead of auto-sending — "Ask Nutritionist" now queues context for review, and recent sessions list is visible per tab
-- chore: add `/dev` slash command for building frontend and starting server
-
-## [v1.8.15-beta] - 2026-04-10
-
-- fix(nutrition): serve meal photos via API proxy (`/api/nutrition/photos/{id}`) instead of GCS signed URLs — eliminates signBlob permission issues and URL expiry on Cloud Run
-
-## [v1.8.14-beta] - 2026-04-10
-
-- fix(nutrition): use IAM `signBlob` for meal photo signed URLs on Cloud Run — compute engine credentials lack a private key, so `generate_signed_url` now delegates signing via the IAM API
-
-## [v1.8.13-beta] - 2026-04-10
-
-- fix(nutrition): float parameter defaults in `update_meal` ADK tool changed from `0` to `0.0` — newer ADK strictly rejects int defaults for float params
-- chore(deps): upgrade `google-adk` to 1.29.0 and `google-cloud-aiplatform` to 1.147.0
-- chore(docker): switch to `python:3.12-slim` to match local dev environment and eliminate package version drift
-
-## [v1.8.12-beta] - 2026-04-10
-
-- fix(ai): coaching and nutrition routers now return HTTP 429 on `RESOURCE_EXHAUSTED` instead of crashing with 500
-- fix(ai): both coach panels show a "model is busy" warning with a Try Again button on 429; previously showed a generic error with no retry
-
-## [v1.8.11-beta] - 2026-04-10
-
-- fix(nutrition): remove `capture` attribute from meal photo input so mobile users can choose between camera and photo library
-- docs: document Withings weight override flow (disconnect → update → reconnect) in README
-
-## [v1.8.10-beta] - 2026-04-10
-
-- fix(withings): derive OAuth redirect URI from incoming request headers (`x-forwarded-proto` + `host`) instead of a static env var — works correctly for any Cloud Run URL including tagged test deployments
-- fix(withings): webhook subscription URL now also derived from the request instead of config
-- chore(deploy): remove `WITHINGS_REDIRECT_URI` env var from both cloudbuild files (no longer needed)
-
-## [v1.8.9-beta] - 2026-04-10
-
-- fix(deploy): derive `test---` Cloud Run URL from production URL via `sed` — simpler and more reliable than `jq` traffic array lookup
-
-## [v1.8.8-beta] - 2026-04-10
-
-- fix(deploy): `cloudbuild-test.yaml` — use `jq` to dynamically resolve the stable `test`-tagged Cloud Run URL for `WITHINGS_REDIRECT_URI`; remove hardcoded URL substitution
-
-## [v1.8.7-beta] - 2026-04-10
-
-- fix(deploy): `cloudbuild-test.yaml` — remove embedded multi-line Python that broke YAML parsing; use stable `_TEST_URL` substitution for Withings redirect URI instead
-
-## [v1.8.6-beta] - 2026-04-10
-
-- fix(withings): set `WITHINGS_REDIRECT_URI` env var in Cloud Run deployments — OAuth flow was falling back to `localhost:8000` causing redirect_uri_mismatch errors
-- fix(deploy): `cloudbuild-test.yaml` derives the stable `test---` tagged URL for the Withings redirect URI; falls back to main service URL on first deploy
-
-## [v1.8.4-beta] - 2026-04-10
-
-- feat(weight): add `server/services/weight.py` — single source of truth for athlete weight with Withings-priority chain (body_measurements → rides → athlete_settings → 75 kg default)
-- feat(weight): Withings sync and webhook now push each measurement to Intervals.icu wellness endpoint; ICU failure never breaks the Withings sync
-- fix(weight): FTP history W/kg used `MAX(weight)` per month — changed to `AVG(weight)` for a representative monthly figure
-- feat(settings): weight field shows "Managed by Withings" and is disabled when Withings is connected with measurements (prevents conflicting manual overrides)
-- refactor(weight): coaching agent, coaching tools, nutrition agent, nutrition BMR, and ride ingest all route through the weight resolver instead of reading `athlete_settings` directly
-- test: 16 new/updated unit tests — 8 for weight service priority chain, 8 for Withings→ICU push and failure isolation
+### Tests
+- 16 unit tests for weight service and Withings→ICU push
+- Unit and integration tests for nutrition API, rate limiting, and agent tool wiring
 
 ## [v1.8.3] - 2026-04-10
 
