@@ -18,6 +18,7 @@ RUN echo "${APP_VERSION}" > VERSION
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY server/ server/
+COPY migrations/ migrations/
 COPY --from=frontend /app/frontend/dist frontend/dist
 EXPOSE 8080
 CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8080"]

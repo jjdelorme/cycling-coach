@@ -30,17 +30,50 @@ steps:
       - |
         docker push ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION)
 
-  # Run database migrations before deploying
+  # Download Cloud SQL Auth Proxy for migration step
+  - name: 'gcr.io/cloud-builders/curl'
+    args:
+      - '-fsSL'
+      - '-o'
+      - '/workspace/cloud-sql-proxy'
+      - 'https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64'
+
+  # Run database migrations via Cloud SQL Proxy
   - name: 'gcr.io/cloud-builders/docker'
     id: 'migrate'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
+        chmod +x /workspace/cloud-sql-proxy
+        mkdir -p /workspace/cloudsql
+        /workspace/cloud-sql-proxy ${_CLOUD_SQL_INSTANCE} \
+          --unix-socket /workspace/cloudsql &
+        PROXY_PID=$$!
+
+        # Wait for proxy socket
+        for i in $$(seq 1 30); do
+          if [ -S "/workspace/cloudsql/${_CLOUD_SQL_INSTANCE}/.s.PGSQL.5432" ]; then
+            echo "Cloud SQL Proxy ready"
+            break
+          fi
+          if [ $$i -eq 30 ]; then
+            echo "ERROR: Cloud SQL Proxy failed to start"
+            kill $$PROXY_PID 2>/dev/null
+            exit 1
+          fi
+          sleep 1
+        done
+
         docker run --rm \
-          -e CYCLING_COACH_DATABASE_URL=$$CYCLING_COACH_DATABASE_URL \
+          -v /workspace/cloudsql:/cloudsql \
+          -e CYCLING_COACH_DATABASE_URL="$$CYCLING_COACH_DATABASE_URL" \
           ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION) \
           python -m server.migrate
+
+        EXIT_CODE=$$?
+        kill $$PROXY_PID 2>/dev/null
+        exit $$EXIT_CODE
     secretEnv: ['CYCLING_COACH_DATABASE_URL']
 
   # Deploy to Cloud Run under the 'test' tag (no production traffic)
@@ -81,6 +114,7 @@ substitutions:
   _SERVICE_NAME: cycling-coach
   _REGION: us-central1
   _REPO: cloud-run-source-deploy
+  _CLOUD_SQL_INSTANCE: jasondel-cloudrun10:us-central1:cycling-coach-db
 
 availableSecrets:
   secretManager:
