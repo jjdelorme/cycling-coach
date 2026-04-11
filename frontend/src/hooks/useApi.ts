@@ -301,6 +301,7 @@ export function useNutritionistChat() {
       // Refresh meal data in case the nutritionist modified meals
       qc.invalidateQueries({ queryKey: ['meals'] })
       qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+      qc.invalidateQueries({ queryKey: ['nutrition-sessions'] })
     },
   })
 }

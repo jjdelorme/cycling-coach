@@ -4,7 +4,6 @@ import { useNutritionistChat, useNutritionSessions } from '../hooks/useApi'
 import { fetchNutritionSession } from '../lib/api'
 import {
   UtensilsCrossed,
-  Plus,
   Send,
   History,
   RefreshCw,
@@ -89,25 +88,8 @@ export default function NutritionistPanel({ initialContext }: Props) {
     sendMessage(msg)
   }
 
-  const newSession = () => {
-    setMessages([])
-    setSessionId(undefined)
-    sentInitialRef.current = false
-  }
-
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Session toolbar */}
-      <div className="flex items-center justify-end px-5 py-2 border-b border-border bg-surface-low/30">
-        <button
-          onClick={newSession}
-          className="p-1.5 text-text-muted hover:text-green hover:bg-green/5 rounded-md transition-all"
-          title="New Nutritionist Chat"
-        >
-          <Plus size={16} />
-        </button>
-      </div>
-
       {/* Recent sessions */}
       {messages.length === 0 && sessions && sessions.length > 0 && (
         <div className="border-b border-border px-5 py-4 bg-surface-low/30">

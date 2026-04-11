@@ -165,6 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_power_bests_composite ON power_bests(duration_s, 
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL DEFAULT 'athlete',
+    session_type TEXT NOT NULL DEFAULT 'coaching',
     title TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -259,6 +260,11 @@ CREATE INDEX IF NOT EXISTS idx_sync_runs_status ON sync_runs(status);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at);
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS session_type TEXT NOT NULL DEFAULT 'coaching';
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_type ON chat_sessions(session_type);
+UPDATE chat_sessions SET session_type = 'nutrition'
+  WHERE session_type = 'coaching'
+    AND session_id IN (SELECT DISTINCT session_id FROM chat_events WHERE author = 'nutritionist');
 CREATE INDEX IF NOT EXISTS idx_coach_memory_user ON coach_memory(user_id);
 
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS has_power_data BOOLEAN DEFAULT FALSE;

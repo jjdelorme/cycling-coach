@@ -404,8 +404,7 @@ async def list_nutrition_sessions(user: CurrentUser = Depends(require_read)):
         # The DbSessionService uses chat_sessions table
         rows = conn.execute(
             "SELECT session_id, title, created_at, updated_at FROM chat_sessions "
-            "WHERE session_id LIKE %s ORDER BY updated_at DESC",
-            ("nutrition-%",),
+            "WHERE session_type = 'nutrition' ORDER BY updated_at DESC"
         ).fetchall()
 
     return [

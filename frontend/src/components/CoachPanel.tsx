@@ -57,6 +57,7 @@ export default function CoachPanel({ onClose, viewContext, nutritionistContext }
   const [loadingSession, setLoadingSession] = useState(false)
   const [showAllSessions, setShowAllSessions] = useState(false)
   const [agentTab, setAgentTab] = useState<'coach' | 'nutritionist'>('coach')
+  const [nutritionistKey, setNutritionistKey] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const chat = useSendChat()
@@ -111,8 +112,12 @@ export default function CoachPanel({ onClose, viewContext, nutritionistContext }
   }
 
   const newSession = () => {
-    setMessages([])
-    setSessionId(undefined)
+    if (agentTab === 'nutritionist') {
+      setNutritionistKey(k => k + 1)
+    } else {
+      setMessages([])
+      setSessionId(undefined)
+    }
   }
 
   return (
@@ -330,7 +335,7 @@ export default function CoachPanel({ onClose, viewContext, nutritionistContext }
       )}
 
       {agentTab === 'nutritionist' && (
-        <NutritionistPanel initialContext={nutritionistContext} />
+        <NutritionistPanel key={nutritionistKey} initialContext={nutritionistContext} />
       )}
     </aside>
   )

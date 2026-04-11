@@ -38,7 +38,8 @@ async def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(require_re
 async def list_sessions(user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT session_id, title, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC"
+            "SELECT session_id, title, created_at, updated_at FROM chat_sessions "
+            "WHERE session_type = 'coaching' ORDER BY updated_at DESC"
         ).fetchall()
 
     return [
