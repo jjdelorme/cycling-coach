@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Line } from 'react-chartjs-2'
 import { Activity } from 'lucide-react'
 import { zoneColor, fmtTime } from '../lib/format'
+import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import { ChartJS } from '../lib/charts'
@@ -61,7 +62,7 @@ function buildLapIndexMap(sampleCount: number, downsampleStep: number, records: 
 const selectionDataMap = new WeakMap<ChartJS, { state: 'idle' | 'dragging' | 'locked'; startIdx: number | null; endIdx: number | null }>()
 
 interface Props {
-  records: { timestamp_utc?: string; power?: number; heart_rate?: number; cadence?: number }[]
+  records: { timestamp_utc?: string; power?: number; heart_rate?: number; cadence?: number; altitude?: number }[]
   laps: RideLap[]
   workout?: WorkoutDetail
   highlightedStep?: number | null
@@ -70,10 +71,12 @@ interface Props {
 
 export default function RideTimelineChart({ records, laps, workout, highlightedStep, highlightedLapIndex }: Props) {
   const cc = useChartColors()
+  const units = useUnits()
+  const elevScale = units === 'imperial' ? 3.28084 : 1
   const chartRef = useRef<ChartJS<'line'>>(null)
   const [selectionStats, setSelectionStats] = useState<{ duration: number; avgPower: number | null; avgHR: number | null; avgCadence: number | null } | null>(null)
 
-  const { chartData, stepIndexMap, lapIndexMap, downsampleStep } = useMemo(() => {
+  const { chartData, stepIndexMap, lapIndexMap, downsampleStep, altMin, altRange, hasElevation } = useMemo(() => {
     const maxPoints = 600
     const plannedOnly = records.length === 0 && workout?.steps && workout.steps.length > 0
 
@@ -104,8 +107,26 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
     if (sampled.some(r => r.heart_rate != null)) datasets.push({ label: 'Heart Rate', data: sampled.map(r => r.heart_rate ?? null), borderColor: 'rgba(233, 69, 96, 0.8)', backgroundColor: 'transparent', fill: false, borderWidth: 1.2, pointRadius: 0, tension: 0.2, yAxisID: 'y1', order: 1 })
     if (sampled.some(r => r.cadence != null)) datasets.push({ label: 'Cadence', data: sampled.map(r => r.cadence ?? null), borderColor: 'rgba(126, 200, 227, 0.6)', backgroundColor: 'transparent', fill: false, borderWidth: 1, pointRadius: 0, tension: 0.2, yAxisID: 'y2', order: 1 })
 
-    return { chartData: { labels, datasets }, stepIndexMap: sMap, lapIndexMap: lMap, downsampleStep: step }
-  }, [records, workout, laps])
+    const altitudes = sampled.map(r => r.altitude != null ? r.altitude * elevScale : null).filter((v): v is number => v != null)
+    const altMin = altitudes.length ? Math.min(...altitudes) : 0
+    const altMax = altitudes.length ? Math.max(...altitudes) : 100
+    const altRange = altMax - altMin || 1
+
+    if (sampled.some(r => r.altitude != null)) datasets.push({
+      label: `Elevation (${units === 'imperial' ? 'ft' : 'm'})`,
+      data: sampled.map(r => r.altitude != null ? Math.round(r.altitude * elevScale) : null),
+      borderColor: 'rgba(148, 163, 184, 0.3)',
+      backgroundColor: 'rgba(148, 163, 184, 0.08)',
+      fill: 'origin',
+      borderWidth: 1,
+      pointRadius: 0,
+      tension: 0.3,
+      yAxisID: 'yElev',
+      order: 3,
+    })
+
+    return { chartData: { labels, datasets }, stepIndexMap: sMap, lapIndexMap: lMap, downsampleStep: step, altMin, altMax, altRange, hasElevation: altitudes.length > 0 }
+  }, [records, workout, laps, elevScale, units])
 
   const highlightColor = useMemo(() => {
     if (highlightedStep != null && workout?.steps?.[highlightedStep]) {
@@ -171,7 +192,9 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
         <div className="flex items-center gap-4 text-[10px] font-bold text-text-muted uppercase tracking-widest">
           <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow" /> Power</span>
           <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red" /> HR</span>
+          <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[rgba(126,200,227,0.6)]" /> Cadence</span>
           {workout && <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full border border-dashed border-text-muted" /> Target</span>}
+          {hasElevation && <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-400/40" /> Elev</span>}
         </div>
       </div>
       <div className="p-5">
@@ -192,7 +215,8 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
               x: { ticks: { color: cc.tickColor, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
               y: { type: 'linear', position: 'left', title: { display: true, text: 'POWER (W)', color: 'rgba(245, 197, 24, 0.8)', font: { size: 9, weight: 'bold' } }, ticks: { color: 'rgba(245, 197, 24, 0.7)', font: { size: 10 } }, grid: { color: 'rgba(148, 163, 184, 0.1)' }, min: 0 },
               y1: { type: 'linear', position: 'right', title: { display: true, text: 'HR (BPM)', color: 'rgba(233, 69, 96, 0.8)', font: { size: 9, weight: 'bold' } }, ticks: { color: 'rgba(233, 69, 96, 0.7)', font: { size: 10 } }, grid: { display: false } },
-              y2: { type: 'linear', display: false, min: 0, max: 200 }
+              y2: { type: 'linear', display: false, min: 0, max: 200 },
+              yElev: { type: 'linear', display: false, position: 'right', min: altMin - altRange * 0.1, max: altMin + altRange * 4 }
             }
           } as import('react-chartjs-2').ChartProps<"line">["options"]} />
         </div>

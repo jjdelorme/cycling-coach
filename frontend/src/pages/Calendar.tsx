@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useRides, useDeleteWorkout } from '../hooks/useApi'
-import { fetchWeekPlan } from '../lib/api'
+import { fetchWeekPlansBatch } from '../lib/api'
 import { fmtDuration, fmtDistance, fmtSport } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useQuery } from '@tanstack/react-query'
@@ -97,13 +97,15 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
   const gridStart = toDateStr(calendarDays[0])
   const gridEnd = toDateStr(calendarDays[calendarDays.length - 1])
 
-  const { data: rides, isLoading: ridesLoading } = useRides({ start_date: gridStart, end_date: gridEnd, limit: 500 })
+  const { data: rides, isFetching: ridesFetching } = useRides({ start_date: gridStart, end_date: gridEnd, limit: 500 })
 
-  const { data: weekPlans, isLoading: plansLoading, refetch } = useQuery({
+  const { data: weekPlans, isFetching: plansFetching, refetch } = useQuery({
     queryKey: ['calendar-week-plans', weekMondays],
-    queryFn: async () => Promise.all(weekMondays.map((m) => fetchWeekPlan(m))),
+    queryFn: async () => fetchWeekPlansBatch(weekMondays),
     enabled: weekMondays.length > 0,
   })
+
+  const isSyncing = ridesFetching || plansFetching
 
   const allWorkouts = useMemo(() => {
     if (!weekPlans) return []
@@ -141,22 +143,19 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
         
         <div className="flex items-center gap-2 bg-surface rounded-lg p-1 border border-border shadow-sm">
           <button onClick={prevMonth} className="p-2 rounded-md transition-all text-text-muted hover:text-text hover:bg-surface-low"><ChevronLeft size={18} /></button>
-          <button onClick={() => refetch()} className="p-2 rounded-md transition-all text-text-muted hover:text-accent hover:bg-surface-low" title="Refresh"><RotateCw size={16} /></button>
+          <button onClick={() => refetch()} disabled={isSyncing} className={`p-2 rounded-md transition-all ${isSyncing ? 'text-accent' : 'text-text-muted hover:text-accent hover:bg-surface-low'}`} title="Refresh"><RotateCw size={16} className={isSyncing ? 'animate-spin' : ''} /></button>
           <button onClick={nextMonth} className="p-2 rounded-md transition-all text-text-muted hover:text-text hover:bg-surface-low"><ChevronRight size={18} /></button>
         </div>
       </div>
 
-      {(ridesLoading || plansLoading) && (
-        <div className="fixed top-20 right-8 z-50 animate-in fade-in zoom-in duration-300">
-          <div className="flex items-center gap-3 px-4 py-2 bg-accent text-white rounded-full shadow-lg shadow-accent/20">
-            <RotateCw size={14} className="animate-spin" />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Syncing Data</span>
-          </div>
-        </div>
-      )}
-
       {/* Calendar Grid */}
-      <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-md">
+      <div className="relative bg-surface rounded-xl border border-border overflow-hidden shadow-md">
+        {isSyncing && (
+          <div className="absolute inset-0 z-10 bg-bg/60 backdrop-blur-[1px] rounded-xl flex flex-col items-center justify-center gap-3 animate-in fade-in duration-300">
+            <RotateCw size={24} className="animate-spin text-accent" />
+            <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Syncing Data</span>
+          </div>
+        )}
         <div className="grid grid-cols-7 border-b border-border bg-surface-low">
           {DAY_HEADERS.map((d) => (
             <div key={d} className="text-center text-[10px] font-bold text-text-muted uppercase tracking-[0.2em] py-3">

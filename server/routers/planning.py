@@ -73,6 +73,32 @@ def get_week_plan(date: str, user: CurrentUser = Depends(require_read)):
     }
 
 
+@router.post("/week/batch")
+def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_read)):
+    """Get planned workouts for multiple weeks in a single request."""
+    from datetime import datetime, timedelta
+
+    if not dates or len(dates) > 10:
+        raise HTTPException(status_code=400, detail="Provide 1-10 dates")
+
+    results = []
+    with get_db() as conn:
+        for date in dates:
+            dt = datetime.fromisoformat(date)
+            start = dt - timedelta(days=dt.weekday())
+            end = start + timedelta(days=6)
+            start_str = start.strftime("%Y-%m-%d")
+            end_str = end.strftime("%Y-%m-%d")
+            planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
+            results.append({
+                "week_start": start_str,
+                "week_end": end_str,
+                "planned": planned,
+                "actual": actual,
+            })
+    return results
+
+
 @router.get("/weekly-overview")
 def weekly_overview(user: CurrentUser = Depends(require_read)):
     """Weekly rollup of planned vs actual hours and TSS across the full plan.
