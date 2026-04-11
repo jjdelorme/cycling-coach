@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.17-beta] - 2026-04-11
+
+- fix(sessions): add `session_type` column to `chat_sessions` to properly distinguish coaching vs nutrition sessions — replaces broken `LIKE 'nutrition-%'` filter, includes data migration for existing sessions
+- fix(sessions): invalidate nutrition session list cache after sending a chat message so new sessions appear immediately
+
 ## [v1.8.16-beta] - 2026-04-11
 
 - fix(nutrition): pre-fill nutritionist chat input instead of auto-sending — "Ask Nutritionist" now queues context for review, and recent sessions list is visible per tab
