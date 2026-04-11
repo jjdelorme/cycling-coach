@@ -10,8 +10,10 @@ import json
 import os
 from pathlib import Path
 
+import psycopg2
 import pytest
-from server.database import init_db, get_db
+from server.database import DATABASE_URL, get_db
+from server.migrate import run_migrations
 
 
 SEED_FILE = Path(__file__).parent / "seed" / "seed_data.json.gz"
@@ -67,8 +69,12 @@ def _load_seed_data(conn):
 
 @pytest.fixture(scope="session", autouse=True)
 def _init_test_db():
-    """Create schema and load seed data once per session."""
-    init_db()
+    """Apply migrations and load seed data once per session."""
+    raw_conn = psycopg2.connect(DATABASE_URL)
+    try:
+        run_migrations(raw_conn)
+    finally:
+        raw_conn.close()
     with get_db() as conn:
         # Only seed if database is empty
         row = conn.execute("SELECT COUNT(*) as cnt FROM rides").fetchone()

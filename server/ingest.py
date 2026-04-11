@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-from server.database import init_db, get_db
+from server.database import get_db
 from server.logging_config import get_logger
 from server.metrics import (
     clean_ride_data, 
@@ -691,7 +691,6 @@ def ingest_workouts(conn, workouts_dir=None):
 
 def run_ingestion():
     """Full ingestion pipeline."""
-    init_db()
     logger.info("Database: %s", os.environ.get("DATABASE_URL", "localhost"))
 
     with get_db() as conn:

@@ -30,6 +30,19 @@ steps:
       - |
         docker push ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION)
 
+  # Run database migrations before deploying
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'migrate'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker run --rm \
+          -e CYCLING_COACH_DATABASE_URL=$$CYCLING_COACH_DATABASE_URL \
+          ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION) \
+          python -m server.migrate
+    secretEnv: ['CYCLING_COACH_DATABASE_URL']
+
   # Deploy to Cloud Run under the 'test' tag (no production traffic)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
@@ -73,6 +86,8 @@ availableSecrets:
   secretManager:
     - versionName: projects/${PROJECT_ID}/secrets/GOOGLE_CLIENT_ID/versions/latest
       env: GOOGLE_CLIENT_ID
+    - versionName: projects/${PROJECT_ID}/secrets/CYCLING_COACH_DATABASE_URL/versions/latest
+      env: CYCLING_COACH_DATABASE_URL
 
 serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/cycling-coach-deployer@${PROJECT_ID}.iam.gserviceaccount.com'
 
