@@ -5,6 +5,7 @@ import time
 
 from google.adk.agents import Agent
 from google.adk.runners import Runner
+from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.preload_memory_tool import preload_memory_tool
 from google.genai import types
 
@@ -28,7 +29,9 @@ from server.coaching.tools import (
     get_power_curve,
     get_athlete_status,
     get_planned_workout_for_ride,
+    get_athlete_nutrition_status,
 )
+from server.nutrition.agent import get_nutritionist_agent
 from server.coaching.planning_tools import (
     replan_missed_day,
     generate_week_from_spec,
@@ -89,6 +92,7 @@ def _build_system_instruction(ctx) -> str:
     from datetime import datetime
     from server.database import get_all_settings, get_all_athlete_settings, get_db
     from server.queries import get_current_pmc_row
+    from server.services.weight import get_current_weight
     settings = get_all_settings()
     benchmarks = get_all_athlete_settings()
 
@@ -101,10 +105,12 @@ def _build_system_instruction(ctx) -> str:
         ftp = float(benchmarks.get("ftp", 0))
     except (ValueError, TypeError):
         ftp = 0.0
-    try:
-        weight_kg = float(benchmarks.get("weight_kg", 0))
-    except (ValueError, TypeError):
-        weight_kg = 0.0
+
+    # Resolve weight via priority chain (Withings → ride → settings → default)
+    with get_db() as conn:
+        weight_kg = get_current_weight(conn)
+    # Keep benchmarks dict consistent so formatted output reflects resolved weight
+    benchmarks["weight_kg"] = str(weight_kg)
 
     weight_lbs = round(weight_kg * 2.20462, 1) if weight_kg > 0 else 0.0
     w_kg = round(ftp / weight_kg, 2) if weight_kg > 0 else 0.0
@@ -187,7 +193,35 @@ Whenever you create or modify a planned workout (via replace_workout or generate
 Write notes that are specific and actionable. Example of a GOOD note: "Recovery spin after Tuesday's hard threshold work — keep HR under 130bpm, cadence 90+, avoid any climbs. Goal is to flush the legs, not to train." Example of a BAD note: "Easy ride today." Never leave notes generic or blank when you have context about the athlete's recent training, upcoming events, or current form.
 
 PLAN MANAGEMENT:
-{settings['plan_management']}{recent_context}"""
+{settings['plan_management']}{recent_context}
+
+NUTRITION INTEGRATION:
+You have two ways to access the athlete's nutritional data:
+
+1. QUICK CHECK — use get_athlete_nutrition_status (fast, direct DB query):
+   - Has the athlete eaten today? How many calories so far?
+   - What was their last meal?
+   - Current caloric balance (in vs out)
+   Use this for quick data checks before making coaching decisions.
+
+2. COMPLEX FUELING GUIDANCE — delegate to the nutritionist agent (slower, full AI reasoning):
+   - Pre-ride meal planning for rides > 2 hours
+   - Recovery nutrition strategy after hard training blocks
+   - Multi-day fueling plans for training camps or events
+   - Analyzing whether chronic under-fueling is affecting performance
+   The nutritionist has access to the full meal history, macro targets, and
+   specialized knowledge about sports nutrition.
+
+NUTRITION-AWARE COACH NOTES:
+For workouts longer than 90 minutes, include fueling guidance in your coach notes:
+1. Check the athlete's recent intake via get_athlete_nutrition_status
+2. For rides > 2 hours, include:
+   - Pre-ride meal recommendation (timing + approximate calories)
+   - On-bike fueling target (typically 60-90g carbs/hour for endurance)
+   - Post-ride recovery nutrition window
+3. If the athlete's recent intake suggests under-fueling, flag this prominently
+4. For particularly long or intense sessions (>3h or IF >0.85), delegate to
+   the nutritionist for detailed fueling guidance"""
 
 
 def _get_effective_model() -> str:
@@ -220,6 +254,8 @@ def _get_agent():
         get_power_curve,
         get_athlete_status,
         get_planned_workout_for_ride,
+        get_athlete_nutrition_status,
+        AgentTool(agent=get_nutritionist_agent()),  # v2 — full agent delegation
         get_week_summary,
         list_workout_templates,
         preload_memory_tool,

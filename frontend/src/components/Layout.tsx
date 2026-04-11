@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import CoachPanel from './CoachPanel'
 import UserAvatar from './UserAvatar'
 import { useTheme } from '../lib/theme'
@@ -8,6 +8,7 @@ import {
   Bike,
   CalendarDays,
   TrendingUp,
+  UtensilsCrossed,
   MessageSquare,
   Sun,
   Moon,
@@ -20,6 +21,7 @@ const tabs = [
   { key: 'rides', label: 'Rides', icon: Bike },
   { key: 'calendar', label: 'Calendar', icon: CalendarDays },
   { key: 'analysis', label: 'Analysis', icon: TrendingUp },
+  { key: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed },
 ] as const
 
 export type TabKey = (typeof tabs)[number]['key'] | 'settings' | 'admin'
@@ -35,12 +37,20 @@ interface LayoutProps {
   activeTab: TabKey
   onTabChange: (tab: TabKey) => void
   viewContext?: ViewContext
+  nutritionistContext?: string
+  onOpenNutritionist?: (context?: string) => void
   children: ReactNode
 }
 
-export default function Layout({ activeTab, onTabChange, viewContext, children }: LayoutProps) {
+export default function Layout({ activeTab, onTabChange, viewContext, nutritionistContext, children }: LayoutProps) {
   const [coachOpen, setCoachOpen] = useState(false)
   const { theme, toggle: toggleTheme } = useTheme()
+
+  // Auto-open the coach panel when a nutritionist context is injected
+  // (e.g. user clicks "Ask Nutritionist" on a MacroCard)
+  useEffect(() => {
+    if (nutritionistContext) setCoachOpen(true)
+  }, [nutritionistContext])
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const canSettings = user?.role === 'admin' || user?.role === 'readwrite' || user?.role === 'read'
@@ -128,7 +138,7 @@ export default function Layout({ activeTab, onTabChange, viewContext, children }
           {children}
         </main>
         {coachOpen && (
-          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} />
+          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} />
         )}
       </div>
 

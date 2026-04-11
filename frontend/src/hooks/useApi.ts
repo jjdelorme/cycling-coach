@@ -74,6 +74,9 @@ export function useZones(params?: api.DateRange) {
 export function useFTPHistory(params?: api.DateRange) {
   return useQuery({ queryKey: ['ftp-history', params], queryFn: () => api.fetchFTPHistory(params) })
 }
+export function useWeightHistory(params?: api.DateRange) {
+  return useQuery({ queryKey: ['weight-history', params], queryFn: () => api.fetchWeightHistory(params) })
+}
 
 // Athlete settings
 export function useAthleteSettings() {
@@ -197,5 +200,126 @@ export function useDailySummary(days = 7) {
   return useQuery({
     queryKey: ['daily-summary', days],
     queryFn: () => api.fetchDailySummary(days),
+  })
+}
+
+// Nutrition
+export function useMeals(params?: Parameters<typeof api.fetchMeals>[0]) {
+  return useQuery({
+    queryKey: ['meals', params],
+    queryFn: () => api.fetchMeals(params),
+  })
+}
+
+export function useMeal(id: number | null) {
+  return useQuery({
+    queryKey: ['meal', id],
+    queryFn: () => api.fetchMeal(id!),
+    enabled: id !== null,
+  })
+}
+
+export function useLogMeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ file, comment, mealType, audio, audioMimeType }: {
+      file: File; comment?: string; mealType?: string;
+      audio?: Blob; audioMimeType?: string;
+    }) => api.uploadMealPhoto(file, comment, mealType, audio, audioMimeType),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['meals'] })
+      qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+      qc.invalidateQueries({ queryKey: ['weekly-nutrition'] })
+    },
+  })
+}
+
+export function useUpdateMeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: Parameters<typeof api.updateMeal>[1] }) =>
+      api.updateMeal(id, body),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['meal', id] })
+      qc.invalidateQueries({ queryKey: ['meals'] })
+      qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+      qc.invalidateQueries({ queryKey: ['weekly-nutrition'] })
+    },
+  })
+}
+
+export function useDeleteMeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.deleteMeal(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['meals'] })
+      qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+      qc.invalidateQueries({ queryKey: ['weekly-nutrition'] })
+    },
+  })
+}
+
+export function useDailyNutrition(date?: string) {
+  return useQuery({
+    queryKey: ['daily-nutrition', date],
+    queryFn: () => api.fetchDailyNutrition(date),
+  })
+}
+
+export function useWeeklyNutrition(date?: string) {
+  return useQuery({
+    queryKey: ['weekly-nutrition', date],
+    queryFn: () => api.fetchWeeklyNutrition(date),
+  })
+}
+
+export function useMacroTargets() {
+  return useQuery({
+    queryKey: ['macro-targets'],
+    queryFn: api.fetchMacroTargets,
+  })
+}
+
+export function useUpdateMacroTargets() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.updateMacroTargets,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['macro-targets'] })
+      qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+    },
+  })
+}
+
+export function useNutritionistChat() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ message, session_id }: { message: string; session_id?: string }) =>
+      api.sendNutritionChat(message, session_id),
+    onSuccess: () => {
+      // Refresh meal data in case the nutritionist modified meals
+      qc.invalidateQueries({ queryKey: ['meals'] })
+      qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+      qc.invalidateQueries({ queryKey: ['nutrition-sessions'] })
+    },
+  })
+}
+
+export function useNutritionSessions() {
+  return useQuery({
+    queryKey: ['nutrition-sessions'],
+    queryFn: api.fetchNutritionSessions,
+  })
+}
+
+// Withings
+export function useWithingsStatus() {
+  const { isAuthenticated } = useAuth()
+  return useQuery({
+    queryKey: ['withings-status'],
+    queryFn: api.fetchWithingsStatus,
+    enabled: isAuthenticated,
+    refetchInterval: 30000,
   })
 }

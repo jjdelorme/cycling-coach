@@ -31,10 +31,32 @@ The platform acts as an intelligent layer on top of your existing cycling data e
 To ensure data consistency across your devices and platforms, the following data flow is recommended:
 
 ### Weight (Wellness)
-**Garmin Connect** is the primary system of record for weight. 
-1. Update your weight in Garmin Connect (or via a Garmin-compatible scale).
-2. **Intervals.icu** automatically pulls this weight data from Garmin.
-3. The **Coaching Platform** pulls the latest weight from Intervals.icu during sync.
+**Withings** (or manual entry in Settings) is the primary source of weight. The app follows a priority chain to resolve weight for any given date:
+
+```
+Priority 1 (highest): Withings scale measurement for that date
+Priority 2:           Most recent Intervals.icu ride weight on or before that date
+Priority 3:           Manual weight entry in Settings
+Priority 4 (default): 75 kg fallback
+```
+
+When Withings is synced, weight measurements are written to the local database **and** pushed to Intervals.icu's wellness log per date. This ensures that subsequent ride syncs from Intervals.icu carry the correct scale weight.
+
+> **Overriding Withings weight:** When Withings is connected, the weight field in Settings is read-only. To enter a manual weight (e.g. a race-day override), disconnect Withings via Settings → Withings → Disconnect, update the weight field, then reconnect. Reconnecting just re-runs the OAuth flow — your Withings account remains linked and no data is lost.
+
+```mermaid
+flowchart LR
+    W([Withings Scale]) -->|OAuth sync| BM[(body_measurements)]
+    BM -->|push per date| ICU[Intervals.icu wellness]
+    G([Garmin device]) -->|ride upload| ICU
+    ICU -->|ride sync with icu_weight| APP[Coaching App]
+    BM -->|priority 1| PC{Weight\nResolver}
+    APP -->|priority 2| PC
+    MS([Manual Setting]) -->|priority 3| PC
+    PC --> OUT[W/kg · PMC · Coaching · Nutrition]
+```
+
+> **Note:** Garmin Connect does not have a Withings integration and provides no API for writing weight. The Garmin FIT file weight field is a device snapshot and is not used as an authoritative source.
 
 ### FTP (Functional Threshold Power)
 **Intervals.icu** is the primary system of record for FTP and training zones.
@@ -46,20 +68,23 @@ To ensure data consistency across your devices and platforms, the following data
 
 ```mermaid
 sequenceDiagram
-    participant G as Garmin Connect
-    participant I as Intervals.icu
+    participant W as Withings Scale
     participant A as AI Coaching App
-    
-    Note over G,A: Weight Sync
-    G->>I: Pulls weight (Wellness sync)
-    I->>A: Pulls weight (API)
-    
-    Note over G,A: FTP & Workout Sync
+    participant I as Intervals.icu
+    participant G as Garmin Connect
+
+    Note over W,G: Weight Sync
+    W->>A: OAuth sync → body_measurements
+    A->>I: Push weight per date → wellness log
+    G->>I: Upload ride activity
+    I->>A: Ride sync with icu_weight attached
+
+    Note over W,G: FTP & Workout Sync
     A->>I: Push planned workouts (Absolute Watts)
     I->>G: Syncs calendar (Absolute Watts)
     Note right of G: Targets are correct even if<br/>Garmin FTP is outdated.
-    
-    Note over G,A: Manual Steps
+
+    Note over W,G: Manual Steps
     A-->>I: User updates FTP in Intervals
     I-->>G: User manually updates FTP in Garmin
 ```
@@ -71,6 +96,37 @@ sequenceDiagram
 - Node.js & npm
 - PostgreSQL (or Podman/Docker)
 - Intervals.icu API Key & Athlete ID
+
+### GCP Permissions
+
+The Cloud Run service account requires the following IAM bindings. Replace `<SERVICE_ACCOUNT>` with the runtime SA (e.g. the Compute Engine default SA or a dedicated SA attached to the Cloud Run service).
+
+```bash
+# Meal photo uploads (Cloud Storage) — required by server/nutrition/photo.py
+gcloud storage buckets add-iam-policy-binding gs://jasondel-coach-data \
+    --member="serviceAccount:<SERVICE_ACCOUNT>" \
+    --role="roles/storage.objectCreator"
+
+# Cloud Trace telemetry — required by server/telemetry.py (OpenTelemetry exporter)
+gcloud projects add-iam-policy-binding jasondel-cloudrun10 \
+    --member="serviceAccount:<SERVICE_ACCOUNT>" \
+    --role="roles/cloudtrace.agent"
+```
+
+The **Cloud Build deployer service account** (`cycling-coach-deployer@...`) requires these additional bindings for the build pipeline:
+
+```bash
+# Cloud SQL Proxy — required by the migration step in cloudbuild.yaml
+gcloud projects add-iam-policy-binding jasondel-cloudrun10 \
+    --member="serviceAccount:cycling-coach-deployer@jasondel-cloudrun10.iam.gserviceaccount.com" \
+    --role="roles/cloudsql.client"
+
+# Secret Manager access — required to read CYCLING_COACH_DATABASE_URL during migration
+gcloud secrets add-iam-policy-binding CYCLING_COACH_DATABASE_URL \
+    --member="serviceAccount:cycling-coach-deployer@jasondel-cloudrun10.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project=jasondel-cloudrun10
+```
 
 ### Installation
 

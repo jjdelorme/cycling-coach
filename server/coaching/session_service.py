@@ -25,11 +25,12 @@ class DbSessionService(BaseSessionService):
     ) -> Session:
         sid = session_id or str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
+        session_type = "nutrition" if app_name == "nutrition-coach" else "coaching"
 
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO chat_sessions (session_id, user_id, title, created_at, updated_at) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (session_id) DO NOTHING",
-                (sid, user_id, "New conversation", now, now),
+                "INSERT INTO chat_sessions (session_id, user_id, session_type, title, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (session_id) DO NOTHING",
+                (sid, user_id, session_type, "New conversation", now, now),
             )
 
         return Session(

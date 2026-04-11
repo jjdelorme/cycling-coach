@@ -28,3 +28,28 @@
 | `get_training_summary()` | `GET /api/rides/summary/monthly` | Medium |
 | `get_periodization_status()` | `GET /api/plan/macro` | Medium |
 | `get_week_summary()` | `GET /api/plan/week/{date}` | High |
+
+---
+
+## In-App Notification System
+
+**Status:** Deferred — no infrastructure exists yet.
+
+**Context:** The weight resolver abstraction (`server/services/weight.py`) logs a warning when it falls back to the 75.0 kg default, meaning the athlete's W/kg, caloric balance, and coaching prescriptions may be materially wrong. This warning is only visible in server logs — the user has no awareness of it.
+
+More broadly, there are likely other silent degraded-accuracy situations in the app (e.g., missing FTP, no recent weight sync, stale Withings token) that warrant surfacing to the user without being disruptive.
+
+**Proposed design (when this is tackled):**
+- A persistent `notifications` table: `(id, type, message, severity, created_at, dismissed_at)`
+- A `GET /api/notifications` endpoint returning active (non-dismissed) alerts
+- A `POST /api/notifications/{id}/dismiss` endpoint
+- A small notification badge/panel in the UI (top nav or Settings page)
+- Notifications written by backend logic at the point of detection (e.g., weight resolver, Withings token expiry, stale sync)
+
+**Initial candidates for notifications:**
+- Weight resolver fell back to default — "No weight data found. W/kg and caloric balance may be inaccurate. Connect Withings or set your weight in Settings."
+- Withings token expired — "Withings connection needs to be re-authorized."
+- No Intervals.icu sync in >7 days — "Ride data may be stale."
+- FTP is 0 or unset — "FTP not configured. TSS calculations will be inaccurate."
+
+**Related:** `plans/design-weight-architecture.md` — weight resolver default fallback section.

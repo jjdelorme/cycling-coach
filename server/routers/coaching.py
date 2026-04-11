@@ -19,11 +19,17 @@ async def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(require_re
 
     session_id = req.session_id or str(uuid.uuid4())
 
-    response = await chat(
-        message=req.message,
-        session_id=session_id,
-        user=user,
-    )
+    try:
+        response = await chat(
+            message=req.message,
+            session_id=session_id,
+            user=user,
+        )
+    except Exception as e:
+        if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=429, detail="The AI model is currently busy. Please try again in a moment.")
+        raise
 
     return ChatResponse(response=response, session_id=session_id)
 
@@ -32,7 +38,8 @@ async def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(require_re
 async def list_sessions(user: CurrentUser = Depends(require_read)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT session_id, title, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC"
+            "SELECT session_id, title, created_at, updated_at FROM chat_sessions "
+            "WHERE session_type = 'coaching' ORDER BY updated_at DESC"
         ).fetchall()
 
     return [

@@ -6,19 +6,20 @@ import {
   useSyncOverview,
   useAthleteSettings,
   useUpdateAthleteSetting,
+  useWithingsStatus,
 } from '../hooks/useApi'
-import { startSync, fetchSyncStatus, fetchVersion } from '../lib/api'
+import { startSync, fetchSyncStatus, fetchVersion, fetchWithingsAuthUrl, syncWithingsWeight, disconnectWithings } from '../lib/api'
 import { timeAgo } from '../lib/format'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
-import { 
-  User, 
-  Bot, 
-  Settings as SettingsIcon, 
-  Monitor, 
-  Heart, 
-  Cpu, 
+import {
+  User,
+  Bot,
+  Settings as SettingsIcon,
+  Monitor,
+  Heart,
+  Cpu,
   Cloud,
   Eye,
   EyeOff,
@@ -27,7 +28,8 @@ import {
   Info,
   Sun,
   Moon,
-  ChevronDown
+  ChevronDown,
+  Scale,
 } from 'lucide-react'
 
 type Tab = 'athlete' | 'coach' | 'system'
@@ -100,6 +102,12 @@ export default function Settings() {
   const logRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+
+  // Withings state
+  const { data: withingsStatus, refetch: refetchWithingsStatus } = useWithingsStatus()
+  const [withingsSyncing, setWithingsSyncing] = useState(false)
+  const [withingsResult, setWithingsResult] = useState<string | null>(null)
+  const isWithingsManaged = !!(withingsStatus?.connected && withingsStatus?.latest_weight_kg)
 
   // Populate athlete form
   useEffect(() => {
@@ -301,6 +309,44 @@ export default function Settings() {
     }, 2000)
   }
 
+  const handleWithingsConnect = async () => {
+    try {
+      const { url } = await fetchWithingsAuthUrl()
+      window.open(url, '_blank', 'noopener')
+      setTimeout(() => refetchWithingsStatus(), 3000)
+      setTimeout(() => refetchWithingsStatus(), 8000)
+      setTimeout(() => refetchWithingsStatus(), 15000)
+    } catch (e: any) {
+      setWithingsResult('Failed to get auth URL: ' + (e.message || 'Unknown error'))
+    }
+  }
+
+  const handleWithingsSync = async () => {
+    setWithingsSyncing(true)
+    setWithingsResult(null)
+    try {
+      const result = await syncWithingsWeight()
+      setWithingsResult(`Synced ${result.synced} measurements (${result.start_date} → ${result.end_date})`)
+      queryClient.invalidateQueries({ queryKey: ['pmc'] })
+      queryClient.invalidateQueries({ queryKey: ['withings-status'] })
+    } catch (e: any) {
+      setWithingsResult('Sync failed: ' + (e.message || 'Unknown error'))
+    } finally {
+      setWithingsSyncing(false)
+    }
+  }
+
+  const handleWithingsDisconnect = async () => {
+    if (!confirm('Disconnect Withings? Your stored weight measurements will remain, but no new data will sync.')) return
+    try {
+      await disconnectWithings()
+      queryClient.invalidateQueries({ queryKey: ['withings-status'] })
+      setWithingsResult(null)
+    } catch (e: any) {
+      setWithingsResult('Disconnect failed: ' + (e.message || 'Unknown error'))
+    }
+  }
+
   const tabs = useMemo(() => {
     const baseTabs: { key: Tab; label: string; icon: any }[] = [
       { key: 'athlete', label: 'Athlete', icon: User },
@@ -420,24 +466,33 @@ export default function Settings() {
                     { key: 'ftp', label: 'FTP', unit: 'Watts', hint: 'Functional threshold power' },
                     { key: 'weight_kg', label: 'Weight', unit: 'kg', hint: 'Body weight' },
                     { key: 'age', label: 'Age', unit: 'yrs', hint: 'Current age' },
-                  ].map((field) => (
-                    <div key={field.key} className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{field.label}</label>
-                        <span className="text-[10px] font-medium text-text-muted/60">{field.unit}</span>
+                  ].map((field) => {
+                    const isWeightManagedByWithings = field.key === 'weight_kg' && isWithingsManaged
+                    return (
+                      <div key={field.key} className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">
+                            {field.label}
+                            {isWeightManagedByWithings && (
+                              <span className="ml-2 text-[9px] font-bold text-green uppercase tracking-widest">Managed by Withings</span>
+                            )}
+                          </label>
+                          <span className="text-[10px] font-medium text-text-muted/60">{field.unit}</span>
+                        </div>
+                        <input
+                          type="number"
+                          disabled={isReadOnly || isWeightManagedByWithings}
+                          className="w-full bg-surface-low text-text border border-border rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          value={isWeightManagedByWithings ? withingsStatus!.latest_weight_kg : (athleteForm[field.key] ?? '')}
+                          onChange={(e) => {
+                            if (isWeightManagedByWithings) return
+                            setAthleteForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                            setAthleteSaveStatus('idle')
+                          }}
+                        />
                       </div>
-                      <input
-                        type="number"
-                        disabled={isReadOnly}
-                        className="w-full bg-surface-low text-text border border-border rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        value={athleteForm[field.key] ?? ''}
-                        onChange={(e) => {
-                          setAthleteForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                          setAthleteSaveStatus('idle')
-                        }}
-                      />
-                    </div>
-                  ))}
+                    )
+                  })}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Gender</label>
                     <select
@@ -656,6 +711,64 @@ export default function Settings() {
                           {syncLogs.map((line, i) => <div key={i} className="mb-1">{line}</div>)}
                         </div>
                       )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* Withings Body Scale */}
+            <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
+              <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-2">
+                <Scale size={18} className="text-green" />
+                <h3 className="text-sm font-bold text-text uppercase tracking-wider">Withings Body Scale</h3>
+              </div>
+              <div className="p-6">
+                <div className="bg-surface-low rounded-xl p-6 border border-border">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                    <div className="flex items-center gap-4 flex-wrap">
+                      {withingsStatus?.connected ? (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-green" />
+                            <span className="text-xs font-bold text-green uppercase tracking-widest">Connected</span>
+                          </div>
+                          {withingsStatus?.latest_weight_kg && (
+                            <span className="text-xs text-text-muted">
+                              Latest: {withingsStatus.latest_weight_kg} kg on {withingsStatus.last_measurement_date}
+                            </span>
+                          )}
+                          <button
+                            onClick={handleWithingsSync}
+                            disabled={withingsSyncing}
+                            className="px-6 py-2.5 bg-green text-bg rounded-lg text-xs font-bold uppercase tracking-widest hover:opacity-90 disabled:opacity-50 transition-all flex items-center gap-2 shadow-lg shadow-green/10"
+                          >
+                            {withingsSyncing ? <RefreshCw size={14} className="animate-spin" /> : 'Sync Weight'}
+                          </button>
+                          <button
+                            onClick={handleWithingsDisconnect}
+                            className="px-4 py-2.5 bg-surface text-text-muted hover:text-red hover:bg-red/5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                          >
+                            <Trash2 size={14} /> Disconnect
+                          </button>
+                        </>
+                      ) : withingsStatus?.configured ? (
+                        <button
+                          onClick={handleWithingsConnect}
+                          className="px-6 py-2.5 bg-accent text-white rounded-lg text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all shadow-lg shadow-accent/20"
+                        >
+                          Connect Withings
+                        </button>
+                      ) : (
+                        <div className="text-xs text-text-muted">
+                          Set WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET environment variables to enable.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {withingsResult && (
+                    <div className={`mt-4 p-3 rounded-lg text-xs font-bold ${withingsResult.startsWith('Synced') ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>
+                      {withingsResult}
                     </div>
                   )}
                 </div>

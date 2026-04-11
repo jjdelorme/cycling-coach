@@ -38,6 +38,8 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 
 ## Project Structure
 - `server/` — FastAPI backend
+- `server/migrate.py` — Migration runner (`python -m server.migrate`)
+- `migrations/` — Numbered SQL migration files (e.g., `0001_baseline.sql`)
 - `frontend/` — React/Vite frontend SPA
 - `tests/` — pytest tests (see Testing section below)
 - `data/` — Local data files (gitignored)
@@ -50,6 +52,7 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 - `podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine` — start local Postgres
 - `pip install -r requirements.txt` — install backend deps
 - `cd frontend && npm install` — install frontend deps
+- `python -m server.migrate` — apply pending database migrations
 - `python -m server.ingest` — ingest data from JSON files into Postgres
 - `./scripts/dev.sh` — start both backend and frontend dev servers (generates VERSION from git tags)
 - `uvicorn server.main:app --reload` — run backend dev server only
@@ -89,8 +92,32 @@ To manage the test database manually:
 ### Writing Tests
 
 - **Unit tests** (`tests/unit/`): Pure logic, mocked dependencies. No imports from `server.database`.
-- **Integration tests** (`tests/integration/`): Use the shared `client` and `db_conn` fixtures from `tests/integration/conftest.py`. Do NOT call `init_db()` (handled by session fixture). Do NOT use `TRUNCATE` or destructive cleanup — the test database is disposable.
+- **Integration tests** (`tests/integration/`): Use the shared `client` and `db_conn` fixtures from `tests/integration/conftest.py`. Migrations are applied automatically by the session fixture. Do NOT use `TRUNCATE` or destructive cleanup — the test database is disposable.
 - **Planning tool tests:** Assert that the tool writes to the database correctly — do NOT assert specific workout names or note text, as these are determined by the agent at runtime.
+
+## Database Migrations
+
+Schema changes are managed via numbered SQL migration files in `migrations/`, applied by `server/migrate.py`. There is no ORM — migrations are plain SQL.
+
+### How it works
+- `migrations/` contains files like `0001_baseline.sql`, `0002_add_session_type.sql`, etc.
+- `server/migrate.py` applies pending migrations in order, tracking applied migrations in the `schema_migrations` table.
+- Migrations are idempotent to run — already-applied files are skipped (tracked by filename).
+- On deploy, Cloud Build runs `python -m server.migrate` before the new revision receives traffic.
+- The FastAPI app startup (`server/main.py`) also calls `run_migrations()` to cover local dev.
+
+### Adding a schema change
+1. Create a new file: `migrations/NNNN_short_description.sql` (next sequential number).
+2. Write idempotent SQL — use `IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, etc.
+3. Test locally: `python -m server.migrate` against your local Podman Postgres.
+4. **NEVER** modify an already-applied migration. If a migration has been deployed, fix forward with a new migration file.
+5. **NEVER** put schema DDL in Python code (`server/database.py`, etc.). All schema lives in `migrations/`.
+
+### Conventions
+- Filenames: `NNNN_snake_case_description.sql` (zero-padded 4-digit sequence number).
+- Each file should be focused — one logical change per migration.
+- Include a comment header explaining what the migration does and why.
+- Seed data (e.g., default workout templates) goes in migrations using `INSERT ... ON CONFLICT DO NOTHING`.
 
 ### Versioning
 The `VERSION` file is **not checked into git**.
