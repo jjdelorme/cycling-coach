@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.8.19-beta] - 2026-04-11
+
+- fix(deploy): add Cloud SQL Auth Proxy to migration step in `cloudbuild-test.yaml` — Cloud Build lacks VPC access to the Cloud SQL Unix socket; proxy creates the socket at build time
+- fix(deploy): remove migration step from prod `cloudbuild.yaml` — test and prod share the same database, so migrations are applied once during beta deploy
+- fix(deploy): add `COPY migrations/ migrations/` to Dockerfile — SQL migration files were missing from the container image
+- docs: document Cloud Build deployer SA permissions (Cloud SQL Client, Secret Manager) in README
+
 ## [v1.8.18-beta] - 2026-04-11
 
 - fix(ingest): add missing `RIDES_DIR` and `WORKOUTS_DIR` module constants — `python -m server.ingest` crashed with `NameError` on startup

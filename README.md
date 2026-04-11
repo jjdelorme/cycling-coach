@@ -113,6 +113,21 @@ gcloud projects add-iam-policy-binding jasondel-cloudrun10 \
     --role="roles/cloudtrace.agent"
 ```
 
+The **Cloud Build deployer service account** (`cycling-coach-deployer@...`) requires these additional bindings for the build pipeline:
+
+```bash
+# Cloud SQL Proxy — required by the migration step in cloudbuild.yaml
+gcloud projects add-iam-policy-binding jasondel-cloudrun10 \
+    --member="serviceAccount:cycling-coach-deployer@jasondel-cloudrun10.iam.gserviceaccount.com" \
+    --role="roles/cloudsql.client"
+
+# Secret Manager access — required to read CYCLING_COACH_DATABASE_URL during migration
+gcloud secrets add-iam-policy-binding CYCLING_COACH_DATABASE_URL \
+    --member="serviceAccount:cycling-coach-deployer@jasondel-cloudrun10.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project=jasondel-cloudrun10
+```
+
 ### Installation
 
 1. **Clone the repository**:
