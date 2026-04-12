@@ -188,7 +188,7 @@ def get_upcoming_training_load(days_ahead: int = 3) -> dict:
         # Rough calorie estimate from duration (500-700 kcal/hr for cycling)
         est_cal = round(duration_h * 600) if duration_h > 0 else 0
         days.append({
-            "date": r["date"],
+            "date": str(r["date"]),
             "name": r["name"],
             "planned_tss": round(tss),
             "duration_h": round(duration_h, 1),
@@ -224,7 +224,7 @@ def get_recent_workouts(days_back: int = 3) -> list[dict]:
 
     return [
         {
-            "date": r["date"],
+            "date": str(r["date"]),
             "sport": r["sub_sport"],
             "duration_h": round((r["duration_s"] or 0) / 3600, 1),
             "tss": r["tss"],

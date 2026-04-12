@@ -2,7 +2,6 @@ import { useState, useRef } from 'react'
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { useMealPlan } from '../hooks/useApi'
 import MealPlanDayDetail from './MealPlanDayDetail'
-import type { MealPlanDay } from '../types/api'
 
 const MEAL_SLOTS = [
   { key: 'breakfast', label: 'Breakfast' },
@@ -64,18 +63,57 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
     touchRef.current = null
   }
 
-  // If a day is selected, show the detail view
-  if (selectedDay && data) {
+  // If a day is selected, stay in detail-view mode (even while loading cross-week data)
+  if (selectedDate) {
+    if (!data || !selectedDay) {
+      // Data is loading after a cross-week navigation — show spinner in detail layout
+      return (
+        <div className="flex flex-col items-center justify-center py-12 gap-3">
+          <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          <button
+            onClick={() => setSelectedDate(null)}
+            className="text-[10px] font-bold text-accent uppercase tracking-widest hover:opacity-70 transition-opacity"
+          >
+            Back to Calendar
+          </button>
+        </div>
+      )
+    }
+
     const dayIndex = data.days.findIndex(d => d.date === selectedDay.date)
     const prevDay = dayIndex > 0 ? data.days[dayIndex - 1] : undefined
     const nextDay = dayIndex < data.days.length - 1 ? data.days[dayIndex + 1] : undefined
+
+    const goToPrevDay = () => {
+      if (prevDay) {
+        setSelectedDate(prevDay.date)
+      } else {
+        // Navigate to the last day of the previous week
+        const d = new Date(weekStart + 'T12:00:00')
+        d.setDate(d.getDate() - 1)
+        setWeekStart(getMonday(d.toISOString().slice(0, 10)))
+        setSelectedDate(d.toISOString().slice(0, 10))
+      }
+    }
+
+    const goToNextDay = () => {
+      if (nextDay) {
+        setSelectedDate(nextDay.date)
+      } else {
+        // Navigate to the first day of the next week
+        const d = new Date(weekStart + 'T12:00:00')
+        d.setDate(d.getDate() + 7)
+        setWeekStart(d.toISOString().slice(0, 10))
+        setSelectedDate(d.toISOString().slice(0, 10))
+      }
+    }
 
     return (
       <MealPlanDayDetail
         day={selectedDay}
         onBack={() => setSelectedDate(null)}
-        onPrev={prevDay ? () => setSelectedDate(prevDay.date) : undefined}
-        onNext={nextDay ? () => setSelectedDate(nextDay.date) : undefined}
+        onPrev={goToPrevDay}
+        onNext={goToNextDay}
         onOpenNutritionist={onOpenNutritionist}
       />
     )
