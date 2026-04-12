@@ -6,6 +6,7 @@ import threading
 
 from google.adk.agents import Agent
 from google.adk.runners import Runner
+from google.adk.tools import google_search
 from google.genai import types
 
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION
@@ -22,12 +23,18 @@ from server.nutrition.tools import (
     get_macro_targets_tool,
     get_upcoming_training_load,
     get_recent_workouts,
+    get_planned_meals,
+    get_dietary_preferences,
 )
 from server.nutrition.planning_tools import (
     save_meal_analysis,
     update_meal,
     delete_meal,
     set_macro_targets,
+    generate_meal_plan,
+    replace_planned_meal,
+    clear_meal_plan,
+    update_dietary_preferences,
     ask_clarification,
 )
 
@@ -47,6 +54,10 @@ _WRITE_TOOLS = {
     update_meal,
     delete_meal,
     set_macro_targets,
+    generate_meal_plan,
+    replace_planned_meal,
+    clear_meal_plan,
+    update_dietary_preferences,
 }
 
 # Thread-local storage for current user role during agent execution
@@ -118,6 +129,9 @@ def _build_system_instruction(ctx) -> str:
         for r in recent_rides
     ]) or "  No recent rides."
 
+    dietary_prefs = get_setting("dietary_preferences")
+    nutritionist_principles = get_setting("nutritionist_principles")
+
     return f"""You are an expert sports nutritionist working with an endurance cyclist.
 
 TODAY'S DATE: {today_str} ({today_iso})
@@ -125,6 +139,12 @@ TODAY'S DATE: {today_str} ({today_iso})
 ATHLETE PROFILE:
 - Weight: {weight_kg} kg / FTP: {int(ftp)} W / Current CTL: {ctl}
 - Daily targets: {targets['calories']} kcal (P {targets['protein_g']}g / C {targets['carbs_g']}g / F {targets['fat_g']}g)
+
+DIETARY PREFERENCES:
+{dietary_prefs}
+
+NUTRITIONIST PRINCIPLES:
+{nutritionist_principles}
 
 RECENT MEALS (last 3 days):
 {recent_meals_text}
@@ -138,6 +158,7 @@ YOUR ROLE:
 3. Identify patterns (repeated meals, nutrient gaps, timing issues)
 4. Provide fueling guidance for upcoming workouts
 5. Flag concerning patterns (chronic under-fueling, excessive deficit)
+6. Create and manage meal plans that align with training load
 
 MEAL PHOTO ANALYSIS PROTOCOL:
 When you receive a meal photo:
@@ -155,11 +176,39 @@ NEVER ask the athlete whether they have a ride planned or what their training lo
 - When recent training history or recovery context is relevant: call get_recent_workouts FIRST.
 Use the data from those tools to give specific, data-driven advice without interrogating the athlete.
 
+MEAL PLANNING PROTOCOL:
+When creating meal plans:
+1. Call get_upcoming_training_load to see planned rides and estimated caloric burn
+2. Call get_dietary_preferences to check dietary constraints and preferences
+3. Call get_planned_meals to see what's already planned (avoid duplicating)
+4. Periodize nutrition per training load:
+   - Heavy days (TSS > 80): increase carbs, add pre_workout/post_workout meals
+   - Moderate days (TSS 40-80): standard macro targets
+   - Rest days: reduce carbs, maintain protein at 1.6-2.0 g/kg
+5. Call generate_meal_plan to persist — NEVER just verbally suggest meals
+6. Provide agent_notes explaining training context for each meal
+7. Valid meal_slot values: breakfast, lunch, dinner, snack_am, snack_pm, pre_workout, post_workout
+Use replace_planned_meal for single-slot changes, clear_meal_plan to remove plans.
+
+NO LAWYERLY DISCLAIMERS:
+You are the professional. Do NOT use "assistant-style" legalistic language. 
+- NEVER tell the athlete to "check the label," "consult a doctor," or "consult a professional." 
+- NEVER use phrases like "formulations may shift" or "I always recommend verifying."
+Give your best expert advice based on the data. You are the professional; act like it.
+
+HIGH-AGENCY DATA PROTOCOL:
+NEVER ask the athlete for information that your tools can provide. 
+- Before asking "Do you have your meals planned?", you MUST call get_planned_meals.
+- Before asking "What is your training?", you MUST call get_upcoming_training_load.
+If the data exists, use it to make a proactive recommendation instead of asking permission to help.
+
 COMMUNICATION STYLE:
-- Concise, specific with numbers
-- Lead with macro summary, then details
-- Don't lecture -- this athlete trains seriously
-- Reference specific numbers from history when making recommendations"""
+- Zero conversational filler or "chit-chat." 
+- Lead with data and proactive recommendations.
+- Don't ask "Would you like..." — provide the expert suggestion immediately if the data shows a need (e.g., a caloric deficit or unplanned meal slot).
+- Professional-to-professional tone. No lecturing.
+- Concise, specific with numbers. Reference specific numbers from history when making recommendations.
+- Lead with macro summary, then details."""
 
 
 def _get_effective_model() -> str:
@@ -185,6 +234,8 @@ def _get_agent():
         get_macro_targets_tool,
         get_upcoming_training_load,
         get_recent_workouts,
+        get_planned_meals,
+        get_dietary_preferences,
         ask_clarification,
     ]
     for fn in _WRITE_TOOLS:

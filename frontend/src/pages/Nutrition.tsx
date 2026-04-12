@@ -5,6 +5,7 @@ import { useChartColors } from '../lib/theme'
 import DailySummaryStrip from '../components/DailySummaryStrip'
 import MealTimeline from '../components/MealTimeline'
 import MealCapture from '../components/MealCapture'
+import MealPlanCalendar from '../components/MealPlanCalendar'
 import { Loader2 } from 'lucide-react'
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
 
 export default function Nutrition({ onOpenNutritionist }: Props) {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'plan'>('day')
 
   const { data: dailyData, isLoading: dailyLoading } = useDailyNutrition(date)
   const { data: mealsData, isLoading: mealsLoading } = useMeals({
@@ -44,6 +45,12 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
               viewMode === 'week' ? 'bg-accent text-white' : 'text-text-muted hover:text-text'
             }`}
           >Week</button>
+          <button
+            onClick={() => setViewMode('plan')}
+            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+              viewMode === 'plan' ? 'bg-accent text-white' : 'text-text-muted hover:text-text'
+            }`}
+          >Plan</button>
         </div>
       </div>
 
@@ -152,6 +159,10 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
         </div>
       )}
 
+      {viewMode === 'plan' && (
+        <MealPlanCalendar onOpenNutritionist={onOpenNutritionist} />
+      )}
+
       {/* FAB for meal capture */}
       <MealCapture
         onMealSaved={() => {
@@ -159,6 +170,7 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
           const today = new Date().toISOString().slice(0, 10)
           if (date !== today) setDate(today)
         }}
+        onOpenNutritionist={onOpenNutritionist}
       />
     </div>
   )

@@ -236,6 +236,91 @@ def get_recent_workouts(days_back: int = 3) -> list[dict]:
     ]
 
 
+def get_planned_meals(date: str = "", days_ahead: int = 7) -> dict:
+    """Get planned meals for a date range, organized by day and slot.
+
+    Args:
+        date: Start date (YYYY-MM-DD). Defaults to today.
+        days_ahead: Number of days to include. Default 7.
+
+    Returns:
+        Dictionary with planned meals organized by date, each date containing
+        its meal slots with name, macros, description, and items.
+    """
+    import json
+
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    start = datetime.fromisoformat(date)
+    end = start + timedelta(days=days_ahead - 1)
+    end_str = end.strftime("%Y-%m-%d")
+
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT date, meal_slot, name, description, total_calories, "
+            "total_protein_g, total_carbs_g, total_fat_g, items, agent_notes "
+            "FROM planned_meals WHERE user_id = %s AND date >= %s AND date <= %s "
+            "ORDER BY date, meal_slot",
+            ("athlete", date, end_str),
+        ).fetchall()
+
+    # Organize by date
+    days = {}
+    for r in rows:
+        d = r["date"]
+        if d not in days:
+            days[d] = {"date": d, "meals": [], "day_calories": 0, "day_protein_g": 0, "day_carbs_g": 0, "day_fat_g": 0}
+        items_parsed = []
+        if r["items"]:
+            try:
+                items_parsed = json.loads(r["items"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        days[d]["meals"].append({
+            "meal_slot": r["meal_slot"],
+            "name": r["name"],
+            "description": r["description"],
+            "total_calories": r["total_calories"],
+            "total_protein_g": round(r["total_protein_g"], 1),
+            "total_carbs_g": round(r["total_carbs_g"], 1),
+            "total_fat_g": round(r["total_fat_g"], 1),
+            "items": items_parsed,
+            "agent_notes": r["agent_notes"],
+        })
+        days[d]["day_calories"] += r["total_calories"]
+        days[d]["day_protein_g"] += r["total_protein_g"]
+        days[d]["day_carbs_g"] += r["total_carbs_g"]
+        days[d]["day_fat_g"] += r["total_fat_g"]
+
+    # Round daily totals
+    for d in days.values():
+        d["day_protein_g"] = round(d["day_protein_g"], 1)
+        d["day_carbs_g"] = round(d["day_carbs_g"], 1)
+        d["day_fat_g"] = round(d["day_fat_g"], 1)
+
+    return {
+        "start_date": date,
+        "end_date": end_str,
+        "days": list(days.values()),
+        "total_days_with_plans": len(days),
+    }
+
+
+def get_dietary_preferences() -> dict:
+    """Get the athlete's dietary preferences and nutritionist principles.
+
+    Returns:
+        Dictionary with dietary_preferences and nutritionist_principles text.
+    """
+    from server.database import get_setting
+
+    return {
+        "dietary_preferences": get_setting("dietary_preferences"),
+        "nutritionist_principles": get_setting("nutritionist_principles"),
+    }
+
+
 def _estimate_daily_bmr(weight_kg: float = 0) -> int:
     """Estimate BMR from athlete settings using Mifflin-St Jeor equation.
 

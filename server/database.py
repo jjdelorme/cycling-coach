@@ -112,6 +112,23 @@ DEFAULT_COACH_ROLE = """- Be direct, specific, and actionable
 - Use get_power_curve with date ranges to compare fitness across training blocks
 - When power data is unavailable (has_power = false), focus on HR zones, HR drift, and perceived effort"""
 
+DEFAULT_DIETARY_PREFERENCES = """- Diet type: [e.g., no restrictions, vegetarian, Mediterranean]
+- Allergies: [e.g., none, tree nuts, shellfish]
+- Intolerances: [e.g., lactose, gluten]
+- Disliked foods: [e.g., liver, beets]
+- Liked foods: [e.g., salmon, oatmeal, sweet potatoes]
+- Eating schedule: [e.g., 3 meals + 2 snacks, intermittent fasting 16:8]
+- Cooking ability: [e.g., enjoys cooking, prefers simple meals]
+- Supplement use: [e.g., whey protein post-ride, electrolyte mix]"""
+
+DEFAULT_NUTRITIONIST_PRINCIPLES = """- Periodize nutrition to match training load — more carbs on hard/long days, moderate on easy days
+- Prioritize whole foods over supplements
+- Pre-ride meals: easily digestible carbs 2-3h before, avoid high fat/fiber
+- Post-ride: 3:1 carb:protein within 30 minutes of hard sessions
+- On-bike fueling: 60-90g carbs/hour for rides > 90 minutes
+- Rest day: maintain protein (1.6-2.0 g/kg), reduce total carbs
+- Don't over-restrict — chronic deficit impairs training adaptation"""
+
 DEFAULT_PLAN_MANAGEMENT = """CRITICAL: When you recommend changing, swapping, or adjusting a workout, you MUST call replace_workout or generate_week_from_spec to persist the change. Never just verbally recommend a different workout — the calendar reads from the database.
 
 BEFORE PRESCRIBING ANY WORKOUT OR PLANNING A WEEK, you MUST check:
@@ -152,6 +169,8 @@ SETTINGS_DEFAULTS = {
     "coaching_principles": DEFAULT_COACHING_PRINCIPLES,
     "coach_role": DEFAULT_COACH_ROLE,
     "plan_management": DEFAULT_PLAN_MANAGEMENT,
+    "dietary_preferences": DEFAULT_DIETARY_PREFERENCES,
+    "nutritionist_principles": DEFAULT_NUTRITIONIST_PRINCIPLES,
     "intervals_icu_api_key": "",
     "intervals_icu_athlete_id": "",
     "units": "imperial",

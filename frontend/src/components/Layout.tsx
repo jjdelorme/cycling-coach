@@ -138,7 +138,7 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
           {children}
         </main>
         {coachOpen && (
-          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} />
+          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} defaultTab={activeTab === 'nutrition' ? 'nutritionist' : 'coach'} />
         )}
       </div>
 

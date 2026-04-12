@@ -65,6 +65,7 @@ import type {
   MealDetail, MealListResponse, MacroTargets,
   DailyNutritionSummary, WeeklyNutritionSummary,
   NutritionChatResponse,
+  MealPlanResponse, MealPlanDay, DietaryPreferences,
 } from '../types/api'
 
 // Rides
@@ -257,6 +258,29 @@ export const fetchNutritionSession = (id: string) =>
 
 export const deleteNutritionSession = (id: string) =>
   request<{ status: string }>(`/api/nutrition/sessions/${id}`, { method: 'DELETE' })
+
+// Meal Plan
+export const fetchMealPlan = (params?: { date?: string; days?: number }) => {
+  const q = new URLSearchParams()
+  if (params?.date) q.set('date', params.date)
+  if (params?.days) q.set('days', String(params.days))
+  const qs = q.toString()
+  return get<MealPlanResponse>(`/api/nutrition/meal-plan${qs ? `?${qs}` : ''}`)
+}
+
+export const fetchMealPlanDay = (date: string) =>
+  get<MealPlanDay>(`/api/nutrition/meal-plan/${date}`)
+
+export const clearMealPlan = (date: string, mealSlot?: string) => {
+  const q = mealSlot ? `?meal_slot=${mealSlot}` : ''
+  return request<{ status: string; removed: number }>(`/api/nutrition/meal-plan/${date}${q}`, { method: 'DELETE' })
+}
+
+export const fetchDietaryPreferences = () =>
+  get<DietaryPreferences>('/api/nutrition/preferences')
+
+export const updateDietaryPreferences = (section: string, value: string) =>
+  put<{ status: string }>('/api/nutrition/preferences', { section, value })
 
 // Withings
 export const fetchWithingsStatus = () => get<import('../types/api').WithingsStatus>('/api/withings/status')

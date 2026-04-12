@@ -23,6 +23,7 @@ interface Props {
   onClose: () => void
   viewContext?: ViewContext
   nutritionistContext?: string
+  defaultTab?: 'coach' | 'nutritionist'
 }
 
 interface Message {
@@ -51,13 +52,13 @@ function buildViewHint(ctx?: ViewContext): string {
   return parts.length > 0 ? `[${parts.join(', ')}]\n` : ''
 }
 
-export default function CoachPanel({ onClose, viewContext, nutritionistContext }: Props) {
+export default function CoachPanel({ onClose, viewContext, nutritionistContext, defaultTab = 'coach' }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sessionId, setSessionId] = useState<string | undefined>()
   const [loadingSession, setLoadingSession] = useState(false)
   const [showAllSessions, setShowAllSessions] = useState(false)
-  const [agentTab, setAgentTab] = useState<'coach' | 'nutritionist'>('coach')
+  const [agentTab, setAgentTab] = useState<'coach' | 'nutritionist'>(defaultTab)
   const [nutritionistKey, setNutritionistKey] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
