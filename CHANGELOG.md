@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.3-beta] - 2026-04-12
+
+- fix(migration): use `LEFT(start_time, 10)` instead of `TO_CHAR()` for text-typed `start_time` column in `0004_rides_add_date_column.sql`
+
 ## [v1.9.2-beta] - 2026-04-12
 
 - fix(nutrition): resolve nutritionist chat crash from missing `rides.date` column and date serialization
