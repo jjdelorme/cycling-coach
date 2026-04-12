@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.4-beta] - 2026-04-12
+
+- feat(nutrition): quick-log meal modal — "Text" option in the Log a Meal FAB now opens a self-contained popup instead of navigating to the nutritionist chat panel; works on all screen sizes including mobile
+- feat(nutrition): three-state quick-log flow — input → spinner → result card with "Done" and "Chat about this" buttons
+- feat(nutrition): "Chat about this" opens the nutritionist panel with the session auto-loaded for seamless conversation continuation
+
 ## [v1.9.3-beta] - 2026-04-12
 
 - fix(migration): use `LEFT(start_time, 10)` instead of `TO_CHAR()` for text-typed `start_time` column in `0004_rides_add_date_column.sql`
