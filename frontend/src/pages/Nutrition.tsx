@@ -9,7 +9,7 @@ import MealPlanCalendar from '../components/MealPlanCalendar'
 import { Loader2 } from 'lucide-react'
 
 interface Props {
-  onOpenNutritionist?: (context?: string) => void
+  onOpenNutritionist?: (context?: string, sessionId?: string) => void
 }
 
 export default function Nutrition({ onOpenNutritionist }: Props) {

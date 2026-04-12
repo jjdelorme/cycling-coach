@@ -15,6 +15,7 @@ import {
 
 interface Props {
   initialContext?: string
+  initialSessionId?: string
 }
 
 interface Message {
@@ -22,7 +23,7 @@ interface Message {
   content: string  // for 'rate-limited': stores original user message for retry
 }
 
-export default function NutritionistPanel({ initialContext }: Props) {
+export default function NutritionistPanel({ initialContext, initialSessionId }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sessionId, setSessionId] = useState<string | undefined>()
@@ -33,6 +34,7 @@ export default function NutritionistPanel({ initialContext }: Props) {
   const chat = useNutritionistChat()
   const { data: sessions } = useNutritionSessions()
   const sentInitialRef = useRef(false)
+  const loadedSessionRef = useRef(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -45,6 +47,26 @@ export default function NutritionistPanel({ initialContext }: Props) {
       setInput(initialContext)
     }
   }, [initialContext])
+
+  // Auto-load session if initialSessionId is provided (from quick-log "Chat about this")
+  useEffect(() => {
+    if (initialSessionId && !loadedSessionRef.current) {
+      loadedSessionRef.current = true
+      setLoadingSession(true)
+      fetchNutritionSession(initialSessionId)
+        .then(detail => {
+          setSessionId(initialSessionId)
+          const loaded: Message[] = detail.messages
+            .filter(m => m.content_text)
+            .map(m => ({
+              role: m.role === 'user' ? 'user' as const : 'assistant' as const,
+              content: m.content_text!,
+            }))
+          setMessages(loaded)
+        })
+        .finally(() => setLoadingSession(false))
+    }
+  }, [initialSessionId])
 
   const sendMessage = async (msg: string) => {
     if (!msg.trim() || chat.isPending) return

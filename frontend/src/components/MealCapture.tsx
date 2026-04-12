@@ -8,10 +8,10 @@ import type { MealDetail } from '../types/api'
 
 interface Props {
   onMealSaved?: (meal: MealDetail) => void
-  onOpenNutritionist?: (context?: string) => void
+  onOpenNutritionist?: (context?: string, sessionId?: string) => void
 }
 
-export default function MealCapture({ onMealSaved }: Props) {
+export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -19,50 +19,48 @@ export default function MealCapture({ onMealSaved }: Props) {
 
   // Quick-log modal state
   const [textModalOpen, setTextModalOpen] = useState(false)
-  const [quickMessages, setQuickMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
-  const [quickSessionId, setQuickSessionId] = useState<string | undefined>()
   const [quickInput, setQuickInput] = useState('')
+  const [quickUserMsg, setQuickUserMsg] = useState('')
+  const [quickResponse, setQuickResponse] = useState<string | null>(null)
+  const [quickSessionId, setQuickSessionId] = useState<string | undefined>()
   const quickChat = useNutritionistChat()
-  const quickBottomRef = useRef<HTMLDivElement>(null)
   const quickInputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    quickBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [quickMessages, quickChat.isPending])
-
-  useEffect(() => {
-    if (textModalOpen) {
+    if (textModalOpen && !quickResponse && !quickChat.isPending) {
       setTimeout(() => quickInputRef.current?.focus(), 100)
     }
-  }, [textModalOpen])
+  }, [textModalOpen, quickResponse, quickChat.isPending])
 
   const handleQuickSend = async () => {
     if (!quickInput.trim() || quickChat.isPending) return
     const msg = quickInput.trim()
+    setQuickUserMsg(msg)
     setQuickInput('')
-    if (quickInputRef.current) quickInputRef.current.style.height = 'auto'
-    setQuickMessages(prev => [...prev, { role: 'user', content: msg }])
 
     try {
       const res = await quickChat.mutateAsync({
-        message: quickMessages.length === 0 ? `Log this meal: ${msg}` : msg,
-        session_id: quickSessionId,
+        message: `Log this meal: ${msg}`,
       })
       setQuickSessionId(res.session_id)
-      setQuickMessages(prev => [...prev, { role: 'assistant', content: res.response }])
+      setQuickResponse(res.response)
     } catch {
-      setQuickMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Error getting response. Please try again.',
-      }])
+      setQuickResponse('Error logging meal. Please try again.')
     }
   }
 
   const closeQuickLog = () => {
     setTextModalOpen(false)
     setQuickInput('')
-    setQuickMessages([])
+    setQuickUserMsg('')
+    setQuickResponse(null)
     setQuickSessionId(undefined)
+  }
+
+  const handleChatAboutMeal = () => {
+    const sid = quickSessionId
+    closeQuickLog()
+    onOpenNutritionist?.(undefined, sid)
   }
 
   // Voice recording state
@@ -253,7 +251,7 @@ export default function MealCapture({ onMealSaved }: Props) {
       {/* Quick-log text modal */}
       {textModalOpen && (
         <>
-          <div className="fixed inset-0 bg-black/50 z-40" onClick={closeQuickLog} />
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={!quickChat.isPending ? closeQuickLog : undefined} />
           <div className="fixed bottom-0 left-0 right-0 rounded-t-2xl md:bottom-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:rounded-2xl z-50 bg-surface border border-border shadow-2xl flex flex-col max-h-[80vh]">
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -261,72 +259,75 @@ export default function MealCapture({ onMealSaved }: Props) {
                 <UtensilsCrossed size={16} className="text-green" />
                 <span className="text-sm font-bold text-text uppercase tracking-wider">Log a Meal</span>
               </div>
-              <button onClick={closeQuickLog} className="p-1.5 text-text-muted hover:text-text rounded-md transition-colors">
+              <button onClick={closeQuickLog} disabled={quickChat.isPending} className="p-1.5 text-text-muted hover:text-text rounded-md transition-colors disabled:opacity-30">
                 <X size={16} />
               </button>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-[60px]">
-              {quickMessages.length === 0 && !quickChat.isPending && (
-                <p className="text-xs text-text-muted text-center py-2">
-                  Describe what you ate and the nutritionist will log it.
-                </p>
-              )}
-              {quickMessages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] text-sm rounded-2xl px-3 py-2 ${
-                    m.role === 'user'
-                      ? 'bg-green text-white rounded-tr-none'
-                      : 'bg-surface-low text-text rounded-tl-none'
-                  }`}>
-                    {m.role === 'assistant' ? (
-                      <div className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_strong]:text-green coach-prose">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                      </div>
-                    ) : (
-                      <p className="whitespace-pre-wrap">{m.content}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {quickChat.isPending && (
-                <div className="flex justify-start">
-                  <div className="flex items-center gap-1 px-3 py-2 bg-surface-low rounded-2xl rounded-tl-none">
-                    <span className="w-1.5 h-1.5 bg-green rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-1.5 h-1.5 bg-green rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-1.5 h-1.5 bg-green rounded-full animate-bounce" />
-                  </div>
+            <div className="px-4 py-4">
+              {/* State 1: Input */}
+              {!quickUserMsg && (
+                <div className="relative">
+                  <textarea
+                    ref={quickInputRef}
+                    value={quickInput}
+                    onChange={e => {
+                      setQuickInput(e.target.value)
+                      e.target.style.height = 'auto'
+                      e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px'
+                    }}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQuickSend() } }}
+                    placeholder="Describe what you ate..."
+                    rows={2}
+                    className="w-full bg-surface-low text-text border border-border rounded-xl px-3 py-2.5 pr-10 text-sm placeholder:text-text-muted/40 focus:outline-none focus:border-green focus:ring-1 focus:ring-green/20 transition-all resize-none"
+                    style={{ maxHeight: 100 }}
+                  />
+                  <button
+                    onClick={handleQuickSend}
+                    disabled={!quickInput.trim()}
+                    className="absolute right-2 bottom-2 p-1.5 bg-green text-white rounded-lg disabled:opacity-30 hover:opacity-90 active:scale-95 transition-all"
+                  >
+                    <Send size={14} />
+                  </button>
                 </div>
               )}
-              <div ref={quickBottomRef} />
-            </div>
 
-            {/* Input */}
-            <div className="px-4 py-3 border-t border-border">
-              <div className="relative">
-                <textarea
-                  ref={quickInputRef}
-                  value={quickInput}
-                  onChange={e => {
-                    setQuickInput(e.target.value)
-                    e.target.style.height = 'auto'
-                    e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px'
-                  }}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQuickSend() } }}
-                  placeholder="Describe what you ate..."
-                  rows={1}
-                  className="w-full bg-surface-low text-text border border-border rounded-xl px-3 py-2.5 pr-10 text-sm placeholder:text-text-muted/40 focus:outline-none focus:border-green focus:ring-1 focus:ring-green/20 transition-all resize-none"
-                  style={{ maxHeight: 100 }}
-                />
-                <button
-                  onClick={handleQuickSend}
-                  disabled={quickChat.isPending || !quickInput.trim()}
-                  className="absolute right-2 bottom-2 p-1.5 bg-green text-white rounded-lg disabled:opacity-30 hover:opacity-90 active:scale-95 transition-all"
-                >
-                  {quickChat.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                </button>
-              </div>
+              {/* State 2: Processing */}
+              {quickUserMsg && !quickResponse && (
+                <div className="flex flex-col items-center py-6 space-y-4">
+                  <p className="text-sm text-text-muted italic text-center px-4">"{quickUserMsg}"</p>
+                  <Loader2 size={28} className="text-green animate-spin" />
+                  <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Logging meal...</p>
+                </div>
+              )}
+
+              {/* State 3: Result */}
+              {quickResponse && (
+                <div className="space-y-4">
+                  <div className="bg-surface-low rounded-xl px-4 py-3 border border-border">
+                    <div className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_strong]:text-green coach-prose text-sm text-text">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{quickResponse}</ReactMarkdown>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {onOpenNutritionist && (
+                      <button
+                        onClick={handleChatAboutMeal}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-low border border-border rounded-xl text-sm font-bold text-text-muted hover:text-text hover:border-green transition-all"
+                      >
+                        <MessageSquare size={14} />
+                        Chat about this
+                      </button>
+                    )}
+                    <button
+                      onClick={closeQuickLog}
+                      className="flex-1 px-4 py-2.5 bg-green text-white rounded-xl text-sm font-bold hover:opacity-90 active:scale-[0.98] transition-all"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </>
