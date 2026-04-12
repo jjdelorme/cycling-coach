@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.1-beta] - 2026-04-12
+
+### Features
+- **Meal plan calendar:** weekly grid view with day columns and meal slot summaries; day detail view with prev/next navigation and "Back to Calendar" link; planned vs logged adherence bar; swipe navigation on mobile; empty state CTA to open nutritionist
+- **Nutritionist meal planning tools:** AI agent can generate, replace, and clear planned meals via `generate_meal_plan`, `replace_planned_meal`, `clear_meal_plan` tools; dietary preferences and nutritionist principles configurable in Settings
+- **Auto-refresh:** meal plan calendar auto-updates when the nutritionist modifies plans (derived state from live TanStack Query data)
+- **Settings nutritionist tab:** dietary preferences and nutritionist principles split into dedicated "Nutritionist" tab in Settings
+- **Meal capture redesign:** expandable "Log a Meal" pill button with photo, voice (hold-to-record), and text options; text option opens nutritionist chat
+- **Coach panel context:** nutrition tab defaults to opening nutritionist panel instead of coach
+
+### Database
+- Migration `0003_planned_meals.sql`: `planned_meals` table with unique constraint on (user_id, date, meal_slot); seeds dietary preferences and nutritionist principles defaults
+
+### Tests
+- 25 unit tests for nutrition planning tools
+- 17 integration tests for meal plan API endpoints
+- 9 Playwright E2E tests for meal plan calendar
+
 ## [v1.9.0] - 2026-04-11
 
 ### Features
