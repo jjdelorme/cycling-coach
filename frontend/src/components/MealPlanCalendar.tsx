@@ -28,21 +28,26 @@ interface Props {
 
 export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date().toISOString().slice(0, 10)))
-  const [selectedDay, setSelectedDay] = useState<MealPlanDay | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const touchRef = useRef<{ x: number } | null>(null)
 
   const { data, isLoading } = useMealPlan({ date: weekStart, days: 7 })
+
+  // Derive selected day from live query data so it updates automatically
+  const selectedDay = selectedDate && data
+    ? data.days.find(d => d.date === selectedDate) ?? null
+    : null
 
   const shiftWeek = (delta: number) => {
     const d = new Date(weekStart + 'T12:00:00')
     d.setDate(d.getDate() + delta * 7)
     setWeekStart(d.toISOString().slice(0, 10))
-    setSelectedDay(null)
+    setSelectedDate(null)
   }
 
   const goToThisWeek = () => {
     setWeekStart(getMonday(new Date().toISOString().slice(0, 10)))
-    setSelectedDay(null)
+    setSelectedDate(null)
   }
 
   const today = new Date().toISOString().slice(0, 10)
@@ -60,11 +65,17 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
   }
 
   // If a day is selected, show the detail view
-  if (selectedDay) {
+  if (selectedDay && data) {
+    const dayIndex = data.days.findIndex(d => d.date === selectedDay.date)
+    const prevDay = dayIndex > 0 ? data.days[dayIndex - 1] : undefined
+    const nextDay = dayIndex < data.days.length - 1 ? data.days[dayIndex + 1] : undefined
+
     return (
       <MealPlanDayDetail
         day={selectedDay}
-        onBack={() => setSelectedDay(null)}
+        onBack={() => setSelectedDate(null)}
+        onPrev={prevDay ? () => setSelectedDate(prevDay.date) : undefined}
+        onNext={nextDay ? () => setSelectedDate(nextDay.date) : undefined}
         onOpenNutritionist={onOpenNutritionist}
       />
     )
@@ -125,7 +136,7 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
                 return (
                   <button
                     key={day.date}
-                    onClick={() => setSelectedDay(day)}
+                    onClick={() => setSelectedDate(day.date)}
                     className={`text-center py-2 rounded-t-lg transition-colors ${
                       isToday ? 'bg-accent/10 text-accent' : 'text-text-muted hover:text-text hover:bg-surface'
                     }`}
@@ -149,7 +160,7 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
                   return (
                     <button
                       key={`${day.date}-${slot.key}`}
-                      onClick={() => setSelectedDay(day)}
+                      onClick={() => setSelectedDate(day.date)}
                       className={`min-h-[48px] p-1.5 rounded transition-colors text-left ${
                         isToday ? 'bg-accent/5' : 'bg-surface/50'
                       } hover:bg-surface border border-transparent hover:border-border`}
@@ -193,7 +204,7 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
               return (
                 <button
                   key={day.date}
-                  onClick={() => setSelectedDay(day)}
+                  onClick={() => setSelectedDate(day.date)}
                   className={`w-full text-left bg-surface rounded-xl border p-4 transition-colors ${
                     isToday ? 'border-accent/30' : 'border-border'
                   } hover:border-accent/50`}

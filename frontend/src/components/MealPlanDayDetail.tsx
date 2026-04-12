@@ -1,4 +1,4 @@
-import { ArrowLeft, UtensilsCrossed } from 'lucide-react'
+import { ChevronLeft, ChevronRight, UtensilsCrossed } from 'lucide-react'
 import MacroCard from './MacroCard'
 import type { MealPlanDay, PlannedMeal } from '../types/api'
 
@@ -15,10 +15,12 @@ const MEAL_SLOTS = [
 interface Props {
   day: MealPlanDay
   onBack: () => void
+  onPrev?: () => void
+  onNext?: () => void
   onOpenNutritionist?: (context?: string) => void
 }
 
-export default function MealPlanDayDetail({ day, onBack, onOpenNutritionist }: Props) {
+export default function MealPlanDayDetail({ day, onBack, onPrev, onNext, onOpenNutritionist }: Props) {
   const d = new Date(day.date + 'T12:00:00')
   const today = new Date().toISOString().slice(0, 10)
   const isToday = day.date === today
@@ -30,15 +32,17 @@ export default function MealPlanDayDetail({ day, onBack, onOpenNutritionist }: P
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center gap-3">
+      {/* Header with nav */}
+      <div className="flex items-center justify-between">
         <button
-          onClick={onBack}
-          className="p-2 text-text-muted hover:text-text rounded-md transition-colors"
+          onClick={onPrev}
+          disabled={!onPrev}
+          className="p-2 text-text-muted hover:text-text rounded-md transition-colors disabled:opacity-20"
         >
-          <ArrowLeft size={20} />
+          <ChevronLeft size={20} />
         </button>
-        <div>
+
+        <div className="text-center flex-1">
           <h2 className="text-sm font-bold text-text uppercase tracking-wider">
             {isToday ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
           </h2>
@@ -47,7 +51,21 @@ export default function MealPlanDayDetail({ day, onBack, onOpenNutritionist }: P
               {d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
             </p>
           )}
+          <button
+            onClick={onBack}
+            className="text-[10px] font-bold text-accent uppercase tracking-widest mt-1 hover:opacity-70 transition-opacity"
+          >
+            Back to Calendar
+          </button>
         </div>
+
+        <button
+          onClick={onNext}
+          disabled={!onNext}
+          className="p-2 text-text-muted hover:text-text rounded-md transition-colors disabled:opacity-20"
+        >
+          <ChevronRight size={20} />
+        </button>
       </div>
 
       {/* Planned vs Actual summary bar */}
