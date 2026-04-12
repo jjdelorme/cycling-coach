@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.2-beta] - 2026-04-12
+
+- fix(nutrition): resolve nutritionist chat crash from missing `rides.date` column and date serialization
+- chore(ci): disable automatic merge to main
+
 ## [v1.9.1-beta] - 2026-04-12
 
 ### Features
