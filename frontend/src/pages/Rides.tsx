@@ -423,12 +423,14 @@ const syncSingleRide = useSyncSingleRide()
 
             {/* Main Timeline Card */}
             {ride.records && ride.records.length > 0 && (
-              <RideTimelineChart 
-                records={ride.records} 
+              <RideTimelineChart
+                records={ride.records}
                 laps={ride.laps}
-                workout={plannedWorkout ?? undefined} 
-                highlightedStep={hoveredStep ?? selectedStep} 
-                highlightedLapIndex={hoveredLap ?? selectedLap} 
+                workout={plannedWorkout ?? undefined}
+                highlightedStep={hoveredStep ?? selectedStep}
+                highlightedLapIndex={hoveredLap ?? selectedLap}
+                selectedStep={selectedStep}
+                selectedLapIndex={selectedLap}
               />
             )}
 
@@ -912,11 +914,12 @@ function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
         <MetricCard label="Est. TSS" value={String(summary.tss)} icon={Zap} color="text-accent" />
       </div>
 
-      <RideTimelineChart 
-        records={[]} 
-        laps={[]} 
-        workout={workout} 
-        highlightedStep={hoveredStep ?? selectedStep} 
+      <RideTimelineChart
+        records={[]}
+        laps={[]}
+        workout={workout}
+        highlightedStep={hoveredStep ?? selectedStep}
+        selectedStep={selectedStep}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

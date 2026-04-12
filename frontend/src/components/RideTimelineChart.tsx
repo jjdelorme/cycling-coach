@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Line } from 'react-chartjs-2'
-import { Activity } from 'lucide-react'
+import { Activity, RotateCcw } from 'lucide-react'
 import { zoneColor, fmtTime } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
@@ -67,14 +67,17 @@ interface Props {
   workout?: WorkoutDetail
   highlightedStep?: number | null
   highlightedLapIndex?: number | null
+  selectedStep?: number | null
+  selectedLapIndex?: number | null
 }
 
-export default function RideTimelineChart({ records, laps, workout, highlightedStep, highlightedLapIndex }: Props) {
+export default function RideTimelineChart({ records, laps, workout, highlightedStep, highlightedLapIndex, selectedStep, selectedLapIndex }: Props) {
   const cc = useChartColors()
   const units = useUnits()
   const elevScale = units === 'imperial' ? 3.28084 : 1
   const chartRef = useRef<ChartJS<'line'>>(null)
   const [selectionStats, setSelectionStats] = useState<{ duration: number; avgPower: number | null; avgHR: number | null; avgCadence: number | null } | null>(null)
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number } | null>(null)
 
   const { chartData, stepIndexMap, lapIndexMap, downsampleStep, altMin, altRange, hasElevation } = useMemo(() => {
     const maxPoints = 600
@@ -145,6 +148,26 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
     }
   }, [targetIndex, highlightColor])
 
+  // Zoom to selected (clicked) segment — hover alone doesn't zoom
+  const zoomTarget = selectedStep ?? selectedLapIndex ?? -1
+  const zoomMap = selectedStep != null ? stepIndexMap : lapIndexMap
+  useEffect(() => {
+    if (zoomTarget < 0 || !zoomMap || zoomMap.length === 0) {
+      setZoomRange(null)
+      return
+    }
+    let firstIdx = -1, lastIdx = -1
+    for (let i = 0; i < zoomMap.length; i++) {
+      if (zoomMap[i] === zoomTarget) {
+        if (firstIdx === -1) firstIdx = i
+        lastIdx = i
+      }
+    }
+    if (firstIdx === -1) return
+    const padding = Math.max(5, Math.round((lastIdx - firstIdx) * 0.1))
+    setZoomRange({ min: Math.max(0, firstIdx - padding), max: Math.min(zoomMap.length - 1, lastIdx + padding) })
+  }, [zoomTarget, zoomMap])
+
   const computeSelectionStats = useCallback((lo: number, hi: number) => {
     const slice = records.slice(lo * downsampleStep, Math.min(hi * downsampleStep, records.length - 1) + 1)
     const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
@@ -190,6 +213,14 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
           <Activity size={16} className="text-accent" /> Ride Timeline
         </h2>
         <div className="flex items-center gap-4 text-[10px] font-bold text-text-muted uppercase tracking-widest">
+          {zoomRange && (
+            <button
+              onClick={() => setZoomRange(null)}
+              className="flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 rounded text-accent hover:bg-accent/20 transition-colors"
+            >
+              <RotateCcw size={10} /> Reset Zoom
+            </button>
+          )}
           <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow" /> Power</span>
           <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red" /> HR</span>
           <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[rgba(126,200,227,0.6)]" /> Cadence</span>
@@ -212,7 +243,7 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
               }
             },
             scales: {
-              x: { ticks: { color: cc.tickColor, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+              x: { ticks: { color: cc.tickColor, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false }, ...(zoomRange ? { min: zoomRange.min, max: zoomRange.max } : {}) },
               y: { type: 'linear', position: 'left', title: { display: true, text: 'POWER (W)', color: 'rgba(245, 197, 24, 0.8)', font: { size: 9, weight: 'bold' } }, ticks: { color: 'rgba(245, 197, 24, 0.7)', font: { size: 10 } }, grid: { color: 'rgba(148, 163, 184, 0.1)' }, min: 0 },
               y1: { type: 'linear', position: 'right', title: { display: true, text: 'HR (BPM)', color: 'rgba(233, 69, 96, 0.8)', font: { size: 9, weight: 'bold' } }, ticks: { color: 'rgba(233, 69, 96, 0.7)', font: { size: 10 } }, grid: { display: false } },
               y2: { type: 'linear', display: false, min: 0, max: 200 },
