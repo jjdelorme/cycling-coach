@@ -3,7 +3,7 @@
 import io
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from PIL import Image
 
@@ -53,7 +53,7 @@ def upload_meal_photo(
     resized_bytes = buf.getvalue()
 
     # Build GCS path
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     short_id = uuid.uuid4().hex[:6]
     blob_name = f"{MEAL_PHOTO_PREFIX}/{user_id}/{now.strftime('%Y%m%d_%H%M%S')}_{short_id}.jpg"
     gcs_path = f"gs://{MEAL_PHOTO_BUCKET}/{blob_name}"

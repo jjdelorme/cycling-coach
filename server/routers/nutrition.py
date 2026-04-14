@@ -384,9 +384,9 @@ async def analyze_meal_endpoint(meal_id: int, user: CurrentUser = Depends(requir
 @router.get("/daily-summary")
 async def daily_summary(date: str = "", user: CurrentUser = Depends(require_read)):
     """Get aggregated macros and caloric balance for a date."""
-    from datetime import datetime
+    from server.utils.dates import user_today
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     with get_db() as conn:
         totals = get_daily_meal_totals(conn, date)
@@ -520,8 +520,9 @@ async def get_meal_plan(
 ):
     """Get weekly meal plan with plan-vs-actual per day."""
     from datetime import datetime, timedelta
+    from server.utils.dates import user_today
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     start_dt = datetime.fromisoformat(date)
     end_dt = start_dt + timedelta(days=days - 1)

@@ -65,8 +65,9 @@ def save_meal_analysis(
             difference_pct=round(abs(macro_cal - total_calories) / total_calories * 100, 1),
         )
 
+    from server.utils.dates import user_today
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%Y-%m-%d")
+    date_str = user_today()
     logged_at = now.isoformat()
 
     with get_db() as conn:

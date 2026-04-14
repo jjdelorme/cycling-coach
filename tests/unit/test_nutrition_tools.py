@@ -123,3 +123,94 @@ def test_agent_app_name():
     """Nutritionist agent has correct app name."""
     from server.nutrition.agent import APP_NAME
     assert APP_NAME == "nutrition-coach"
+
+
+def test_get_meal_history_uses_request_tz():
+    """get_meal_history uses get_request_tz() for cutoff calculation."""
+    from unittest.mock import patch, MagicMock
+    from zoneinfo import ZoneInfo
+
+    with patch("server.nutrition.tools.get_request_tz", return_value=ZoneInfo("America/Los_Angeles")) as mock_tz, \
+         patch("server.nutrition.tools.get_db") as mock_db:
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.tools import get_meal_history
+        get_meal_history(days_back=7)
+        mock_tz.assert_called_once()
+
+
+def test_get_daily_macros_uses_user_today():
+    """get_daily_macros defaults to user_today() when no date given."""
+    from unittest.mock import patch, MagicMock
+
+    with patch("server.nutrition.tools.user_today", return_value="2026-04-14") as mock_today, \
+         patch("server.nutrition.tools.get_db") as mock_db, \
+         patch("server.nutrition.tools.get_macro_targets", return_value={"calories": 2500, "protein_g": 150, "carbs_g": 300, "fat_g": 80}):
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.tools import get_daily_macros
+        result = get_daily_macros()
+        mock_today.assert_called_once()
+        assert result["date"] == "2026-04-14"
+
+
+def test_get_upcoming_training_load_uses_request_tz():
+    """get_upcoming_training_load uses get_request_tz() for today/end."""
+    from unittest.mock import patch, MagicMock
+    from zoneinfo import ZoneInfo
+
+    with patch("server.nutrition.tools.get_request_tz", return_value=ZoneInfo("America/New_York")) as mock_tz, \
+         patch("server.nutrition.tools.get_db") as mock_db:
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.tools import get_upcoming_training_load
+        get_upcoming_training_load(days_ahead=3)
+        mock_tz.assert_called()
+
+
+def test_get_planned_meals_uses_user_today():
+    """get_planned_meals defaults to user_today() when no date given."""
+    from unittest.mock import patch, MagicMock
+
+    with patch("server.nutrition.tools.user_today", return_value="2026-04-14") as mock_today, \
+         patch("server.nutrition.tools.get_db") as mock_db:
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.tools import get_planned_meals
+        result = get_planned_meals()
+        mock_today.assert_called_once()
+        assert result["start_date"] == "2026-04-14"
+
+
+def test_save_meal_analysis_uses_user_today_for_date():
+    """save_meal_analysis uses user_today() for the date field, not UTC."""
+    from unittest.mock import patch, MagicMock
+
+    with patch("server.utils.dates.user_today", return_value="2026-04-13") as mock_today, \
+         patch("server.nutrition.planning_tools.get_db") as mock_db:
+        mock_conn = MagicMock()
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda self, key: 42  # mock lastval
+        mock_conn.execute.return_value.fetchone.return_value = mock_row
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.planning_tools import save_meal_analysis
+        result = save_meal_analysis(
+            "Test meal", [{"name": "Item"}],
+            500, 30.0, 50.0, 15.0, "high"
+        )
+        mock_today.assert_called_once()
+        assert result["date"] == "2026-04-13"

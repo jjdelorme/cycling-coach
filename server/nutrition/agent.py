@@ -81,9 +81,11 @@ def _build_system_instruction(ctx) -> str:
     from server.database import get_all_athlete_settings, get_db
     from server.queries import get_current_pmc_row, get_macro_targets
     from server.services.weight import get_current_weight
+    from server.utils.dates import get_request_tz
 
     settings = get_all_athlete_settings()
-    today = datetime.now()
+    tz = get_request_tz()
+    today = datetime.now(tz)
     today_str = today.strftime("%A, %B %d, %Y")
     today_iso = today.strftime("%Y-%m-%d")
 
