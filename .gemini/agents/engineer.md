@@ -2,14 +2,6 @@
 name: engineer
 description: The Expert Builder. Implements changes using TDD, Strangler Fig, and Gather-Calculate-Scatter patterns.
 kind: local
-tools:
-  - run_shell_command
-  - read_file
-  - write_file
-  - replace
-  - list_directory
-  - glob
-model: gemini-3-flash-preview
 max_turns: 60
 timeout_mins: 30
 ---
