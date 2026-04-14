@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.5-beta] - 2026-04-14
+
+- feat(nutrition): user notes on logged meals — editable textarea in MacroCard, saved via new `user_notes` column (migration 0005)
+- feat(nutrition): "Analyze" button on logged meals — sends meal data + photo to nutritionist agent, saves feedback as `agent_notes` on the meal
+- feat(nutrition): "Ask a Question" button on planned meals — opens nutritionist chat with full meal context (name, macros, items, notes)
+- fix(ui): compact "Log a Meal" FAB on mobile — shows only `+` icon; full pill with text on desktop
+- feat(nutrition): enriched "Ask Nutritionist" context includes prior agent analysis notes when available
+
 ## [v1.9.4-beta] - 2026-04-12
 
 - feat(nutrition): quick-log meal modal — "Text" option in the Log a Meal FAB now opens a self-contained popup instead of navigating to the nutritionist chat panel; works on all screen sizes including mobile
