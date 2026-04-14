@@ -1,4 +1,6 @@
 import { ChevronLeft, ChevronRight, UtensilsCrossed, MessageSquare } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import MacroCard from './MacroCard'
 import type { MealPlanDay, PlannedMeal } from '../types/api'
 
@@ -176,9 +178,9 @@ export default function MealPlanDayDetail({ day, onBack, onPrev, onNext, onOpenN
 
                 {/* Agent notes */}
                 {meal.agent_notes && (
-                  <p className="mt-2 text-[10px] text-text-muted italic border-l-2 border-yellow/30 pl-2">
-                    {meal.agent_notes}
-                  </p>
+                  <div className="mt-2 text-sm text-text-muted border-l-2 border-yellow/30 pl-2 prose prose-sm prose-invert max-w-none">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{meal.agent_notes}</ReactMarkdown>
+                  </div>
                 )}
 
                 {/* Ask a Question */}

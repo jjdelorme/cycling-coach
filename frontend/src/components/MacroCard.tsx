@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Trash2, ChevronDown, ChevronUp, Loader2, Sparkles } from 'lucide-react'
 import { useUpdateMeal, useDeleteMeal, useAnalyzeMeal } from '../hooks/useApi'
 import type { MealSummary } from '../types/api'
@@ -170,9 +172,9 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
 
             {/* Agent notes */}
             {meal.agent_notes && (
-              <p className="text-[10px] text-text-muted italic border-l-2 border-green/30 pl-2 mb-3">
-                {meal.agent_notes}
-              </p>
+              <div className="text-sm text-text-muted border-l-2 border-green/30 pl-2 mb-3 prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{meal.agent_notes}</ReactMarkdown>
+              </div>
             )}
 
             {/* User notes */}
