@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, UtensilsCrossed } from 'lucide-react'
+import { ChevronLeft, ChevronRight, UtensilsCrossed, MessageSquare } from 'lucide-react'
 import MacroCard from './MacroCard'
 import type { MealPlanDay, PlannedMeal } from '../types/api'
 
@@ -179,6 +179,25 @@ export default function MealPlanDayDetail({ day, onBack, onPrev, onNext, onOpenN
                   <p className="mt-2 text-[10px] text-text-muted italic border-l-2 border-yellow/30 pl-2">
                     {meal.agent_notes}
                   </p>
+                )}
+
+                {/* Ask a Question */}
+                {onOpenNutritionist && (
+                  <button
+                    onClick={() => {
+                      const items = meal.items?.map(i => `${i.name}${i.serving_size ? ` (${i.serving_size})` : ''}`).join(', ')
+                      let context = `I have a question about this planned meal: ${meal.name} (${slot.label}).\n`
+                      if (meal.description) context += `${meal.description}\n`
+                      context += `Macros: ${meal.total_calories} kcal, P${Math.round(meal.total_protein_g)}g / C${Math.round(meal.total_carbs_g)}g / F${Math.round(meal.total_fat_g)}g`
+                      if (items) context += `\nItems: ${items}`
+                      if (meal.agent_notes) context += `\nNutritionist notes: ${meal.agent_notes}`
+                      onOpenNutritionist(context)
+                    }}
+                    className="mt-2 flex items-center gap-1 text-text-muted hover:text-accent text-[10px] font-bold uppercase tracking-widest transition-colors"
+                  >
+                    <MessageSquare size={10} />
+                    Ask a Question
+                  </button>
                 )}
               </div>
             )

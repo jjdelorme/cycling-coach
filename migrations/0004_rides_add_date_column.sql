@@ -6,7 +6,7 @@
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS date TEXT;
 
 -- Backfill date from start_time for any existing rows that have it
-UPDATE rides SET date = TO_CHAR(start_time, 'YYYY-MM-DD')
+UPDATE rides SET date = LEFT(start_time, 10)
   WHERE date IS NULL AND start_time IS NOT NULL;
 
 -- Create the index if missing

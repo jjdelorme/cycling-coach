@@ -62,7 +62,7 @@ import type {
   WorkoutDetail, WeekPlan, PeriodizationPhase, WeeklyOverview,
   ChatResponse, SessionSummary, SyncOverview, SyncStatus,
   CoachSettings,
-  MealDetail, MealListResponse, MacroTargets,
+  MealSummary, MealDetail, MealListResponse, MacroTargets,
   DailyNutritionSummary, WeeklyNutritionSummary,
   NutritionChatResponse,
   MealPlanResponse, MealPlanDay, DietaryPreferences,
@@ -227,8 +227,12 @@ export const uploadMealPhoto = async (
 
 export const updateMeal = (id: number, body: {
   total_calories?: number; total_protein_g?: number; total_carbs_g?: number;
-  total_fat_g?: number; meal_type?: string; date?: string; items?: MealDetail['items']
+  total_fat_g?: number; meal_type?: string; date?: string; items?: MealDetail['items'];
+  user_notes?: string
 }) => put<{ status: string }>(`/api/nutrition/meals/${id}`, body)
+
+export const analyzeMeal = (id: number) =>
+  post<MealSummary>(`/api/nutrition/meals/${id}/analyze`, {})
 
 export const deleteMeal = (id: number) =>
   request<{ status: string }>(`/api/nutrition/meals/${id}`, { method: 'DELETE' })

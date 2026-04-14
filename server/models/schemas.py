@@ -220,11 +220,12 @@ class MealSummary(BaseModel):
     confidence: str
     photo_url: Optional[str] = None
     edited_by_user: bool = False
+    user_notes: Optional[str] = None
+    agent_notes: Optional[str] = None
 
 
 class MealDetail(MealSummary):
     items: list[MealItem] = []
-    agent_notes: Optional[str] = None
 
 
 class MacroTargets(BaseModel):
@@ -259,6 +260,7 @@ class MealUpdateRequest(BaseModel):
     meal_type: Optional[str] = None
     date: Optional[str] = None
     items: Optional[list[MealItem]] = None
+    user_notes: Optional[str] = None
 
 
 class PlannedMeal(BaseModel):

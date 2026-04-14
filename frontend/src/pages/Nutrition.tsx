@@ -9,7 +9,7 @@ import MealPlanCalendar from '../components/MealPlanCalendar'
 import { Loader2 } from 'lucide-react'
 
 interface Props {
-  onOpenNutritionist?: (context?: string) => void
+  onOpenNutritionist?: (context?: string, sessionId?: string) => void
 }
 
 export default function Nutrition({ onOpenNutritionist }: Props) {
@@ -166,9 +166,10 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
       {/* FAB for meal capture */}
       <MealCapture
         onMealSaved={() => {
-          // Reset to today if viewing a different date
+          // Navigate to today's day view so the new meal is visible
           const today = new Date().toISOString().slice(0, 10)
           if (date !== today) setDate(today)
+          if (viewMode !== 'day') setViewMode('day')
         }}
         onOpenNutritionist={onOpenNutritionist}
       />
