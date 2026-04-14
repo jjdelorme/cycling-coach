@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import { Camera, Loader2, Mic, MicOff, MessageSquare, Plus, X, Send, UtensilsCrossed } from 'lucide-react'
+import { Camera, Image, Loader2, Mic, MicOff, MessageSquare, Plus, X, Send, UtensilsCrossed } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useLogMeal, useNutritionistChat } from '../hooks/useApi'
@@ -13,6 +13,7 @@ interface Props {
 
 export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const logMeal = useLogMeal()
@@ -90,6 +91,7 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
       // preview stays set → card remains mounted → error prop is shown
     } finally {
       if (fileRef.current) fileRef.current.value = ''
+      if (cameraRef.current) cameraRef.current.value = ''
     }
   }
 
@@ -142,6 +144,14 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
   return (
     <>
       <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleCapture}
+        className="hidden"
+      />
+      <input
         ref={fileRef}
         type="file"
         accept="image/*"
@@ -158,6 +168,7 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
           onCancel={() => {
             setPreview(null)
             if (fileRef.current) fileRef.current.value = ''
+            if (cameraRef.current) cameraRef.current.value = ''
           }}
         />
       )}
@@ -175,16 +186,28 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
         {/* Expanded options */}
         {expanded && (
           <div className="absolute bottom-16 left-0 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            {/* Photo option */}
+            {/* Camera option */}
             <button
-              onClick={() => { fileRef.current?.click() }}
+              onClick={() => { cameraRef.current?.click() }}
               disabled={logMeal.isPending}
               className="flex items-center gap-3 px-4 py-2.5 bg-surface border border-border rounded-xl shadow-lg hover:bg-surface-high transition-all whitespace-nowrap"
             >
               <div className="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">
                 <Camera size={16} className="text-accent" />
               </div>
-              <span className="text-sm font-bold text-text">Photo</span>
+              <span className="text-sm font-bold text-text">Camera</span>
+            </button>
+
+            {/* Gallery option */}
+            <button
+              onClick={() => { fileRef.current?.click() }}
+              disabled={logMeal.isPending}
+              className="flex items-center gap-3 px-4 py-2.5 bg-surface border border-border rounded-xl shadow-lg hover:bg-surface-high transition-all whitespace-nowrap"
+            >
+              <div className="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">
+                <Image size={16} className="text-accent" />
+              </div>
+              <span className="text-sm font-bold text-text">Gallery</span>
             </button>
 
             {/* Voice option */}
