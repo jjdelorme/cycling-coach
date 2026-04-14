@@ -480,7 +480,7 @@ const syncSingleRide = useSyncSingleRide()
                   </div>
                   <div className="p-5">
                     {ride.coach_comments ? (
-                      <div className="text-sm text-text leading-relaxed whitespace-pre-wrap italic opacity-90">
+                      <div className="text-base md:text-sm text-text leading-relaxed whitespace-pre-wrap italic opacity-90">
                         "{ride.coach_comments}"
                       </div>
                     ) : (
@@ -514,7 +514,7 @@ const syncSingleRide = useSyncSingleRide()
                       value={postRideNotes}
                       onChange={e => { setPostRideNotes(e.target.value); setNotesDirty(true) }}
                       rows={4}
-                      className="w-full bg-surface-low text-text border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent placeholder:text-text-muted/30 resize-none transition-all"
+                      className="w-full bg-surface-low text-text border border-border rounded-lg px-4 py-3 text-base md:text-sm focus:outline-none focus:border-accent placeholder:text-text-muted/30 resize-none transition-all"
                       placeholder="How did you feel? RPE, fueling, conditions..."
                     />
                   </div>
@@ -531,13 +531,13 @@ const syncSingleRide = useSyncSingleRide()
                       {plannedWorkout.coach_notes && (
                         <div className="space-y-1">
                           <p className="text-[9px] font-bold text-accent uppercase tracking-tighter">Coach's Instructions</p>
-                          <p className="text-xs text-text-muted leading-relaxed">{plannedWorkout.coach_notes}</p>
+                          <p className="text-sm md:text-xs text-text-muted leading-relaxed">{plannedWorkout.coach_notes}</p>
                         </div>
                       )}
                       {plannedWorkout.athlete_notes && (
                         <div className="space-y-1">
                           <p className="text-[9px] font-bold text-blue uppercase tracking-tighter">My Objectives</p>
-                          <p className="text-xs text-text-muted leading-relaxed">{plannedWorkout.athlete_notes}</p>
+                          <p className="text-sm md:text-xs text-text-muted leading-relaxed">{plannedWorkout.athlete_notes}</p>
                         </div>
                       )}
                     </div>
@@ -938,12 +938,12 @@ function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
               <div className="flex items-center gap-2"><Edit3 size={18} className="text-accent" /><h3 className="text-sm font-bold text-text uppercase tracking-wider">Objectives</h3></div>
               {athleteNotes !== null && <button onClick={hS} disabled={updateNotes.isPending} className="p-1.5 bg-accent text-white rounded-lg shadow-lg shadow-accent/20"><Save size={14} /></button>}
             </div>
-            <div className="p-4"><textarea value={nVal} onChange={e => setAthleteNotes(e.target.value)} placeholder="Strategy, fueling goals, or focus areas..." rows={5} className="w-full bg-surface-low text-text border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent placeholder:text-text-muted/30 resize-none transition-all leading-relaxed" />{saveStatus && <p className="text-[10px] font-bold text-green mt-2 animate-in fade-in">✓ {saveStatus}</p>}</div>
+            <div className="p-4"><textarea value={nVal} onChange={e => setAthleteNotes(e.target.value)} placeholder="Strategy, fueling goals, or focus areas..." rows={5} className="w-full bg-surface-low text-text border border-border rounded-lg px-4 py-3 text-base md:text-sm focus:outline-none focus:border-accent placeholder:text-text-muted/30 resize-none transition-all leading-relaxed" />{saveStatus && <p className="text-[10px] font-bold text-green mt-2 animate-in fade-in">✓ {saveStatus}</p>}</div>
           </section>
           {workout.coach_notes && (
             <section className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm opacity-90">
               <div className="px-5 py-3 border-b border-border bg-surface-low flex items-center gap-2"><Info size={16} className="text-yellow" /><h3 className="text-[10px] font-bold text-text uppercase tracking-wider">Coach Guidance</h3></div>
-              <div className="p-5 italic text-sm text-text-muted leading-relaxed whitespace-pre-wrap">"{workout.coach_notes}"</div>
+              <div className="p-5 italic text-base md:text-sm text-text-muted leading-relaxed whitespace-pre-wrap">"{workout.coach_notes}"</div>
             </section>
           )}
         </div>
