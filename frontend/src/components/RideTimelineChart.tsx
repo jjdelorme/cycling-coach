@@ -29,9 +29,9 @@ function buildLapIndexMap(sampleCount: number, downsampleStep: number, records: 
   if (firstRecordTs && firstLapTs && firstRecordTs.length > 5 && firstLapTs.length > 5) {
     const lapTimes = laps.map(l => {
       const start = new Date(l.start_time || '').getTime()
-      return { start, end: start + (l.total_timer_time || 0) * 1000 }
+      return { start, end: start + (l.total_elapsed_time || l.total_timer_time || 0) * 1000 }
     })
-    
+
     const map: number[] = []
     for (let i = 0; i < sampleCount; i++) {
       const r = records[i * downsampleStep]
@@ -45,14 +45,18 @@ function buildLapIndexMap(sampleCount: number, downsampleStep: number, records: 
   let cumulative = 0
   const lapRanges = laps.map(l => {
     const start = cumulative
-    const end = start + (l.total_timer_time || 0)
+    const end = start + (l.total_elapsed_time || l.total_timer_time || 0)
     cumulative = end
     return { start, end }
   })
-  
+
+  const totalDuration = cumulative
+  const totalRecords = records.length
+
   const map: number[] = []
   for (let i = 0; i < sampleCount; i++) {
-    const secs = i * downsampleStep
+    const recordIdx = i * downsampleStep
+    const secs = totalRecords > 1 ? (recordIdx / (totalRecords - 1)) * totalDuration : 0
     const idx = lapRanges.findIndex(range => secs >= range.start && secs < range.end)
     map.push(idx)
   }
