@@ -406,14 +406,16 @@ export default function Settings() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-bold uppercase tracking-wider rounded-t-xl transition-all ${
+              className={`flex items-center gap-2 px-3 py-3 md:px-5 text-sm font-bold uppercase tracking-wider rounded-t-xl transition-all ${
                 activeTab === tab.key
                   ? 'bg-surface text-accent border-b-2 border-accent'
                   : 'text-text-muted hover:text-text hover:bg-surface/50'
               }`}
             >
               <tab.icon size={16} />
-              {tab.label}
+              <span className={activeTab === tab.key ? '' : 'hidden md:inline'}>
+                {tab.label}
+              </span>
             </button>
           ))}
         </div>
