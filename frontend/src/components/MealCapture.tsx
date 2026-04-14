@@ -7,7 +7,7 @@ import MacroAnalysisCard from './MacroAnalysisCard'
 import type { MealDetail } from '../types/api'
 
 interface Props {
-  onMealSaved?: (meal: MealDetail) => void
+  onMealSaved?: (meal?: MealDetail) => void
   onOpenNutritionist?: (context?: string, sessionId?: string) => void
 }
 
@@ -320,7 +320,7 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
                       </button>
                     )}
                     <button
-                      onClick={closeQuickLog}
+                      onClick={() => { closeQuickLog(); onMealSaved?.() }}
                       className="flex-1 px-4 py-2.5 bg-green text-white rounded-xl text-sm font-bold hover:opacity-90 active:scale-[0.98] transition-all"
                     >
                       Done

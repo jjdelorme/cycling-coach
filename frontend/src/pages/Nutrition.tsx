@@ -166,9 +166,10 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
       {/* FAB for meal capture */}
       <MealCapture
         onMealSaved={() => {
-          // Reset to today if viewing a different date
+          // Navigate to today's day view so the new meal is visible
           const today = new Date().toISOString().slice(0, 10)
           if (date !== today) setDate(today)
+          if (viewMode !== 'day') setViewMode('day')
         }}
         onOpenNutritionist={onOpenNutritionist}
       />
