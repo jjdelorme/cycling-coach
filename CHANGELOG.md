@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.11.0-beta] - 2026-04-14
+
+### Features
+- **Full timezone awareness (Phases 0-2):** all date computations now respect the user's local timezone via `X-Client-Timezone` header and `ContextVar`-based request context; users in non-UTC timezones see correct local dates for meals, rides, coaching, and training summaries
+- **Ride queries rewritten:** all `rides.date` WHERE/ORDER references replaced with `(start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE` derivation — local dates computed at query time, not storage time
+- **Router timezone dependency:** every ride-querying API endpoint now accepts the client timezone via `get_client_tz` FastAPI dependency
+
+### Fixes
+- fix(nutrition): replace all naive `datetime.now()` calls with timezone-aware equivalents using `get_request_tz()` / `user_today()`
+- fix(database): `_adapt_sql` regex no longer mangles Postgres `::TYPE` cast syntax (e.g. `::TIMESTAMPTZ`); added negative lookbehind to skip double-colon casts
+- fix(database): `set_athlete_setting()` date_set default now uses `user_today()` instead of naive `datetime.now()`
+- fix(services): `withings.py` and `weight.py` date computations now use UTC-aware or request-scoped timezone
+- fix(pipeline): `compute_daily_pmc()` and sync callers pass explicit `tz_name="UTC"` for background jobs
+
+### Tests
+- 5 unit tests for nutrition timezone-aware tool calls
+- 4 unit tests for nutrition rides.date query rewrites
+- 5 unit tests verifying router `tz` dependency wiring
+- 2 unit tests for `set_athlete_setting` timezone behavior
+- 1 unit test for withings UTC-aware datetime
+- 6 integration tests for `AT TIME ZONE` query pattern against real Postgres
+
 ## [v1.10.0] - 2026-04-14
 
 ### Features
