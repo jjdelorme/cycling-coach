@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.7-beta] - 2026-04-14
+
+- fix(ui): consolidate mobile bottom nav into 5-tab layout — Dashboard, Calendar, Nutrition, Coach, and "More" overflow menu (Rides, Analysis, theme toggle, Settings, Users)
+- fix(ui): responsive Settings tab labels — icons-only on mobile for inactive tabs
+
 ## [v1.9.6-beta] - 2026-04-14
 
 - fix(nutrition): navigate to day view after logging a meal so the new meal is immediately visible
