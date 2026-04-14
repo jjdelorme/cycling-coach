@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.11-beta] - 2026-04-14
+
+### Fixes
+- fix(ui): increase note font sizes on mobile for readability
+
 ## [v1.9.10-beta] - 2026-04-14
 
 ### Features
