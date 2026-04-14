@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.12-beta] - 2026-04-14
+
+### Fixes
+- fix(nutrition): render agent notes as markdown with larger font size
+
 ## [v1.9.11-beta] - 2026-04-14
 
 ### Fixes
