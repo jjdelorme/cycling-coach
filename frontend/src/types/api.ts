@@ -283,6 +283,8 @@ export interface CoachSettings {
   coaching_principles: string
   coach_role: string
   plan_management: string
+  dietary_preferences?: string
+  nutritionist_principles?: string
   intervals_icu_api_key?: string
   intervals_icu_athlete_id?: string
   units?: string
@@ -317,11 +319,12 @@ export interface MealSummary {
   confidence: 'high' | 'medium' | 'low'
   photo_url?: string
   edited_by_user: boolean
+  user_notes?: string
+  agent_notes?: string
 }
 
 export interface MealDetail extends MealSummary {
   items: MealItem[]
-  agent_notes?: string
 }
 
 export interface MacroTargets {
@@ -389,6 +392,53 @@ export interface NutritionChatRequest {
 export interface NutritionChatResponse {
   response: string
   session_id: string
+}
+
+// --- Meal Plan Types ---
+
+export interface PlannedMeal {
+  id: number
+  user_id: string
+  date: string
+  meal_slot: string
+  name: string
+  description?: string
+  total_calories: number
+  total_protein_g: number
+  total_carbs_g: number
+  total_fat_g: number
+  items?: MealItem[]
+  agent_notes?: string
+  created_at?: string
+}
+
+export interface MealPlanDayTotals {
+  planned_calories: number
+  actual_calories: number
+  planned_protein_g: number
+  actual_protein_g: number
+  planned_carbs_g: number
+  actual_carbs_g: number
+  planned_fat_g: number
+  actual_fat_g: number
+}
+
+export interface MealPlanDay {
+  date: string
+  planned: Record<string, PlannedMeal | null>
+  actual: MealSummary[]
+  day_totals: MealPlanDayTotals
+}
+
+export interface MealPlanResponse {
+  start_date: string
+  end_date: string
+  days: MealPlanDay[]
+}
+
+export interface DietaryPreferences {
+  dietary_preferences: string
+  nutritionist_principles: string
 }
 
 // --- Withings Types ---

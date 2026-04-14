@@ -38,19 +38,19 @@ interface LayoutProps {
   onTabChange: (tab: TabKey) => void
   viewContext?: ViewContext
   nutritionistContext?: string
-  onOpenNutritionist?: (context?: string) => void
+  nutritionistSessionId?: string
+  onOpenNutritionist?: (context?: string, sessionId?: string) => void
   children: ReactNode
 }
 
-export default function Layout({ activeTab, onTabChange, viewContext, nutritionistContext, children }: LayoutProps) {
+export default function Layout({ activeTab, onTabChange, viewContext, nutritionistContext, nutritionistSessionId, children }: LayoutProps) {
   const [coachOpen, setCoachOpen] = useState(false)
   const { theme, toggle: toggleTheme } = useTheme()
 
-  // Auto-open the coach panel when a nutritionist context is injected
-  // (e.g. user clicks "Ask Nutritionist" on a MacroCard)
+  // Auto-open the coach panel when a nutritionist context or session is injected
   useEffect(() => {
-    if (nutritionistContext) setCoachOpen(true)
-  }, [nutritionistContext])
+    if (nutritionistContext || nutritionistSessionId) setCoachOpen(true)
+  }, [nutritionistContext, nutritionistSessionId])
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const canSettings = user?.role === 'admin' || user?.role === 'readwrite' || user?.role === 'read'
@@ -138,7 +138,7 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
           {children}
         </main>
         {coachOpen && (
-          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} />
+          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} nutritionistSessionId={nutritionistSessionId} defaultTab={activeTab === 'nutrition' ? 'nutritionist' : 'coach'} />
         )}
       </div>
 

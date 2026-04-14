@@ -17,9 +17,11 @@ export default function App() {
   const [rideDate, setRideDate] = useState<string | undefined>()
   const [calendarDate, setCalendarDate] = useState<string | undefined>()
   const [nutritionistContext, setNutritionistContext] = useState<string | undefined>()
+  const [nutritionistSessionId, setNutritionistSessionId] = useState<string | undefined>()
 
-  const handleOpenNutritionist = (context?: string) => {
+  const handleOpenNutritionist = (context?: string, sessionId?: string) => {
     setNutritionistContext(context)
+    setNutritionistSessionId(sessionId)
   }
 
   const handleRideSelect = (id: number) => {
@@ -55,7 +57,7 @@ export default function App() {
   }
 
   return (
-    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined); setCalendarDate(undefined); setNutritionistContext(undefined) }} viewContext={viewContext} nutritionistContext={nutritionistContext} onOpenNutritionist={handleOpenNutritionist}>
+    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined); setCalendarDate(undefined); setNutritionistContext(undefined); setNutritionistSessionId(undefined) }} viewContext={viewContext} nutritionistContext={nutritionistContext} nutritionistSessionId={nutritionistSessionId} onOpenNutritionist={handleOpenNutritionist}>
       {tab === 'dashboard' && <Dashboard onRideSelect={handleRideSelect} onWorkoutSelect={handleWorkoutSelect} onNavigateToNutrition={() => setTab('nutrition')} />}
       {tab === 'rides' && (
         <Rides 

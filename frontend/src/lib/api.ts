@@ -62,9 +62,10 @@ import type {
   WorkoutDetail, WeekPlan, PeriodizationPhase, WeeklyOverview,
   ChatResponse, SessionSummary, SyncOverview, SyncStatus,
   CoachSettings,
-  MealDetail, MealListResponse, MacroTargets,
+  MealSummary, MealDetail, MealListResponse, MacroTargets,
   DailyNutritionSummary, WeeklyNutritionSummary,
   NutritionChatResponse,
+  MealPlanResponse, MealPlanDay, DietaryPreferences,
 } from '../types/api'
 
 // Rides
@@ -226,8 +227,12 @@ export const uploadMealPhoto = async (
 
 export const updateMeal = (id: number, body: {
   total_calories?: number; total_protein_g?: number; total_carbs_g?: number;
-  total_fat_g?: number; meal_type?: string; date?: string; items?: MealDetail['items']
+  total_fat_g?: number; meal_type?: string; date?: string; items?: MealDetail['items'];
+  user_notes?: string
 }) => put<{ status: string }>(`/api/nutrition/meals/${id}`, body)
+
+export const analyzeMeal = (id: number) =>
+  post<MealSummary>(`/api/nutrition/meals/${id}/analyze`, {})
 
 export const deleteMeal = (id: number) =>
   request<{ status: string }>(`/api/nutrition/meals/${id}`, { method: 'DELETE' })
@@ -257,6 +262,29 @@ export const fetchNutritionSession = (id: string) =>
 
 export const deleteNutritionSession = (id: string) =>
   request<{ status: string }>(`/api/nutrition/sessions/${id}`, { method: 'DELETE' })
+
+// Meal Plan
+export const fetchMealPlan = (params?: { date?: string; days?: number }) => {
+  const q = new URLSearchParams()
+  if (params?.date) q.set('date', params.date)
+  if (params?.days) q.set('days', String(params.days))
+  const qs = q.toString()
+  return get<MealPlanResponse>(`/api/nutrition/meal-plan${qs ? `?${qs}` : ''}`)
+}
+
+export const fetchMealPlanDay = (date: string) =>
+  get<MealPlanDay>(`/api/nutrition/meal-plan/${date}`)
+
+export const clearMealPlan = (date: string, mealSlot?: string) => {
+  const q = mealSlot ? `?meal_slot=${mealSlot}` : ''
+  return request<{ status: string; removed: number }>(`/api/nutrition/meal-plan/${date}${q}`, { method: 'DELETE' })
+}
+
+export const fetchDietaryPreferences = () =>
+  get<DietaryPreferences>('/api/nutrition/preferences')
+
+export const updateDietaryPreferences = (section: string, value: string) =>
+  put<{ status: string }>('/api/nutrition/preferences', { section, value })
 
 // Withings
 export const fetchWithingsStatus = () => get<import('../types/api').WithingsStatus>('/api/withings/status')

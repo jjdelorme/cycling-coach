@@ -220,11 +220,12 @@ class MealSummary(BaseModel):
     confidence: str
     photo_url: Optional[str] = None
     edited_by_user: bool = False
+    user_notes: Optional[str] = None
+    agent_notes: Optional[str] = None
 
 
 class MealDetail(MealSummary):
     items: list[MealItem] = []
-    agent_notes: Optional[str] = None
 
 
 class MacroTargets(BaseModel):
@@ -259,6 +260,46 @@ class MealUpdateRequest(BaseModel):
     meal_type: Optional[str] = None
     date: Optional[str] = None
     items: Optional[list[MealItem]] = None
+    user_notes: Optional[str] = None
+
+
+class PlannedMeal(BaseModel):
+    id: int
+    user_id: str = "athlete"
+    date: str
+    meal_slot: str
+    name: str
+    description: Optional[str] = None
+    total_calories: int
+    total_protein_g: float
+    total_carbs_g: float
+    total_fat_g: float
+    items: Optional[list[MealItem]] = None
+    agent_notes: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class MealPlanDayTotals(BaseModel):
+    planned_calories: int = 0
+    actual_calories: int = 0
+    planned_protein_g: float = 0
+    actual_protein_g: float = 0
+    planned_carbs_g: float = 0
+    actual_carbs_g: float = 0
+    planned_fat_g: float = 0
+    actual_fat_g: float = 0
+
+
+class MealPlanDay(BaseModel):
+    date: str
+    planned: dict[str, Optional[PlannedMeal]] = {}
+    actual: list[MealSummary] = []
+    day_totals: MealPlanDayTotals = MealPlanDayTotals()
+
+
+class DietaryPreferencesUpdate(BaseModel):
+    section: str  # "dietary_preferences" or "nutritionist_principles"
+    value: str
 
 
 class NutritionChatRequest(BaseModel):

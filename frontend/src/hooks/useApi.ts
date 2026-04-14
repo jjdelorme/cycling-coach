@@ -260,6 +260,18 @@ export function useDeleteMeal() {
   })
 }
 
+export function useAnalyzeMeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.analyzeMeal(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['meal', id] })
+      qc.invalidateQueries({ queryKey: ['meals'] })
+      qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+    },
+  })
+}
+
 export function useDailyNutrition(date?: string) {
   return useQuery({
     queryKey: ['daily-nutrition', date],
@@ -301,7 +313,10 @@ export function useNutritionistChat() {
       // Refresh meal data in case the nutritionist modified meals
       qc.invalidateQueries({ queryKey: ['meals'] })
       qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+      qc.invalidateQueries({ queryKey: ['weekly-nutrition'] })
       qc.invalidateQueries({ queryKey: ['nutrition-sessions'] })
+      qc.invalidateQueries({ queryKey: ['meal-plan'] })
+      qc.invalidateQueries({ queryKey: ['meal-plan-day'] })
     },
   })
 }
@@ -310,6 +325,50 @@ export function useNutritionSessions() {
   return useQuery({
     queryKey: ['nutrition-sessions'],
     queryFn: api.fetchNutritionSessions,
+  })
+}
+
+// Meal Plan
+export function useMealPlan(params?: { date?: string; days?: number }) {
+  return useQuery({
+    queryKey: ['meal-plan', params],
+    queryFn: () => api.fetchMealPlan(params),
+  })
+}
+
+export function useMealPlanDay(date: string | null) {
+  return useQuery({
+    queryKey: ['meal-plan-day', date],
+    queryFn: () => api.fetchMealPlanDay(date!),
+    enabled: date !== null,
+  })
+}
+
+export function useClearMealPlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ date, mealSlot }: { date: string; mealSlot?: string }) =>
+      api.clearMealPlan(date, mealSlot),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['meal-plan'] })
+      qc.invalidateQueries({ queryKey: ['meal-plan-day'] })
+    },
+  })
+}
+
+export function useDietaryPreferences() {
+  return useQuery({
+    queryKey: ['dietary-preferences'],
+    queryFn: api.fetchDietaryPreferences,
+  })
+}
+
+export function useUpdateDietaryPreferences() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ section, value }: { section: string; value: string }) =>
+      api.updateDietaryPreferences(section, value),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dietary-preferences'] }),
   })
 }
 

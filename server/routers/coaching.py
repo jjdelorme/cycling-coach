@@ -109,7 +109,7 @@ class SettingUpdate(BaseModel):
 @router.put("/settings")
 async def update_setting(req: SettingUpdate, user: CurrentUser = Depends(require_write)):
     """Update a single coach setting."""
-    valid_keys = {"athlete_profile", "coaching_principles", "coach_role", "plan_management", "theme", "units", "intervals_icu_api_key", "intervals_icu_athlete_id", "gemini_model", "gcp_location", "gemini_api_key"}
+    valid_keys = {"athlete_profile", "coaching_principles", "coach_role", "plan_management", "theme", "units", "intervals_icu_api_key", "intervals_icu_athlete_id", "gemini_model", "gcp_location", "gemini_api_key", "dietary_preferences", "nutritionist_principles"}
     if req.key not in valid_keys:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid key. Must be one of: {', '.join(sorted(valid_keys))}")
