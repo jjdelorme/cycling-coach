@@ -254,8 +254,15 @@ async def update_meal_endpoint(
             updates.append("date = %s")
             params.append(req.date)
 
+        has_macro_changes = len(updates) > 0
+
+        if req.user_notes is not None:
+            updates.append("user_notes = %s")
+            params.append(req.user_notes)
+
         if updates:
-            updates.append("edited_by_user = TRUE")
+            if has_macro_changes:
+                updates.append("edited_by_user = TRUE")
             params.append(meal_id)
             conn.execute(f"UPDATE meal_logs SET {', '.join(updates)} WHERE id = %s", params)
 
@@ -282,6 +289,89 @@ async def delete_meal_endpoint(meal_id: int, user: CurrentUser = Depends(require
             raise HTTPException(404, "Meal not found")
         conn.execute("DELETE FROM meal_logs WHERE id = %s", (meal_id,))
     return {"status": "ok"}
+
+
+@router.post("/meals/{meal_id}/analyze")
+async def analyze_meal_endpoint(meal_id: int, user: CurrentUser = Depends(require_write)):
+    """Send a meal to the nutritionist agent for analysis and save the feedback."""
+    from datetime import datetime, timezone
+    from server.nutrition.agent import chat as nutrition_chat
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    with get_db() as conn:
+        # Rate limit check
+        count_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM meal_logs WHERE date = %s AND user_id = %s",
+            (today, "athlete"),
+        ).fetchone()
+        if count_row and count_row["cnt"] >= DAILY_ANALYSIS_LIMIT:
+            raise HTTPException(429, f"Daily analysis limit reached ({DAILY_ANALYSIS_LIMIT}/day).")
+
+        row = conn.execute("SELECT * FROM meal_logs WHERE id = %s", (meal_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Meal not found")
+        meal = dict(row)
+        items = get_meal_items(conn, meal_id)
+
+    # Build analysis prompt
+    item_lines = []
+    for it in items:
+        serving = f" ({it['serving_size']})" if it.get("serving_size") else ""
+        item_lines.append(
+            f"  - {it['name']}{serving}: "
+            f"{it['calories']} kcal, P{it['protein_g']}g / C{it['carbs_g']}g / F{it['fat_g']}g"
+        )
+    items_text = "\n".join(item_lines) or "  No itemized breakdown available."
+
+    prompt = (
+        f"Analyze this meal and provide nutritionist feedback. "
+        f"Do NOT call any tools — just provide your analysis as text.\n\n"
+        f"Meal: {meal['description']}\n"
+        f"Totals: {meal['total_calories']} kcal, "
+        f"P{meal['total_protein_g']}g / C{meal['total_carbs_g']}g / F{meal['total_fat_g']}g\n"
+        f"Confidence: {meal['confidence']}\n"
+        f"Items:\n{items_text}"
+    )
+    if meal.get("user_notes"):
+        prompt += f"\nUser notes: {meal['user_notes']}"
+
+    session_id = str(uuid.uuid4())
+
+    # Include photo if available
+    image_bytes = None
+    image_mime = None
+    if meal.get("photo_gcs_path"):
+        photo_data = download_photo(meal["photo_gcs_path"])
+        if photo_data:
+            image_bytes = photo_data
+            image_mime = "image/jpeg"
+
+    try:
+        response_text = await nutrition_chat(
+            message=prompt,
+            user_id=user.email if hasattr(user, "email") else "athlete",
+            session_id=session_id,
+            user=user,
+            image_data=image_bytes,
+            image_mime_type=image_mime,
+        )
+    except Exception as e:
+        if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+            raise HTTPException(429, "The AI model is currently busy. Please try again in a moment.")
+        raise
+
+    # Save analysis to agent_notes
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE meal_logs SET agent_notes = %s WHERE id = %s",
+            (response_text, meal_id),
+        )
+        updated = conn.execute("SELECT * FROM meal_logs WHERE id = %s", (meal_id,)).fetchone()
+
+    result = dict(updated)
+    result["photo_url"] = _photo_url(meal_id, bool(result.get("photo_gcs_path")))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +476,8 @@ def _build_meal_plan_day(date: str, planned_rows: list[dict], actual_rows: list[
             "confidence": m["confidence"],
             "photo_url": _photo_url(m["id"], bool(m.get("photo_gcs_path"))),
             "edited_by_user": m.get("edited_by_user", False),
+            "user_notes": m.get("user_notes"),
+            "agent_notes": m.get("agent_notes"),
         }
         for m in actual_rows
     ]

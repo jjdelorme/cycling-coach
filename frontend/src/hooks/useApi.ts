@@ -260,6 +260,18 @@ export function useDeleteMeal() {
   })
 }
 
+export function useAnalyzeMeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.analyzeMeal(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['meal', id] })
+      qc.invalidateQueries({ queryKey: ['meals'] })
+      qc.invalidateQueries({ queryKey: ['daily-nutrition'] })
+    },
+  })
+}
+
 export function useDailyNutrition(date?: string) {
   return useQuery({
     queryKey: ['daily-nutrition', date],

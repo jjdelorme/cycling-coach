@@ -319,11 +319,12 @@ export interface MealSummary {
   confidence: 'high' | 'medium' | 'low'
   photo_url?: string
   edited_by_user: boolean
+  user_notes?: string
+  agent_notes?: string
 }
 
 export interface MealDetail extends MealSummary {
   items: MealItem[]
-  agent_notes?: string
 }
 
 export interface MacroTargets {

@@ -231,7 +231,7 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
         <button
           onClick={() => setExpanded(!expanded)}
           disabled={logMeal.isPending}
-          className={`flex items-center gap-2 px-5 py-3 rounded-full shadow-lg transition-all disabled:opacity-50 ${
+          className={`flex items-center justify-center gap-2 p-3 md:px-5 md:py-3 rounded-full shadow-lg transition-all disabled:opacity-50 ${
             expanded
               ? 'bg-surface text-text border border-border shadow-xl'
               : 'bg-accent text-white shadow-accent/20 hover:opacity-90 active:scale-95'
@@ -244,7 +244,7 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
           ) : (
             <Plus size={18} />
           )}
-          <span className="text-xs font-bold uppercase tracking-widest">Log a Meal</span>
+          <span className="hidden md:inline text-xs font-bold uppercase tracking-widest">Log a Meal</span>
         </button>
       </div>
 
