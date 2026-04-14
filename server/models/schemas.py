@@ -259,6 +259,7 @@ class MealUpdateRequest(BaseModel):
     total_fat_g: Optional[float] = None
     meal_type: Optional[str] = None
     date: Optional[str] = None
+    logged_at: Optional[str] = None
     items: Optional[list[MealItem]] = None
     user_notes: Optional[str] = None
 

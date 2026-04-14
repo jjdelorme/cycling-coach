@@ -253,6 +253,9 @@ async def update_meal_endpoint(
         if req.date is not None:
             updates.append("date = %s")
             params.append(req.date)
+        if req.logged_at is not None:
+            updates.append("logged_at = %s")
+            params.append(req.logged_at)
 
         has_macro_changes = len(updates) > 0
 
