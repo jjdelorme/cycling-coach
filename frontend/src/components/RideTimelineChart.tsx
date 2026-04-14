@@ -157,7 +157,6 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
   const zoomMap = selectedStep != null ? stepIndexMap : lapIndexMap
   useEffect(() => {
     if (zoomTarget < 0 || !zoomMap || zoomMap.length === 0) {
-      setZoomRange(null)
       return
     }
     let firstIdx = -1, lastIdx = -1
@@ -185,9 +184,9 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
     selectionDataMap.set(chart, { state: 'idle', startIdx: null, endIdx: null })
     canvas.style.cursor = 'crosshair'
     function getIdx(e: MouseEvent) { const r = canvas.getBoundingClientRect(), x = e.clientX - r.left; return Math.round(Math.max(0, Math.min(chart!.scales.x.getValueForPixel(x) ?? 0, (chartData.labels?.length ?? 1) - 1))) }
-    function onDown(e: MouseEvent) { const sel = selectionDataMap.get(chart!), r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, a = chart!.chartArea; if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return; if (sel?.state === 'locked') { selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null }); setSelectionStats(null); chart!.draw(); return }; const i = getIdx(e); selectionDataMap.set(chart!, { state: 'dragging', startIdx: i, endIdx: i }); chart!.draw() }
+    function onDown(e: MouseEvent) { const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, a = chart!.chartArea; if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return; const i = getIdx(e); selectionDataMap.set(chart!, { state: 'dragging', startIdx: i, endIdx: i }); chart!.draw() }
     function onMove(e: MouseEvent) { const sel = selectionDataMap.get(chart!); if (sel?.state === 'dragging') { sel.endIdx = getIdx(e); chart!.draw() } }
-    function onUp() { const sel = selectionDataMap.get(chart!); if (sel?.state === 'dragging') { if (sel.startIdx != null && sel.endIdx != null && Math.abs(sel.endIdx - sel.startIdx) > 2) { sel.state = 'locked'; computeSelectionStats(Math.min(sel.startIdx, sel.endIdx), Math.max(sel.startIdx, sel.endIdx)) } else { selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null }); setSelectionStats(null) }; chart!.draw() } }
+    function onUp() { const sel = selectionDataMap.get(chart!); if (sel?.state === 'dragging') { if (sel.startIdx != null && sel.endIdx != null && Math.abs(sel.endIdx - sel.startIdx) > 2) { const lo = Math.min(sel.startIdx, sel.endIdx), hi = Math.max(sel.startIdx, sel.endIdx); const pad = Math.max(2, Math.round((hi - lo) * 0.02)); setZoomRange({ min: Math.max(0, lo - pad), max: Math.min((chartData.labels?.length ?? 1) - 1, hi + pad) }); computeSelectionStats(lo, hi) }; selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null }); chart!.draw() } }
     canvas.addEventListener('mousedown', onDown); canvas.addEventListener('mousemove', onMove); canvas.addEventListener('mouseup', onUp); canvas.addEventListener('mouseleave', onUp)
     return () => { canvas.removeEventListener('mousedown', onDown); canvas.removeEventListener('mousemove', onMove); canvas.removeEventListener('mouseup', onUp); canvas.removeEventListener('mouseleave', onUp); selectionDataMap.delete(chart!) }
   }, [records, workout, chartData.labels?.length, computeSelectionStats])
@@ -219,7 +218,7 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
         <div className="flex items-center gap-4 text-[10px] font-bold text-text-muted uppercase tracking-widest">
           {zoomRange && (
             <button
-              onClick={() => setZoomRange(null)}
+              onClick={() => { setZoomRange(null); setSelectionStats(null) }}
               className="flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 rounded text-accent hover:bg-accent/20 transition-colors"
             >
               <RotateCcw size={10} /> Reset Zoom
