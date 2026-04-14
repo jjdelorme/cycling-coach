@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.9-beta] - 2026-04-14
+
+### Fixes
+- fix(nutrition): allow editing meal time in addition to date — meal edit card now shows a time picker alongside the date picker, and `logged_at` is updated via the API
+- fix(nutrition): add camera capture option for meal photo on Android — split Photo button into Camera (uses `capture="environment"`) and Gallery so Android users can take photos directly
+
 ## [v1.9.8] - 2026-04-14
 
 ### Features

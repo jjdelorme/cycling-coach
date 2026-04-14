@@ -19,6 +19,7 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
     total_fat_g: meal.total_fat_g,
     meal_type: meal.meal_type ?? '',
     date: meal.date,
+    time: new Date(meal.logged_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
     user_notes: meal.user_notes ?? '',
   })
   const [swipeX, setSwipeX] = useState(0)
@@ -38,9 +39,12 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
       total_fat_g: meal.total_fat_g,
       meal_type: meal.meal_type ?? '',
       date: meal.date,
+      time: new Date(meal.logged_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
       user_notes: meal.user_notes ?? '',
     })
-  }, [meal.total_calories, meal.total_protein_g, meal.total_carbs_g, meal.total_fat_g, meal.meal_type, meal.date, meal.user_notes])
+  }, [meal.total_calories, meal.total_protein_g, meal.total_carbs_g, meal.total_fat_g, meal.meal_type, meal.date, meal.logged_at, meal.user_notes])
+
+  const origTime = new Date(meal.logged_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
 
   const hasChanges =
     editValues.total_calories !== meal.total_calories ||
@@ -49,10 +53,13 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
     editValues.total_fat_g !== meal.total_fat_g ||
     editValues.meal_type !== (meal.meal_type ?? '') ||
     editValues.date !== meal.date ||
+    editValues.time !== origTime ||
     editValues.user_notes !== (meal.user_notes ?? '')
 
   const handleSave = () => {
-    updateMeal.mutate({ id: meal.id, body: editValues })
+    const { time, ...rest } = editValues
+    const logged_at = `${rest.date}T${time}:00`
+    updateMeal.mutate({ id: meal.id, body: { ...rest, logged_at } })
   }
 
   const handleDelete = () => {
@@ -177,8 +184,8 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
               className="w-full bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-muted/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none mb-3"
             />
 
-            {/* Date + meal type row */}
-            <div className="grid grid-cols-2 gap-2 mb-3">
+            {/* Date + time + meal type row */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
               <div>
                 <input
                   type="date"
@@ -188,6 +195,15 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
                   className="w-full bg-surface-low border border-border rounded-lg px-2 py-2 text-center text-sm font-bold text-text focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                 />
                 <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1 block text-center">Date</span>
+              </div>
+              <div>
+                <input
+                  type="time"
+                  value={editValues.time}
+                  onChange={e => setEditValues(prev => ({ ...prev, time: e.target.value }))}
+                  className="w-full bg-surface-low border border-border rounded-lg px-2 py-2 text-center text-sm font-bold text-text focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                />
+                <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1 block text-center">Time</span>
               </div>
               <div>
                 <select
