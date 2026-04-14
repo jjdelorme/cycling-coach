@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.8-beta] - 2026-04-14
+
+- fix(rides): correct lap-to-record mapping for irregularly sampled streams — lap highlight now works correctly on ICU-synced rides where record count differs from ride duration
+- fix(rides): use `total_elapsed_time` (wall-clock) instead of `total_timer_time` (active-only) for lap boundary calculations
+
 ## [v1.9.7-beta] - 2026-04-14
 
 - fix(ui): consolidate mobile bottom nav into 5-tab layout — Dashboard, Calendar, Nutrition, Coach, and "More" overflow menu (Rides, Analysis, theme toggle, Settings, Users)
