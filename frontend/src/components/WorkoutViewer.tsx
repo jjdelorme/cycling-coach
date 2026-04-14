@@ -225,7 +225,7 @@ export default function WorkoutViewer({ workoutId, onClose }: Props) {
                 {detail.coach_notes && (
                   <div>
                     <h4 className="text-xs font-semibold text-text-muted uppercase mb-1">Coach's Notes</h4>
-                    <div className="bg-bg rounded-lg px-4 py-3 text-sm text-text whitespace-pre-wrap">
+                    <div className="bg-bg rounded-lg px-4 py-3 text-base md:text-sm text-text whitespace-pre-wrap">
                       {detail.coach_notes}
                     </div>
                   </div>
@@ -237,7 +237,7 @@ export default function WorkoutViewer({ workoutId, onClose }: Props) {
                     onChange={e => setAthleteNotes(e.target.value)}
                     placeholder="How are you feeling? Any goals for this session?"
                     rows={3}
-                    className="w-full bg-bg border border-border rounded-lg px-4 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent resize-none"
+                    className="w-full bg-bg border border-border rounded-lg px-4 py-2 text-base md:text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent resize-none"
                   />
                   <div className="flex items-center gap-3 mt-2">
                     <button
