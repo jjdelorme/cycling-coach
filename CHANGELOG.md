@@ -2,31 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.9.12-beta] - 2026-04-14
-
-### Fixes
-- fix(nutrition): render agent notes as markdown with larger font size
-
-## [v1.9.11-beta] - 2026-04-14
-
-### Fixes
-- fix(ui): increase note font sizes on mobile for readability
-
-## [v1.9.10-beta] - 2026-04-14
+## [v1.10.0] - 2026-04-14
 
 ### Features
-- feat(rides): drag-to-zoom on ride timeline chart — click and drag to select a region, chart zooms to that range with selection stats; supports iterative sub-zooming; Reset Zoom button restores full timeline
-- feat(rides): click a workout step or lap to zoom the timeline chart to that segment
+- **Ride timeline drag-to-zoom:** click and drag to select a region of the ride timeline, chart zooms to that range with selection stats (avg power, HR, cadence, duration); supports iterative sub-zooming; Reset Zoom button restores full timeline
+- **Ride timeline step/lap zoom:** click a workout step or lap to zoom the timeline chart to that segment
 
 ### Fixes
-- fix(nutrition): allow editing meal time in addition to date — meal edit card now shows a time picker alongside the date picker, and `logged_at` is updated via the API
-- fix(nutrition): add camera capture option for meal photo on Android — split Photo button into Camera (uses `capture="environment"`) and Gallery so Android users can take photos directly
-
-## [v1.9.9-beta] - 2026-04-14
-
-### Fixes
-- fix(nutrition): allow editing meal time in addition to date — meal edit card now shows a time picker alongside the date picker, and `logged_at` is updated via the API
-- fix(nutrition): add camera capture option for meal photo on Android — split Photo button into Camera (uses `capture="environment"`) and Gallery so Android users can take photos directly
+- fix(nutrition): allow editing meal time in addition to date — meal edit card now shows a time picker alongside the date picker
+- fix(nutrition): add camera capture option for meal photo on Android — split Photo button into Camera and Gallery
+- fix(nutrition): render agent notes as markdown with proper formatting
+- fix(ui): increase note font sizes on mobile and desktop for readability
 
 ## [v1.9.8] - 2026-04-14
 
