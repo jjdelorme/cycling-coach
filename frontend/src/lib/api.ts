@@ -27,6 +27,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 403) {
     throw new Error('Insufficient permissions')
   }
+  if (res.status === 429) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || 'Rate limit reached — please try again later')
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `Request failed: ${res.status}`)
@@ -59,6 +63,9 @@ import type {
   WorkoutDetail, WeekPlan, PeriodizationPhase, WeeklyOverview,
   ChatResponse, SessionSummary, SyncOverview, SyncStatus,
   CoachSettings,
+  MealDetail, MealListResponse, MacroTargets,
+  DailyNutritionSummary, WeeklyNutritionSummary,
+  NutritionChatResponse,
 } from '../types/api'
 
 // Rides
@@ -113,6 +120,8 @@ export const fetchZones = async (params?: DateRange): Promise<ZoneDistribution[]
 }
 export const fetchFTPHistory = (params?: DateRange) =>
   get<FTPHistoryPoint[]>(`/api/analysis/ftp-history${dateQuery(params)}`)
+export const fetchWeightHistory = (params?: DateRange) =>
+  get<{ date: string; weight_kg: number }[]>(`/api/analysis/weight-history${dateQuery(params)}`)
 import type { EfficiencyPoint, ZoneDistribution, FTPHistoryPoint } from '../types/api'
 
 // Athlete settings
@@ -124,6 +133,7 @@ export const updateAthleteSetting = (body: { key: string; value: string }) =>
 export const fetchMacroPlan = () => get<PeriodizationPhase[]>('/api/plan/macro')
 export const fetchWeeklyOverview = () => get<WeeklyOverview[]>('/api/plan/weekly-overview')
 export const fetchWeekPlan = (date: string) => get<WeekPlan>(`/api/plan/week/${date}`)
+export const fetchWeekPlansBatch = (dates: string[]) => post<WeekPlan[]>('/api/plan/week/batch', dates)
 export const fetchActivityDates = () => get<string[]>('/api/plan/activity-dates')
 export const fetchWorkoutByDate = (date: string) => get<WorkoutDetail | null>(`/api/plan/workouts/by-date/${date}`)
 export const fetchWorkoutDetail = (id: number) => get<WorkoutDetail>(`/api/plan/workouts/${id}`)
@@ -184,3 +194,77 @@ export const deleteUser = (email: string) =>
 
 export const syncSingleRide = (icuId: string) => post<{ status: string; sync_id: string }>(`/api/sync/ride/${icuId}`)
 
+// Nutrition
+export const fetchMeals = (params?: { start_date?: string; end_date?: string; limit?: number; offset?: number }) => {
+  const q = new URLSearchParams()
+  if (params?.start_date) q.set('start_date', params.start_date)
+  if (params?.end_date) q.set('end_date', params.end_date)
+  if (params?.limit) q.set('limit', String(params.limit))
+  if (params?.offset) q.set('offset', String(params.offset))
+  return get<MealListResponse>(`/api/nutrition/meals?${q}`)
+}
+
+export const fetchMeal = (id: number) => get<MealDetail>(`/api/nutrition/meals/${id}`)
+
+export const uploadMealPhoto = async (
+  file: File,
+  comment?: string,
+  mealType?: string,
+  audio?: Blob,
+  audioMimeType?: string,
+) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (comment) form.append('comment', comment)
+  if (mealType) form.append('meal_type', mealType)
+  if (audio) form.append('audio', audio, `voice.${audioMimeType === 'audio/mp4' ? 'mp4' : 'webm'}`)
+  return request<MealDetail>('/api/nutrition/meals', {
+    method: 'POST',
+    body: form,
+    // Note: do NOT set Content-Type header — browser sets it with boundary for multipart
+  })
+}
+
+export const updateMeal = (id: number, body: {
+  total_calories?: number; total_protein_g?: number; total_carbs_g?: number;
+  total_fat_g?: number; meal_type?: string; date?: string; items?: MealDetail['items']
+}) => put<{ status: string }>(`/api/nutrition/meals/${id}`, body)
+
+export const deleteMeal = (id: number) =>
+  request<{ status: string }>(`/api/nutrition/meals/${id}`, { method: 'DELETE' })
+
+export const fetchDailyNutrition = (date?: string) => {
+  const q = date ? `?date=${date}` : ''
+  return get<DailyNutritionSummary>(`/api/nutrition/daily-summary${q}`)
+}
+
+export const fetchWeeklyNutrition = (date?: string) => {
+  const q = date ? `?date=${date}` : ''
+  return get<WeeklyNutritionSummary>(`/api/nutrition/weekly-summary${q}`)
+}
+
+export const fetchMacroTargets = () => get<MacroTargets>('/api/nutrition/targets')
+
+export const updateMacroTargets = (body: MacroTargets) =>
+  put<{ status: string }>('/api/nutrition/targets', body)
+
+export const sendNutritionChat = (message: string, sessionId?: string) =>
+  post<NutritionChatResponse>('/api/nutrition/chat', { message, session_id: sessionId })
+
+export const fetchNutritionSessions = () => get<SessionSummary[]>('/api/nutrition/sessions')
+
+export const fetchNutritionSession = (id: string) =>
+  get<import('../types/api').SessionDetail>(`/api/nutrition/sessions/${id}`)
+
+export const deleteNutritionSession = (id: string) =>
+  request<{ status: string }>(`/api/nutrition/sessions/${id}`, { method: 'DELETE' })
+
+// Withings
+export const fetchWithingsStatus = () => get<import('../types/api').WithingsStatus>('/api/withings/status')
+export const fetchWithingsAuthUrl = () => get<{ url: string }>('/api/withings/auth-url')
+export const syncWithingsWeight = (days?: number) =>
+  post<{ status: string; synced: number; start_date: string; end_date: string }>(
+    `/api/withings/sync${days ? `?days=${days}` : ''}`
+  )
+export const disconnectWithings = () =>
+  request<{ status: string }>('/api/withings/disconnect', { method: 'DELETE' })

@@ -90,7 +90,7 @@ def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | No
 
 def get_ftp_history_rows(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Get FTP progression by month from daily_metrics."""
-    query = """SELECT TO_CHAR(date, 'YYYY-MM') as month, MAX(ftp) as ftp, MAX(weight) as weight_kg
+    query = """SELECT TO_CHAR(date, 'YYYY-MM') as month, MAX(ftp) as ftp, AVG(weight) as weight_kg
                FROM daily_metrics
                WHERE ftp > 0"""
     params = []
@@ -150,3 +150,51 @@ def get_week_planned_and_actual(conn, start_str: str, end_str: str, tz_name: str
     ).fetchall()
 
     return [dict(p) for p in planned], [dict(a) for a in actual]
+
+
+def get_meals_for_date(conn, date: str, user_id: str = "athlete") -> list[dict]:
+    """Get all meals for a given date, ordered by logged_at."""
+    rows = conn.execute(
+        "SELECT * FROM meal_logs WHERE date = %s AND user_id = %s ORDER BY logged_at",
+        (date, user_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_meal_items(conn, meal_id: int) -> list[dict]:
+    """Get itemized breakdown for a meal."""
+    rows = conn.execute(
+        "SELECT * FROM meal_items WHERE meal_id = %s ORDER BY id",
+        (meal_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_macro_targets(conn, user_id: str = "athlete") -> dict:
+    """Get daily macro targets, falling back to defaults if no row exists."""
+    row = conn.execute(
+        "SELECT * FROM macro_targets WHERE user_id = %s",
+        (user_id,),
+    ).fetchone()
+    if row:
+        return dict(row)
+    return {
+        "calories": 2500,
+        "protein_g": 150.0,
+        "carbs_g": 300.0,
+        "fat_g": 80.0,
+    }
+
+
+def get_daily_meal_totals(conn, date: str, user_id: str = "athlete") -> dict:
+    """Get aggregate macro totals for a date."""
+    row = conn.execute(
+        "SELECT COALESCE(SUM(total_calories), 0) AS calories, "
+        "COALESCE(SUM(total_protein_g), 0) AS protein_g, "
+        "COALESCE(SUM(total_carbs_g), 0) AS carbs_g, "
+        "COALESCE(SUM(total_fat_g), 0) AS fat_g, "
+        "COUNT(*) AS meal_count "
+        "FROM meal_logs WHERE date = %s AND user_id = %s",
+        (date, user_id),
+    ).fetchone()
+    return dict(row) if row else {"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "meal_count": 0}

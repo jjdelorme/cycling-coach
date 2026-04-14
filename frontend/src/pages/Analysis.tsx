@@ -1,15 +1,18 @@
 import { useState, useMemo } from 'react'
-import { 
-  usePowerCurve, 
-  useEfficiency, 
-  useZones, 
-  useFTPHistory, 
-  useMacroPlan, 
-  useWeeklyOverview, 
-  useAthleteSettings 
+import {
+  usePowerCurve,
+  useEfficiency,
+  useZones,
+  useFTPHistory,
+  useMacroPlan,
+  useWeeklyOverview,
+  useAthleteSettings,
+  useWithingsStatus,
+  useWeightHistory,
 } from '../hooks/useApi'
 import { useChartColors } from '../lib/theme'
 import { fmtWeight } from '../lib/format'
+import { useUnits } from '../lib/units'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -23,17 +26,18 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
-import { 
-  Activity, 
-  Zap, 
-  BarChart3, 
-  History, 
-  Calendar, 
+import {
+  Activity,
+  Zap,
+  BarChart3,
+  History,
+  Calendar,
   TrendingUp,
   Target,
   Trophy,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Scale,
 } from 'lucide-react'
 
 ChartJS.register(
@@ -50,13 +54,14 @@ ChartJS.register(
 
 import type { DateRange } from '../lib/api'
 
-type Tab = 'power-curve' | 'efficiency' | 'zones' | 'ftp-history'
+type Tab = 'power-curve' | 'efficiency' | 'zones' | 'ftp-history' | 'weight'
 
 const TABS: { key: Tab; label: string; icon: any }[] = [
   { key: 'power-curve', label: 'Power Curve', icon: Activity },
   { key: 'efficiency', label: 'Efficiency', icon: Zap },
   { key: 'zones', label: 'Zones', icon: BarChart3 },
   { key: 'ftp-history', label: 'FTP History', icon: History },
+  { key: 'weight', label: 'Weight', icon: Scale },
 ]
 
 type RangeKey = '1w' | '3m' | '6m' | '1y' | 'all'
@@ -662,6 +667,90 @@ function FTPHistoryChart({ dateRange }: { dateRange: DateRange }) {
   )
 }
 
+function WeightChart({ dateRange }: { dateRange: DateRange }) {
+  const { data: measurements, isLoading, error } = useWeightHistory(dateRange)
+  const { data: withingsStatus } = useWithingsStatus()
+  const cc = useChartColors()
+  const units = useUnits()
+  const imperial = units === 'imperial'
+  const unitLabel = imperial ? 'lbs' : 'kg'
+  const toDisplay = (kg: number) => imperial ? kg * 2.20462 : kg
+
+  if (isLoading) return <div className="h-96 flex items-center justify-center text-text-muted animate-pulse italic">Loading weight data...</div>
+  if (error) return <div className="h-96 flex items-center justify-center text-red">Error loading weight data</div>
+  if (!measurements || measurements.length === 0) return (
+    <div className="h-96 flex flex-col items-center justify-center gap-2 text-text-muted">
+      <Scale size={32} className="opacity-30" />
+      <p className="text-sm italic">No weight data for this range</p>
+      {!withingsStatus?.connected && (
+        <p className="text-xs opacity-70">Connect Withings in Settings to sync body measurements.</p>
+      )}
+    </div>
+  )
+
+  const displayWeights = measurements.map((d) => toDisplay(d.weight_kg))
+  const minWeight = Math.min(...displayWeights)
+  const maxWeight = Math.max(...displayWeights)
+  const padding = (maxWeight - minWeight) * 0.1 || (imperial ? 2 : 1)
+
+  return (
+    <div>
+      {withingsStatus?.connected && withingsStatus?.last_measurement_date && (
+        <p className="text-xs text-text-muted mb-4">
+          Withings — last synced {withingsStatus.last_measurement_date}
+        </p>
+      )}
+      <div className="h-80">
+        <Line
+          data={{
+            labels: measurements.map((d) => d.date),
+            datasets: [{
+              label: `Weight (${unitLabel})`,
+              data: displayWeights,
+              borderColor: '#00d4aa',
+              backgroundColor: 'rgba(0, 212, 170, 0.08)',
+              fill: true,
+              tension: 0.3,
+              spanGaps: true,
+              pointBackgroundColor: '#00d4aa',
+              pointRadius: 3,
+              pointHoverRadius: 6,
+            }],
+          }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: cc.tooltipBg,
+                titleColor: cc.tooltipTitle,
+                bodyColor: cc.tooltipBody,
+                callbacks: {
+                  label: (ctx) => `${(ctx.parsed.y as number).toFixed(1)} ${unitLabel}`,
+                },
+              },
+            },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: { color: cc.tickColor, maxTicksLimit: 12, font: { size: 10 } },
+              },
+              y: {
+                grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                ticks: { color: cc.tickColor, callback: (v) => `${v} ${unitLabel}` },
+                title: { display: true, text: `WEIGHT (${unitLabel.toUpperCase()})`, color: cc.tickColor, font: { size: 9, weight: 'bold' } },
+                min: Math.floor(minWeight - padding),
+                max: Math.ceil(maxWeight + padding),
+              },
+            },
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export default function Analysis() {
   const [activeTab, setActiveTab] = useState<Tab>('power-curve')
   const [range, setRange] = useState<RangeKey>('3m')
@@ -714,6 +803,7 @@ export default function Analysis() {
           {activeTab === 'efficiency' && <EfficiencyChart dateRange={dateRange} />}
           {activeTab === 'zones' && <ZonesChart dateRange={dateRange} />}
           {activeTab === 'ftp-history' && <FTPHistoryChart dateRange={dateRange} />}
+          {activeTab === 'weight' && <WeightChart dateRange={dateRange} />}
         </div>
       </div>
     </div>

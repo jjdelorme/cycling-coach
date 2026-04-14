@@ -179,6 +179,42 @@ def ftp_history(
         return get_ftp_history_rows(conn, start_date, end_date)
 
 
+@router.get("/weight-history")
+def weight_history(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    user: CurrentUser = Depends(require_read),
+):
+    """Actual weight measurement dates — Withings, ride-recorded, and manual settings.
+
+    Returns one entry per date where a real measurement exists, not carry-forward
+    interpolated values. Suitable for a weight trend chart.
+    Priority: Withings > ride weight > athlete_settings.
+    """
+    with get_db() as conn:
+        points: dict[str, float] = {}
+
+        # Lower priority: manual athlete_settings weight entries (each is a real measurement)
+        settings_rows = conn.execute(
+            "SELECT date_set, value FROM athlete_settings WHERE key = 'weight_kg' ORDER BY date_set"
+        ).fetchall()
+        for r in settings_rows:
+            d = r["date_set"]
+            if (not start_date or d >= start_date) and (not end_date or d <= end_date):
+                points[d] = float(r["value"])
+
+        # Higher priority: Withings body measurements (actual scale readings)
+        withings_rows = conn.execute(
+            "SELECT date, weight_kg FROM body_measurements WHERE source = 'withings' AND weight_kg IS NOT NULL ORDER BY date"
+        ).fetchall()
+        for r in withings_rows:
+            d = r["date"]
+            if (not start_date or d >= start_date) and (not end_date or d <= end_date):
+                points[d] = float(r["weight_kg"])
+
+    return [{"date": d, "weight_kg": w} for d, w in sorted(points.items())]
+
+
 @router.get("/route-matches")
 def route_matches(ride_id: int, threshold: float = Query(0.8), user: CurrentUser = Depends(require_read)):
     """Find rides on similar routes using GPS start position proximity."""

@@ -648,22 +648,20 @@ def get_athlete_status() -> dict:
     Returns:
         Dictionary with all athlete benchmarks, computed metrics, and current training load.
     """
+    from server.services.weight import get_current_weight
     settings = get_all_athlete_settings()
 
     try:
         ftp = float(settings.get("ftp", 0))
     except (ValueError, TypeError):
         ftp = 0.0
-    try:
-        weight_kg = float(settings.get("weight_kg", 0))
-    except (ValueError, TypeError):
-        weight_kg = 0.0
+
+    with get_db() as conn:
+        weight_kg = get_current_weight(conn)
+        pmc = get_current_pmc_row(conn)
 
     weight_lbs = round(weight_kg * 2.20462, 1) if weight_kg > 0 else 0.0
     w_kg = round(ftp / weight_kg, 2) if weight_kg > 0 else 0.0
-
-    with get_db() as conn:
-        pmc = get_current_pmc_row(conn)
 
     return {
         "ftp": int(ftp) if ftp else 0,
@@ -764,3 +762,71 @@ def get_planned_workout_for_ride(date: str) -> dict:
         result["comparison"] = comparison
 
     return result
+
+
+def get_athlete_nutrition_status(date: str = "") -> dict:
+    """Get the athlete's nutritional intake summary for fueling decisions.
+
+    Use this to check if the athlete has eaten enough before or after training.
+    For detailed nutritional guidance, delegate to the nutritionist agent.
+
+    Args:
+        date: Date in YYYY-MM-DD format. Defaults to today.
+
+    Returns:
+        Caloric intake, macro breakdown, meal count, caloric balance,
+        and last meal timestamp for the specified day.
+    """
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    with get_db() as conn:
+        meals = conn.execute(
+            "SELECT total_calories, total_protein_g, total_carbs_g, "
+            "total_fat_g, logged_at, description "
+            "FROM meal_logs WHERE date = %s AND user_id = %s ORDER BY logged_at DESC",
+            (date, "athlete"),
+        ).fetchall()
+
+        # Ride calories
+        ride_row = conn.execute(
+            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides WHERE date = %s",
+            (date,),
+        ).fetchone()
+        ride_cal = int(ride_row["total"]) if ride_row else 0
+
+        # Targets
+        targets_row = conn.execute(
+            "SELECT calories, protein_g, carbs_g, fat_g FROM macro_targets WHERE user_id = %s",
+            ("athlete",),
+        ).fetchone()
+
+    total_cal = sum(m["total_calories"] for m in meals)
+    total_p = sum(m["total_protein_g"] for m in meals)
+    total_c = sum(m["total_carbs_g"] for m in meals)
+    total_f = sum(m["total_fat_g"] for m in meals)
+
+    target_cal = targets_row["calories"] if targets_row else 2500
+
+    # BMR estimate
+    from server.nutrition.tools import _estimate_daily_bmr
+    bmr = _estimate_daily_bmr()
+
+    return {
+        "date": date,
+        "meals_logged": len(meals),
+        "total_calories": total_cal,
+        "total_protein_g": round(total_p, 1),
+        "total_carbs_g": round(total_c, 1),
+        "total_fat_g": round(total_f, 1),
+        "target_calories": target_cal,
+        "remaining_calories": target_cal - total_cal,
+        "last_meal_at": meals[0]["logged_at"] if meals else None,
+        "last_meal_description": meals[0]["description"] if meals else None,
+        "caloric_balance": {
+            "intake": total_cal,
+            "rides": ride_cal,
+            "estimated_bmr": bmr,
+            "net_balance": total_cal - ride_cal - bmr,
+        },
+    }

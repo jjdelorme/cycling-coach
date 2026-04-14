@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Rides from './pages/Rides'
 import Calendar from './pages/Calendar'
 import Analysis from './pages/Analysis'
+import Nutrition from './pages/Nutrition'
 import Settings from './pages/Settings'
 import Admin from './pages/Admin'
 
@@ -15,6 +16,11 @@ export default function App() {
   const [rideId, setRideId] = useState<number | undefined>()
   const [rideDate, setRideDate] = useState<string | undefined>()
   const [calendarDate, setCalendarDate] = useState<string | undefined>()
+  const [nutritionistContext, setNutritionistContext] = useState<string | undefined>()
+
+  const handleOpenNutritionist = (context?: string) => {
+    setNutritionistContext(context)
+  }
 
   const handleRideSelect = (id: number) => {
     setRideId(id)
@@ -49,8 +55,8 @@ export default function App() {
   }
 
   return (
-    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined); setCalendarDate(undefined) }} viewContext={viewContext}>
-      {tab === 'dashboard' && <Dashboard onRideSelect={handleRideSelect} onWorkoutSelect={handleWorkoutSelect} />}
+    <Layout activeTab={tab} onTabChange={t => { setTab(t); setRideId(undefined); setRideDate(undefined); setCalendarDate(undefined); setNutritionistContext(undefined) }} viewContext={viewContext} nutritionistContext={nutritionistContext} onOpenNutritionist={handleOpenNutritionist}>
+      {tab === 'dashboard' && <Dashboard onRideSelect={handleRideSelect} onWorkoutSelect={handleWorkoutSelect} onNavigateToNutrition={() => setTab('nutrition')} />}
       {tab === 'rides' && (
         <Rides 
           initialRideId={rideId} 
@@ -67,6 +73,9 @@ export default function App() {
         />
       )}
       {tab === 'analysis' && <Analysis />}
+      {tab === 'nutrition' && (
+        <Nutrition onOpenNutritionist={handleOpenNutritionist} />
+      )}
       {tab === 'settings' && <Settings />}
       {tab === 'admin' && user?.role === 'admin' && <Admin />}
     </Layout>

@@ -26,7 +26,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': `http://localhost:${process.env.BACKEND_PORT || '8000'}`,
     },
   },
   build: {

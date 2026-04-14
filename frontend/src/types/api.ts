@@ -291,3 +291,111 @@ export interface CoachSettings {
   gcp_location?: string
   gemini_api_key?: string
 }
+
+// --- Nutrition Types ---
+
+export interface MealItem {
+  id?: number
+  name: string
+  serving_size?: string
+  calories: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+}
+
+export interface MealSummary {
+  id: number
+  date: string
+  logged_at: string
+  meal_type?: string
+  description: string
+  total_calories: number
+  total_protein_g: number
+  total_carbs_g: number
+  total_fat_g: number
+  confidence: 'high' | 'medium' | 'low'
+  photo_url?: string
+  edited_by_user: boolean
+}
+
+export interface MealDetail extends MealSummary {
+  items: MealItem[]
+  agent_notes?: string
+}
+
+export interface MacroTargets {
+  calories: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  updated_at?: string
+}
+
+export interface DailyNutritionSummary {
+  date: string
+  total_calories_in: number
+  total_protein_g: number
+  total_carbs_g: number
+  total_fat_g: number
+  meal_count: number
+  target_calories: number
+  target_protein_g: number
+  target_carbs_g: number
+  target_fat_g: number
+  remaining_calories: number
+  calories_out: {
+    rides: number
+    estimated_bmr: number
+    total: number
+  }
+  net_caloric_balance: number
+}
+
+export interface WeeklyNutritionDay {
+  date: string
+  calories: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  meal_count: number
+  calories_out_rides: number
+}
+
+export interface WeeklyNutritionSummary {
+  week_start: string
+  week_end: string
+  avg_daily_calories: number
+  avg_daily_protein_g: number
+  avg_daily_carbs_g: number
+  avg_daily_fat_g: number
+  days: WeeklyNutritionDay[]
+}
+
+export interface MealListResponse {
+  meals: MealSummary[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface NutritionChatRequest {
+  message: string
+  session_id?: string
+  image_data?: string
+  image_mime_type?: string
+}
+
+export interface NutritionChatResponse {
+  response: string
+  session_id: string
+}
+
+// --- Withings Types ---
+
+export interface WithingsStatus {
+  configured: boolean
+  connected: boolean
+  last_measurement_date?: string
+  latest_weight_kg?: number
+}

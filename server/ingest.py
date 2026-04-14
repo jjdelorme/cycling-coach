@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-from server.database import init_db, get_db
+from server.database import get_db
 from server.logging_config import get_logger
 from server.metrics import (
     clean_ride_data, 
@@ -22,6 +22,9 @@ from server.metrics import (
 )
 
 logger = get_logger(__name__)
+
+RIDES_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "json")
+WORKOUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "planned_workouts")
 
 
 def _semicircles_to_degrees(val):
@@ -99,7 +102,8 @@ def parse_ride_json(filepath, conn=None):
     
     if conn:
         ftp = get_benchmark_for_date(conn, "ftp", ride_date)
-        weight = get_benchmark_for_date(conn, "weight_kg", ride_date)
+        from server.services.weight import get_weight_for_date
+        weight = get_weight_for_date(conn, ride_date)
     
     # 2. Fallback to Source File ONLY if hierarchy returned 0/default
     # AND only extract FTP if this is a cycling activity
@@ -409,6 +413,12 @@ def compute_daily_pmc(conn, since_date: str | None = None, tz_name: str = "UTC")
     ftp_settings = [(str(r["date_set"]), float(r["value"])) for r in settings_rows if r["key"] == "ftp"]
     weight_settings = [(str(r["date_set"]), float(r["value"])) for r in settings_rows if r["key"] == "weight_kg"]
 
+    # Prefetch Withings body measurements as highest-priority weight source
+    withings_rows = conn.execute(
+        "SELECT date, weight_kg FROM body_measurements WHERE source = 'withings' AND weight_kg IS NOT NULL ORDER BY date"
+    ).fetchall()
+    withings_weights = {r["date"]: r["weight_kg"] for r in withings_rows}
+
     def _lookup_setting_metric(ds: str, settings_list):
         if not settings_list:
             return None
@@ -466,7 +476,10 @@ def compute_daily_pmc(conn, since_date: str | None = None, tz_name: str = "UTC")
         # 2. athlete_settings active on this day (Manual Truth)
         # 3. Defaults
         
-        weight = _lookup_ride_metric(ds, weight_values)
+        # Weight priority: Withings > ride > athlete_setting > default
+        weight = withings_weights.get(ds)
+        if weight is None or weight <= 0:
+            weight = _lookup_ride_metric(ds, weight_values)
         if weight is None or weight <= 0:
             weight = _lookup_setting_metric(ds, weight_settings)
         if weight is None or weight <= 0:
@@ -702,7 +715,6 @@ def ingest_workouts(conn, workouts_dir=None):
 
 def run_ingestion():
     """Full ingestion pipeline."""
-    init_db()
     logger.info("Database: %s", os.environ.get("DATABASE_URL", "localhost"))
 
     with get_db() as conn:

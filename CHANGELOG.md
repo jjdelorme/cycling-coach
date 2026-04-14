@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.0] - 2026-04-11
+
+### Features
+- **Withings weight integration:** unified weight resolver (`server/services/weight.py`) with Withings-priority chain; Withings sync and webhook push measurements to Intervals.icu; Settings field disabled when managed by Withings
+- **AI nutritionist agent:** full nutrition tab with meal capture (photo + voice), macro tracking cards, meal timeline, daily summary strip, and dedicated nutritionist chat panel
+- **AI coach markdown tables:** GFM table rendering in coach and nutritionist chat panels
+- **Dashboard:** rolling 7-day multi-axis line chart with toggleable metrics (TSS, Hours, Kcal, Distance, Climbing, Avg W)
+- **Ride detail:** calories displayed on ride detail and calendar preview
+- **Rate limiting UX:** coaching and nutrition panels show "model is busy" warning with retry button on 429
+
+### Architecture
+- **Database migrations:** replaced `init_db()` with numbered SQL migration system (`migrations/` + `server/migrate.py`); Cloud Build applies pending migrations on beta deploy
+- **Weight service:** all components (coaching, nutrition, ingest) route through the weight resolver instead of reading `athlete_settings` directly
+- **Chat sessions:** `session_type` column distinguishes coaching vs nutrition sessions; replaces broken `LIKE 'nutrition-%'` filter
+- **Meal photos:** served via API proxy (`/api/nutrition/photos/{id}`) instead of GCS signed URLs
+
+### Deploy & Infrastructure
+- **Withings OAuth:** redirect URI derived from request headers — works for any Cloud Run URL including tagged test deployments
+- **Cloud Build:** Cloud SQL Auth Proxy added to test migration step; `COPY migrations/` added to Dockerfile; deployer SA permissions documented
+- **Dependencies:** `google-adk` 1.29.0, `google-cloud-aiplatform` 1.147.0, Docker base image switched to `python:3.12-slim`
+
+### Tests
+- 16 unit tests for weight service and Withings→ICU push
+- Unit and integration tests for nutrition API, rate limiting, and agent tool wiring
+
 ## [v1.8.3] - 2026-04-10
 
 - fix(tests): 7 integration test bug fixes (weight_kg alias, structlog event key, READ COMMITTED cross-connection visibility, float("") crash on empty HR/age defaults, mock patch namespace, ASGI middleware contextvars)
