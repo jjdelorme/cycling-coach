@@ -7,6 +7,7 @@ from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.preload_memory_tool import preload_memory_tool
+from google.adk.tools import google_search
 from google.genai import types
 
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION

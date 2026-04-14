@@ -23,6 +23,8 @@ interface Props {
   onClose: () => void
   viewContext?: ViewContext
   nutritionistContext?: string
+  nutritionistSessionId?: string
+  defaultTab?: 'coach' | 'nutritionist'
 }
 
 interface Message {
@@ -51,13 +53,13 @@ function buildViewHint(ctx?: ViewContext): string {
   return parts.length > 0 ? `[${parts.join(', ')}]\n` : ''
 }
 
-export default function CoachPanel({ onClose, viewContext, nutritionistContext }: Props) {
+export default function CoachPanel({ onClose, viewContext, nutritionistContext, nutritionistSessionId, defaultTab = 'coach' }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sessionId, setSessionId] = useState<string | undefined>()
   const [loadingSession, setLoadingSession] = useState(false)
   const [showAllSessions, setShowAllSessions] = useState(false)
-  const [agentTab, setAgentTab] = useState<'coach' | 'nutritionist'>('coach')
+  const [agentTab, setAgentTab] = useState<'coach' | 'nutritionist'>(defaultTab)
   const [nutritionistKey, setNutritionistKey] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -69,8 +71,8 @@ export default function CoachPanel({ onClose, viewContext, nutritionistContext }
   }, [messages])
 
   useEffect(() => {
-    if (nutritionistContext) setAgentTab('nutritionist')
-  }, [nutritionistContext])
+    if (nutritionistContext || nutritionistSessionId) setAgentTab('nutritionist')
+  }, [nutritionistContext, nutritionistSessionId])
 
   const send = async () => {
     if (!input.trim() || chat.isPending) return
@@ -337,7 +339,7 @@ export default function CoachPanel({ onClose, viewContext, nutritionistContext }
       )}
 
       {agentTab === 'nutritionist' && (
-        <NutritionistPanel key={nutritionistKey} initialContext={nutritionistContext} />
+        <NutritionistPanel key={nutritionistKey} initialContext={nutritionistContext} initialSessionId={nutritionistSessionId} />
       )}
     </aside>
   )

@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.10.0] - 2026-04-14
+
+### Features
+- **Ride timeline drag-to-zoom:** click and drag to select a region of the ride timeline, chart zooms to that range with selection stats (avg power, HR, cadence, duration); supports iterative sub-zooming; Reset Zoom button restores full timeline
+- **Ride timeline step/lap zoom:** click a workout step or lap to zoom the timeline chart to that segment
+
+### Fixes
+- fix(nutrition): allow editing meal time in addition to date — meal edit card now shows a time picker alongside the date picker
+- fix(nutrition): add camera capture option for meal photo on Android — split Photo button into Camera and Gallery
+- fix(nutrition): render agent notes as markdown with proper formatting
+- fix(ui): increase note font sizes on mobile and desktop for readability
+
+## [v1.9.8] - 2026-04-14
+
+### Features
+- **Meal plan calendar:** weekly grid view with day columns and meal slot summaries; day detail view with prev/next navigation and "Back to Calendar" link; planned vs logged adherence bar; swipe navigation on mobile; empty state CTA to open nutritionist
+- **Nutritionist meal planning tools:** AI agent can generate, replace, and clear planned meals via `generate_meal_plan`, `replace_planned_meal`, `clear_meal_plan` tools; dietary preferences and nutritionist principles configurable in Settings
+- **Auto-refresh:** meal plan calendar auto-updates when the nutritionist modifies plans (derived state from live TanStack Query data)
+- **Quick-log meal modal:** self-contained popup with three-state flow (input → spinner → result card); "Chat about this" opens the nutritionist panel with the session auto-loaded
+- **User notes on logged meals:** editable textarea in MacroCard, saved via `user_notes` column
+- **Meal analysis:** "Analyze" button sends meal data + photo to nutritionist agent, saves feedback as `agent_notes`; "Ask a Question" on planned meals opens nutritionist chat with full meal context
+- **Mobile bottom nav:** consolidated 5-tab layout — Dashboard, Calendar, Nutrition, Coach, and "More" overflow menu (Rides, Analysis, theme toggle, Settings, Users)
+
+### Fixes
+- fix(rides): correct lap-to-record mapping for irregularly sampled streams — lap highlight now works correctly on ICU-synced rides where record count differs from ride duration
+- fix(rides): use `total_elapsed_time` (wall-clock) instead of `total_timer_time` (active-only) for lap boundary calculations
+- fix(nutrition): navigate to day view after logging a meal so the new meal is immediately visible
+- fix(nutrition): resolve nutritionist chat crash from missing `rides.date` column and date serialization
+- fix(ui): compact "Log a Meal" FAB on mobile — shows only `+` icon; full pill with text on desktop
+- fix(ui): responsive Settings tab labels — icons-only on mobile for inactive tabs
+
+### Database
+- Migration `0003_planned_meals.sql`: `planned_meals` table with unique constraint on (user_id, date, meal_slot); seeds dietary preferences and nutritionist principles defaults
+- Migration `0004_rides_add_date_column.sql`: adds `date` column to rides table
+- Migration `0005_meal_user_notes.sql`: adds `user_notes` column to meals
+
+### Tests
+- 25 unit tests for nutrition planning tools
+- 17 integration tests for meal plan API endpoints
+- 9 Playwright E2E tests for meal plan calendar
+
 ## [v1.9.0] - 2026-04-11
 
 ### Features

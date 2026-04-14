@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the frontend and serve it via the FastAPI backend on port 8000.
+# Build the frontend and serve it via the FastAPI backend on port 3000.
 
 set -e
 cd "$(dirname "$0")/.."

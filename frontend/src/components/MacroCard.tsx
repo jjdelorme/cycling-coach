@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Trash2, ChevronDown, ChevronUp } from 'lucide-react'
-import { useUpdateMeal, useDeleteMeal } from '../hooks/useApi'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Trash2, ChevronDown, ChevronUp, Loader2, Sparkles } from 'lucide-react'
+import { useUpdateMeal, useDeleteMeal, useAnalyzeMeal } from '../hooks/useApi'
 import type { MealSummary } from '../types/api'
 
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Other']
@@ -19,6 +21,8 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
     total_fat_g: meal.total_fat_g,
     meal_type: meal.meal_type ?? '',
     date: meal.date,
+    time: new Date(meal.logged_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    user_notes: meal.user_notes ?? '',
   })
   const [swipeX, setSwipeX] = useState(0)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -26,6 +30,7 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
 
   const updateMeal = useUpdateMeal()
   const deleteMeal = useDeleteMeal()
+  const analyzeMeal = useAnalyzeMeal()
 
   // Sync when meal prop is updated externally (e.g. by the nutritionist agent)
   useEffect(() => {
@@ -36,8 +41,12 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
       total_fat_g: meal.total_fat_g,
       meal_type: meal.meal_type ?? '',
       date: meal.date,
+      time: new Date(meal.logged_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      user_notes: meal.user_notes ?? '',
     })
-  }, [meal.total_calories, meal.total_protein_g, meal.total_carbs_g, meal.total_fat_g, meal.meal_type, meal.date])
+  }, [meal.total_calories, meal.total_protein_g, meal.total_carbs_g, meal.total_fat_g, meal.meal_type, meal.date, meal.logged_at, meal.user_notes])
+
+  const origTime = new Date(meal.logged_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
 
   const hasChanges =
     editValues.total_calories !== meal.total_calories ||
@@ -45,10 +54,14 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
     editValues.total_carbs_g !== meal.total_carbs_g ||
     editValues.total_fat_g !== meal.total_fat_g ||
     editValues.meal_type !== (meal.meal_type ?? '') ||
-    editValues.date !== meal.date
+    editValues.date !== meal.date ||
+    editValues.time !== origTime ||
+    editValues.user_notes !== (meal.user_notes ?? '')
 
   const handleSave = () => {
-    updateMeal.mutate({ id: meal.id, body: editValues })
+    const { time, ...rest } = editValues
+    const logged_at = `${rest.date}T${time}:00`
+    updateMeal.mutate({ id: meal.id, body: { ...rest, logged_at } })
   }
 
   const handleDelete = () => {
@@ -157,8 +170,24 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
             {/* Description (read-only) */}
             <p className="text-sm text-text-muted mb-3">{meal.description}</p>
 
-            {/* Date + meal type row */}
-            <div className="grid grid-cols-2 gap-2 mb-3">
+            {/* Agent notes */}
+            {meal.agent_notes && (
+              <div className="text-sm text-text-muted border-l-2 border-green/30 pl-2 mb-3 prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{meal.agent_notes}</ReactMarkdown>
+              </div>
+            )}
+
+            {/* User notes */}
+            <textarea
+              value={editValues.user_notes}
+              onChange={e => setEditValues(prev => ({ ...prev, user_notes: e.target.value }))}
+              placeholder="Add notes..."
+              rows={2}
+              className="w-full bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-muted/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none mb-3"
+            />
+
+            {/* Date + time + meal type row */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
               <div>
                 <input
                   type="date"
@@ -168,6 +197,15 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
                   className="w-full bg-surface-low border border-border rounded-lg px-2 py-2 text-center text-sm font-bold text-text focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                 />
                 <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1 block text-center">Date</span>
+              </div>
+              <div>
+                <input
+                  type="time"
+                  value={editValues.time}
+                  onChange={e => setEditValues(prev => ({ ...prev, time: e.target.value }))}
+                  className="w-full bg-surface-low border border-border rounded-lg px-2 py-2 text-center text-sm font-bold text-text focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                />
+                <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1 block text-center">Time</span>
               </div>
               <div>
                 <select
@@ -207,11 +245,21 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
               </button>
 
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => analyzeMeal.mutate(meal.id)}
+                  disabled={analyzeMeal.isPending}
+                  className="flex items-center gap-1 text-text-muted hover:text-green text-[10px] font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+                >
+                  {analyzeMeal.isPending ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                  {meal.agent_notes ? 'Re-analyze' : 'Analyze'}
+                </button>
                 {onAskNutritionist && (
                   <button
-                    onClick={() => onAskNutritionist(
-                      `Tell me about this meal: ${meal.description} (${meal.total_calories} kcal, P${Math.round(meal.total_protein_g)}g / C${Math.round(meal.total_carbs_g)}g / F${Math.round(meal.total_fat_g)}g)`
-                    )}
+                    onClick={() => {
+                      let context = `Tell me about this meal: ${meal.description} (${meal.total_calories} kcal, P${Math.round(meal.total_protein_g)}g / C${Math.round(meal.total_carbs_g)}g / F${Math.round(meal.total_fat_g)}g)`
+                      if (meal.agent_notes) context += `\n\nPrior analysis: ${meal.agent_notes}`
+                      onAskNutritionist(context)
+                    }}
                     className="text-text-muted hover:text-accent text-[10px] font-bold uppercase tracking-widest transition-colors"
                   >
                     Ask Nutritionist

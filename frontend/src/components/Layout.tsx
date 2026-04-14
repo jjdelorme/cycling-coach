@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import CoachPanel from './CoachPanel'
 import UserAvatar from './UserAvatar'
 import { useTheme } from '../lib/theme'
@@ -14,6 +14,7 @@ import {
   Moon,
   Users,
   Settings,
+  MoreHorizontal,
 } from 'lucide-react'
 
 const tabs = [
@@ -38,22 +39,35 @@ interface LayoutProps {
   onTabChange: (tab: TabKey) => void
   viewContext?: ViewContext
   nutritionistContext?: string
-  onOpenNutritionist?: (context?: string) => void
+  nutritionistSessionId?: string
+  onOpenNutritionist?: (context?: string, sessionId?: string) => void
   children: ReactNode
 }
 
-export default function Layout({ activeTab, onTabChange, viewContext, nutritionistContext, children }: LayoutProps) {
+export default function Layout({ activeTab, onTabChange, viewContext, nutritionistContext, nutritionistSessionId, children }: LayoutProps) {
   const [coachOpen, setCoachOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
   const { theme, toggle: toggleTheme } = useTheme()
 
-  // Auto-open the coach panel when a nutritionist context is injected
-  // (e.g. user clicks "Ask Nutritionist" on a MacroCard)
+  // Auto-open the coach panel when a nutritionist context or session is injected
   useEffect(() => {
-    if (nutritionistContext) setCoachOpen(true)
-  }, [nutritionistContext])
+    if (nutritionistContext || nutritionistSessionId) setCoachOpen(true)
+  }, [nutritionistContext, nutritionistSessionId])
+
+  // Close More menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const canSettings = user?.role === 'admin' || user?.role === 'readwrite' || user?.role === 'read'
+  const isMoreActive = (['rides', 'analysis', 'settings', 'admin'] as TabKey[]).includes(activeTab) && !coachOpen
 
   return (
     <div className="flex h-screen h-[100dvh] flex-col bg-bg">
@@ -138,7 +152,7 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
           {children}
         </main>
         {coachOpen && (
-          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} />
+          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} nutritionistSessionId={nutritionistSessionId} defaultTab={activeTab === 'nutrition' ? 'nutritionist' : 'coach'} />
         )}
       </div>
 
@@ -148,21 +162,25 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
       </span>
 
       {/* Bottom nav - mobile */}
-      <nav className="md:hidden flex border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]">
-        {tabs.map(t => (
+      <nav className="md:hidden relative flex border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]">
+        {([
+          { key: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+          { key: 'calendar' as const, label: 'Calendar', icon: CalendarDays },
+          { key: 'nutrition' as const, label: 'Nutrition', icon: UtensilsCrossed },
+        ]).map(t => (
           <button
             key={t.key}
-            onClick={() => { onTabChange(t.key); setCoachOpen(false) }}
+            onClick={() => { onTabChange(t.key); setCoachOpen(false); setMoreOpen(false) }}
             className={`flex-1 flex flex-col items-center py-2 text-[10px] transition-colors ${
               activeTab === t.key && !coachOpen ? 'text-accent' : 'text-text-muted'
             }`}
           >
-            <t.icon size={20} className="mb-1" strokeWidth={activeTab === t.key ? 2.5 : 2} />
+            <t.icon size={20} className="mb-1" strokeWidth={activeTab === t.key && !coachOpen ? 2.5 : 2} />
             <span>{t.label}</span>
           </button>
         ))}
         <button
-          onClick={() => setCoachOpen(o => !o)}
+          onClick={() => { setCoachOpen(o => !o); setMoreOpen(false) }}
           className={`flex-1 flex flex-col items-center py-2 text-[10px] ${
             coachOpen ? 'text-accent' : 'text-text-muted'
           }`}
@@ -170,28 +188,69 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
           <MessageSquare size={20} className="mb-1" strokeWidth={coachOpen ? 2.5 : 2} />
           <span>Coach</span>
         </button>
-        {isAdmin && (
+        <div className="flex-1" ref={moreRef}>
           <button
-            onClick={() => { onTabChange('admin'); setCoachOpen(false) }}
-            className={`flex-1 flex flex-col items-center py-2 text-[10px] ${
-              activeTab === 'admin' && !coachOpen ? 'text-accent' : 'text-text-muted'
+            onClick={() => setMoreOpen(o => !o)}
+            className={`w-full flex flex-col items-center py-2 text-[10px] transition-colors ${
+              moreOpen || isMoreActive ? 'text-accent' : 'text-text-muted'
             }`}
           >
-            <Users size={20} className="mb-1" strokeWidth={activeTab === 'admin' ? 2.5 : 2} />
-            <span>Users</span>
+            <MoreHorizontal size={20} className="mb-1" strokeWidth={moreOpen || isMoreActive ? 2.5 : 2} />
+            <span>More</span>
           </button>
-        )}
-        {canSettings && (
-          <button
-            onClick={() => { onTabChange('settings'); setCoachOpen(false) }}
-            className={`flex-1 flex flex-col items-center py-2 text-[10px] ${
-              activeTab === 'settings' && !coachOpen ? 'text-accent' : 'text-text-muted'
-            }`}
-          >
-            <Settings size={20} className="mb-1" strokeWidth={activeTab === 'settings' ? 2.5 : 2} />
-            <span>Settings</span>
-          </button>
-        )}
+          {moreOpen && (
+            <div className="absolute bottom-full right-0 mb-1 w-44 bg-surface border border-border rounded-lg shadow-lg z-50">
+              <button
+                onClick={() => { onTabChange('rides'); setCoachOpen(false); setMoreOpen(false) }}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors rounded-t-lg ${
+                  activeTab === 'rides' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
+                }`}
+              >
+                <Bike size={16} />
+                <span>Rides</span>
+              </button>
+              <button
+                onClick={() => { onTabChange('analysis'); setCoachOpen(false); setMoreOpen(false) }}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors ${
+                  activeTab === 'analysis' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
+                }`}
+              >
+                <TrendingUp size={16} />
+                <span>Analysis</span>
+              </button>
+              <div className="border-t border-border my-1" />
+              <button
+                onClick={() => { toggleTheme(); setMoreOpen(false) }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted hover:text-text hover:bg-surface2/50 transition-colors"
+              >
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => { onTabChange('admin'); setCoachOpen(false); setMoreOpen(false) }}
+                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors ${
+                    activeTab === 'admin' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
+                  }`}
+                >
+                  <Users size={16} />
+                  <span>Users</span>
+                </button>
+              )}
+              {canSettings && (
+                <button
+                  onClick={() => { onTabChange('settings'); setCoachOpen(false); setMoreOpen(false) }}
+                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors rounded-b-lg ${
+                    activeTab === 'settings' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
+                  }`}
+                >
+                  <Settings size={16} />
+                  <span>Settings</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </nav>
     </div>
   )

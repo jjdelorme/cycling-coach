@@ -163,3 +163,110 @@ def test_coaching_nutrition_tool_exists():
     """Verify get_athlete_nutrition_status is importable from coaching tools."""
     from server.coaching.tools import get_athlete_nutrition_status
     assert callable(get_athlete_nutrition_status)
+
+
+# ---------------------------------------------------------------------------
+# Daily summary with rides (regression: rides.date column missing)
+# ---------------------------------------------------------------------------
+
+def test_daily_summary_with_rides(client, db_conn):
+    """GET /api/nutrition/daily-summary works when rides exist for the date.
+
+    Regression: the rides table might lack a 'date' column if it was created
+    before the migration system. The query 'SELECT ... FROM rides WHERE date = %s'
+    must not crash.
+    """
+    # Use a seed-data date that has rides, or insert one for a far-future date
+    date = "2098-11-01"
+    try:
+        db_conn.execute(
+            "INSERT INTO rides (date, filename, sport, sub_sport, duration_s, "
+            "total_calories, tss) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (date, f"test_ride_{date}.fit", "cycling", "road", 3600, 800, 70),
+        )
+        db_conn.commit()
+
+        r = client.get(f"/api/nutrition/daily-summary?date={date}")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["calories_out"]["rides"] == 800
+        assert data["calories_out"]["total"] > 800  # rides + BMR
+    finally:
+        db_conn.execute("DELETE FROM rides WHERE filename = %s", (f"test_ride_{date}.fit",))
+        db_conn.commit()
+
+
+def test_weekly_summary_with_rides(client, db_conn):
+    """GET /api/nutrition/weekly-summary includes ride calories when rides exist."""
+    date = "2098-11-03"  # a Wednesday
+    try:
+        db_conn.execute(
+            "INSERT INTO rides (date, filename, sport, sub_sport, duration_s, "
+            "total_calories, tss) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (date, f"test_ride_{date}.fit", "cycling", "road", 5400, 1100, 95),
+        )
+        db_conn.commit()
+
+        r = client.get(f"/api/nutrition/weekly-summary?date={date}")
+        assert r.status_code == 200
+        data = r.json()
+        # Find the day with the ride
+        ride_day = next((d for d in data["days"] if d["date"] == date), None)
+        assert ride_day is not None
+        assert ride_day["calories_out_rides"] == 1100
+    finally:
+        db_conn.execute("DELETE FROM rides WHERE filename = %s", (f"test_ride_{date}.fit",))
+        db_conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Tool date serialization (regression: datetime.date not JSON-serializable)
+# ---------------------------------------------------------------------------
+
+def test_upcoming_training_load_dates_are_strings(db_conn):
+    """get_upcoming_training_load returns string dates regardless of DB column type.
+
+    Regression: if planned_workouts.date is a PostgreSQL DATE type instead of TEXT,
+    the tool returned datetime.date objects which crashed ADK's JSON serialization.
+    """
+    import json
+    from server.nutrition.tools import get_upcoming_training_load
+    from datetime import datetime, timedelta
+
+    # Insert a future workout
+    future = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    try:
+        db_conn.execute(
+            "INSERT INTO planned_workouts (date, name, total_duration_s, planned_tss) "
+            "VALUES (%s, %s, %s, %s)",
+            (future, "Test Integration Ride", 3600, 50),
+        )
+        db_conn.commit()
+
+        result = get_upcoming_training_load(days_ahead=3)
+
+        # All dates must be strings, not datetime.date
+        for day in result["days"]:
+            assert isinstance(day["date"], str), f"date is {type(day['date'])}, expected str"
+
+        # Must be JSON-serializable
+        json.dumps(result)  # raises TypeError if date objects present
+    finally:
+        db_conn.execute("DELETE FROM planned_workouts WHERE name = %s", ("Test Integration Ride",))
+        db_conn.commit()
+
+
+def test_recent_workouts_dates_are_strings(db_conn):
+    """get_recent_workouts returns string dates regardless of DB column type."""
+    import json
+    from server.nutrition.tools import get_recent_workouts
+
+    result = get_recent_workouts(days_back=7)
+
+    for ride in result:
+        assert isinstance(ride["date"], str), f"date is {type(ride['date'])}, expected str"
+
+    # Must be JSON-serializable
+    json.dumps(result)

@@ -11,9 +11,15 @@ from server.models.schemas import (
     DailyNutritionSummary, MealUpdateRequest,
     NutritionChatRequest, NutritionChatResponse,
     SessionSummary, SessionDetail, SessionMessage,
+    PlannedMeal, MealPlanDay, MealPlanDayTotals,
+    DietaryPreferencesUpdate,
 )
 from server.database import get_db
-from server.queries import get_meals_for_date, get_meal_items, get_macro_targets, get_daily_meal_totals
+from server.queries import (
+    get_meals_for_date, get_meal_items, get_macro_targets,
+    get_daily_meal_totals, get_planned_meals_for_range,
+    get_planned_meals_for_date,
+)
 from server.nutrition.photo import upload_meal_photo, download_photo
 
 router = APIRouter(prefix="/api/nutrition", tags=["nutrition"])
@@ -247,9 +253,19 @@ async def update_meal_endpoint(
         if req.date is not None:
             updates.append("date = %s")
             params.append(req.date)
+        if req.logged_at is not None:
+            updates.append("logged_at = %s")
+            params.append(req.logged_at)
+
+        has_macro_changes = len(updates) > 0
+
+        if req.user_notes is not None:
+            updates.append("user_notes = %s")
+            params.append(req.user_notes)
 
         if updates:
-            updates.append("edited_by_user = TRUE")
+            if has_macro_changes:
+                updates.append("edited_by_user = TRUE")
             params.append(meal_id)
             conn.execute(f"UPDATE meal_logs SET {', '.join(updates)} WHERE id = %s", params)
 
@@ -276,6 +292,89 @@ async def delete_meal_endpoint(meal_id: int, user: CurrentUser = Depends(require
             raise HTTPException(404, "Meal not found")
         conn.execute("DELETE FROM meal_logs WHERE id = %s", (meal_id,))
     return {"status": "ok"}
+
+
+@router.post("/meals/{meal_id}/analyze")
+async def analyze_meal_endpoint(meal_id: int, user: CurrentUser = Depends(require_write)):
+    """Send a meal to the nutritionist agent for analysis and save the feedback."""
+    from datetime import datetime, timezone
+    from server.nutrition.agent import chat as nutrition_chat
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    with get_db() as conn:
+        # Rate limit check
+        count_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM meal_logs WHERE date = %s AND user_id = %s",
+            (today, "athlete"),
+        ).fetchone()
+        if count_row and count_row["cnt"] >= DAILY_ANALYSIS_LIMIT:
+            raise HTTPException(429, f"Daily analysis limit reached ({DAILY_ANALYSIS_LIMIT}/day).")
+
+        row = conn.execute("SELECT * FROM meal_logs WHERE id = %s", (meal_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Meal not found")
+        meal = dict(row)
+        items = get_meal_items(conn, meal_id)
+
+    # Build analysis prompt
+    item_lines = []
+    for it in items:
+        serving = f" ({it['serving_size']})" if it.get("serving_size") else ""
+        item_lines.append(
+            f"  - {it['name']}{serving}: "
+            f"{it['calories']} kcal, P{it['protein_g']}g / C{it['carbs_g']}g / F{it['fat_g']}g"
+        )
+    items_text = "\n".join(item_lines) or "  No itemized breakdown available."
+
+    prompt = (
+        f"Analyze this meal and provide nutritionist feedback. "
+        f"Do NOT call any tools — just provide your analysis as text.\n\n"
+        f"Meal: {meal['description']}\n"
+        f"Totals: {meal['total_calories']} kcal, "
+        f"P{meal['total_protein_g']}g / C{meal['total_carbs_g']}g / F{meal['total_fat_g']}g\n"
+        f"Confidence: {meal['confidence']}\n"
+        f"Items:\n{items_text}"
+    )
+    if meal.get("user_notes"):
+        prompt += f"\nUser notes: {meal['user_notes']}"
+
+    session_id = str(uuid.uuid4())
+
+    # Include photo if available
+    image_bytes = None
+    image_mime = None
+    if meal.get("photo_gcs_path"):
+        photo_data = download_photo(meal["photo_gcs_path"])
+        if photo_data:
+            image_bytes = photo_data
+            image_mime = "image/jpeg"
+
+    try:
+        response_text = await nutrition_chat(
+            message=prompt,
+            user_id=user.email if hasattr(user, "email") else "athlete",
+            session_id=session_id,
+            user=user,
+            image_data=image_bytes,
+            image_mime_type=image_mime,
+        )
+    except Exception as e:
+        if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+            raise HTTPException(429, "The AI model is currently busy. Please try again in a moment.")
+        raise
+
+    # Save analysis to agent_notes
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE meal_logs SET agent_notes = %s WHERE id = %s",
+            (response_text, meal_id),
+        )
+        updated = conn.execute("SELECT * FROM meal_logs WHERE id = %s", (meal_id,)).fetchone()
+
+    result = dict(updated)
+    result["photo_url"] = _photo_url(meal_id, bool(result.get("photo_gcs_path")))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +425,205 @@ async def weekly_summary_endpoint(date: str = "", user: CurrentUser = Depends(re
     """Get 7-day breakdown with daily totals and weekly averages."""
     from server.nutrition.tools import get_weekly_summary
     return get_weekly_summary(date)
+
+
+# ---------------------------------------------------------------------------
+# Meal Plan (planned meals)
+# ---------------------------------------------------------------------------
+
+MEAL_SLOT_ORDER = [
+    "breakfast", "snack_am", "lunch", "snack_pm",
+    "pre_workout", "post_workout", "dinner",
+]
+
+
+def _build_meal_plan_day(date: str, planned_rows: list[dict], actual_rows: list[dict]) -> dict:
+    """Build a MealPlanDay response from raw planned and actual meal rows."""
+    import json
+
+    planned_by_slot = {}
+    for r in planned_rows:
+        items_parsed = None
+        if r.get("items"):
+            try:
+                items_parsed = json.loads(r["items"])
+            except (json.JSONDecodeError, TypeError):
+                items_parsed = None
+        planned_by_slot[r["meal_slot"]] = {
+            "id": r["id"],
+            "user_id": r.get("user_id", "athlete"),
+            "date": r["date"],
+            "meal_slot": r["meal_slot"],
+            "name": r["name"],
+            "description": r.get("description"),
+            "total_calories": r["total_calories"],
+            "total_protein_g": r["total_protein_g"],
+            "total_carbs_g": r["total_carbs_g"],
+            "total_fat_g": r["total_fat_g"],
+            "items": items_parsed,
+            "agent_notes": r.get("agent_notes"),
+            "created_at": r.get("created_at"),
+        }
+
+    actual = [
+        {
+            "id": m["id"],
+            "date": m["date"],
+            "logged_at": m["logged_at"],
+            "meal_type": m.get("meal_type"),
+            "description": m["description"],
+            "total_calories": m["total_calories"],
+            "total_protein_g": m["total_protein_g"],
+            "total_carbs_g": m["total_carbs_g"],
+            "total_fat_g": m["total_fat_g"],
+            "confidence": m["confidence"],
+            "photo_url": _photo_url(m["id"], bool(m.get("photo_gcs_path"))),
+            "edited_by_user": m.get("edited_by_user", False),
+            "user_notes": m.get("user_notes"),
+            "agent_notes": m.get("agent_notes"),
+        }
+        for m in actual_rows
+    ]
+
+    planned_cal = sum(r["total_calories"] for r in planned_rows)
+    planned_p = sum(r["total_protein_g"] for r in planned_rows)
+    planned_c = sum(r["total_carbs_g"] for r in planned_rows)
+    planned_f = sum(r["total_fat_g"] for r in planned_rows)
+
+    actual_cal = sum(m["total_calories"] for m in actual_rows)
+    actual_p = sum(m["total_protein_g"] for m in actual_rows)
+    actual_c = sum(m["total_carbs_g"] for m in actual_rows)
+    actual_f = sum(m["total_fat_g"] for m in actual_rows)
+
+    return {
+        "date": date,
+        "planned": planned_by_slot,
+        "actual": actual,
+        "day_totals": {
+            "planned_calories": planned_cal,
+            "actual_calories": actual_cal,
+            "planned_protein_g": round(planned_p, 1),
+            "actual_protein_g": round(actual_p, 1),
+            "planned_carbs_g": round(planned_c, 1),
+            "actual_carbs_g": round(actual_c, 1),
+            "planned_fat_g": round(planned_f, 1),
+            "actual_fat_g": round(actual_f, 1),
+        },
+    }
+
+
+@router.get("/meal-plan")
+async def get_meal_plan(
+    date: str = "",
+    days: int = 7,
+    user: CurrentUser = Depends(require_read),
+):
+    """Get weekly meal plan with plan-vs-actual per day."""
+    from datetime import datetime, timedelta
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    start_dt = datetime.fromisoformat(date)
+    end_dt = start_dt + timedelta(days=days - 1)
+    end_str = end_dt.strftime("%Y-%m-%d")
+
+    with get_db() as conn:
+        planned_rows = get_planned_meals_for_range(conn, date, end_str)
+        # Get actual meals for the same range
+        actual_rows = conn.execute(
+            "SELECT * FROM meal_logs WHERE user_id = %s AND date >= %s AND date <= %s "
+            "ORDER BY date, logged_at",
+            ("athlete", date, end_str),
+        ).fetchall()
+        actual_rows = [dict(r) for r in actual_rows]
+
+    # Group by date
+    planned_by_date: dict[str, list] = {}
+    for r in planned_rows:
+        planned_by_date.setdefault(r["date"], []).append(r)
+
+    actual_by_date: dict[str, list] = {}
+    for r in actual_rows:
+        actual_by_date.setdefault(r["date"], []).append(r)
+
+    # Build response for each day in range
+    result_days = []
+    for i in range(days):
+        d = (start_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+        day_planned = planned_by_date.get(d, [])
+        day_actual = actual_by_date.get(d, [])
+        result_days.append(_build_meal_plan_day(d, day_planned, day_actual))
+
+    return {
+        "start_date": date,
+        "end_date": end_str,
+        "days": result_days,
+    }
+
+
+@router.get("/meal-plan/{date}")
+async def get_meal_plan_day(date: str, user: CurrentUser = Depends(require_read)):
+    """Get a single day's planned vs actual meals."""
+    with get_db() as conn:
+        planned_rows = get_planned_meals_for_date(conn, date)
+        actual_rows = get_meals_for_date(conn, date)
+
+    return _build_meal_plan_day(date, planned_rows, actual_rows)
+
+
+@router.delete("/meal-plan/{date}")
+async def delete_meal_plan(
+    date: str,
+    meal_slot: str = "",
+    user: CurrentUser = Depends(require_write),
+):
+    """Clear planned meals for a date, or a specific slot."""
+    from server.nutrition.planning_tools import ALLOWED_MEAL_SLOTS
+
+    if meal_slot and meal_slot not in ALLOWED_MEAL_SLOTS:
+        raise HTTPException(400, f"Invalid meal_slot. Must be one of: {', '.join(sorted(ALLOWED_MEAL_SLOTS))}")
+
+    with get_db() as conn:
+        if meal_slot:
+            result = conn.execute(
+                "DELETE FROM planned_meals WHERE user_id = %s AND date = %s AND meal_slot = %s",
+                ("athlete", date, meal_slot),
+            )
+        else:
+            result = conn.execute(
+                "DELETE FROM planned_meals WHERE user_id = %s AND date = %s",
+                ("athlete", date),
+            )
+        removed = result.rowcount
+
+    return {"status": "ok", "date": date, "meal_slot": meal_slot or "all", "removed": removed}
+
+
+# ---------------------------------------------------------------------------
+# Dietary Preferences
+# ---------------------------------------------------------------------------
+
+@router.get("/preferences")
+async def get_preferences(user: CurrentUser = Depends(require_read)):
+    """Get dietary preferences and nutritionist principles."""
+    from server.database import get_setting
+    return {
+        "dietary_preferences": get_setting("dietary_preferences"),
+        "nutritionist_principles": get_setting("nutritionist_principles"),
+    }
+
+
+@router.put("/preferences")
+async def update_preferences(req: DietaryPreferencesUpdate, user: CurrentUser = Depends(require_write)):
+    """Update dietary preferences or nutritionist principles."""
+    from server.database import set_setting
+
+    valid_sections = {"dietary_preferences", "nutritionist_principles"}
+    if req.section not in valid_sections:
+        raise HTTPException(400, f"Invalid section. Must be one of: {', '.join(sorted(valid_sections))}")
+
+    set_setting(req.section, req.value)
+    return {"status": "updated", "section": req.section}
 
 
 # ---------------------------------------------------------------------------

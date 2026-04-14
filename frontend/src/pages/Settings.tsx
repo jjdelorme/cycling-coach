@@ -30,11 +30,13 @@ import {
   Moon,
   ChevronDown,
   Scale,
+  UtensilsCrossed,
+  BookOpen,
 } from 'lucide-react'
 
-type Tab = 'athlete' | 'coach' | 'system'
+type Tab = 'athlete' | 'coach' | 'nutritionist' | 'system'
 
-const SETTING_CARDS: { key: string; title: string; hint: string; icon: any }[] = [
+const COACH_CARDS: { key: string; title: string; hint: string; icon: any }[] = [
   {
     key: 'athlete_profile',
     title: 'Athlete Profile',
@@ -58,6 +60,21 @@ const SETTING_CARDS: { key: string; title: string; hint: string; icon: any }[] =
     title: 'Plan Management',
     hint: 'Workout structure and progression logic.',
     icon: SettingsIcon
+  },
+]
+
+const NUTRITIONIST_CARDS: { key: string; title: string; hint: string; icon: any }[] = [
+  {
+    key: 'dietary_preferences',
+    title: 'Dietary Preferences',
+    hint: 'Diet type, allergies, liked/disliked foods, eating schedule.',
+    icon: UtensilsCrossed
+  },
+  {
+    key: 'nutritionist_principles',
+    title: 'Nutritionist Principles',
+    hint: 'Fueling philosophy, periodization, pre/post-ride nutrition rules.',
+    icon: BookOpen
   },
 ]
 
@@ -124,6 +141,8 @@ export default function Settings() {
         coaching_principles: settings.coaching_principles ?? '',
         coach_role: settings.coach_role ?? '',
         plan_management: settings.plan_management ?? '',
+        dietary_preferences: settings.dietary_preferences ?? '',
+        nutritionist_principles: settings.nutritionist_principles ?? '',
         intervals_icu_api_key: settings.intervals_icu_api_key ?? '',
         intervals_icu_athlete_id: settings.intervals_icu_athlete_id ?? '',
         units: settings.units ?? 'imperial',
@@ -177,6 +196,21 @@ export default function Settings() {
       setTimeout(() => setSaveStatus('idle'), 3000)
     } catch {
       setSaveStatus('failed')
+    }
+  }
+
+  const [nutritionistSaveStatus, setNutritionistSaveStatus] = useState<'idle' | 'saved' | 'failed'>('idle')
+
+  const handleSaveNutritionist = async () => {
+    const keys = ['dietary_preferences', 'nutritionist_principles']
+    try {
+      for (const key of keys) {
+        await updateSetting.mutateAsync({ key, value: form[key] ?? '' })
+      }
+      setNutritionistSaveStatus('saved')
+      setTimeout(() => setNutritionistSaveStatus('idle'), 3000)
+    } catch {
+      setNutritionistSaveStatus('failed')
     }
   }
 
@@ -351,6 +385,7 @@ export default function Settings() {
     const baseTabs: { key: Tab; label: string; icon: any }[] = [
       { key: 'athlete', label: 'Athlete', icon: User },
       { key: 'coach', label: 'Coach', icon: Bot },
+      { key: 'nutritionist', label: 'Nutritionist', icon: UtensilsCrossed },
     ]
     if (isAdmin) baseTabs.push({ key: 'system', label: 'System', icon: Cpu })
     return baseTabs
@@ -371,14 +406,16 @@ export default function Settings() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-bold uppercase tracking-wider rounded-t-xl transition-all ${
+              className={`flex items-center gap-2 px-3 py-3 md:px-5 text-sm font-bold uppercase tracking-wider rounded-t-xl transition-all ${
                 activeTab === tab.key
                   ? 'bg-surface text-accent border-b-2 border-accent'
                   : 'text-text-muted hover:text-text hover:bg-surface/50'
               }`}
             >
               <tab.icon size={16} />
-              {tab.label}
+              <span className={activeTab === tab.key ? '' : 'hidden md:inline'}>
+                {tab.label}
+              </span>
             </button>
           ))}
         </div>
@@ -536,7 +573,7 @@ export default function Settings() {
         {activeTab === 'coach' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {SETTING_CARDS.map((card) => (
+              {COACH_CARDS.map((card) => (
                 <section key={card.key} className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm flex flex-col">
                   <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-3">
                     <card.icon size={18} className="text-accent" />
@@ -570,6 +607,51 @@ export default function Settings() {
                   <span className="text-green text-xs font-bold animate-in fade-in zoom-in duration-300">✓ SAVED SUCCESSFULLY</span>
                 )}
                 {saveStatus === 'failed' && (
+                  <span className="text-red text-xs font-bold animate-in shake duration-300">✗ SAVE FAILED</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Nutritionist Tab */}
+        {activeTab === 'nutritionist' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {NUTRITIONIST_CARDS.map((card) => (
+                <section key={card.key} className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm flex flex-col">
+                  <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-3">
+                    <card.icon size={18} className="text-green" />
+                    <div>
+                      <h3 className="text-xs font-bold text-text uppercase tracking-wider">{card.title}</h3>
+                      <p className="text-[10px] text-text-muted mt-0.5">{card.hint}</p>
+                    </div>
+                  </div>
+                  <div className="p-4 flex-1">
+                    <textarea
+                      disabled={isReadOnly}
+                      className="w-full h-full bg-surface-low text-text border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[160px] leading-relaxed"
+                      value={form[card.key] ?? ''}
+                      onChange={(e) => handleChange(card.key, e.target.value)}
+                    />
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            {!isReadOnly && (
+              <div className="pt-2 flex items-center gap-4">
+                <button
+                  onClick={handleSaveNutritionist}
+                  disabled={updateSetting.isPending}
+                  className="px-8 py-3 bg-green text-white rounded-lg text-xs font-bold uppercase tracking-widest hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-green/20"
+                >
+                  {updateSetting.isPending ? 'Processing...' : 'Save Nutritionist Settings'}
+                </button>
+                {nutritionistSaveStatus === 'saved' && (
+                  <span className="text-green text-xs font-bold animate-in fade-in zoom-in duration-300">✓ SAVED SUCCESSFULLY</span>
+                )}
+                {nutritionistSaveStatus === 'failed' && (
                   <span className="text-red text-xs font-bold animate-in shake duration-300">✗ SAVE FAILED</span>
                 )}
               </div>

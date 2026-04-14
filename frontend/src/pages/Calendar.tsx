@@ -286,7 +286,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                     {w.coach_notes && (
                       <div className="mt-4 flex gap-3 p-4 bg-surface-low rounded-xl border border-border">
                         <Info size={16} className="text-accent shrink-0 mt-0.5" />
-                        <p className="text-xs text-text-muted leading-relaxed italic">"{w.coach_notes}"</p>
+                        <p className="text-sm md:text-xs text-text-muted leading-relaxed italic">"{w.coach_notes}"</p>
                       </div>
                     )}
                   </div>

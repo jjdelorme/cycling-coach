@@ -186,6 +186,24 @@ def get_macro_targets(conn, user_id: str = "athlete") -> dict:
     }
 
 
+def get_planned_meals_for_range(conn, start: str, end: str, user_id: str = "athlete") -> list[dict]:
+    """Get all planned meals for a date range, ordered by date and meal_slot."""
+    rows = conn.execute(
+        "SELECT * FROM planned_meals WHERE user_id = %s AND date >= %s AND date <= %s ORDER BY date, meal_slot",
+        (user_id, start, end),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_planned_meals_for_date(conn, date: str, user_id: str = "athlete") -> list[dict]:
+    """Get all planned meals for a single date, ordered by meal_slot."""
+    rows = conn.execute(
+        "SELECT * FROM planned_meals WHERE user_id = %s AND date = %s ORDER BY meal_slot",
+        (user_id, date),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_daily_meal_totals(conn, date: str, user_id: str = "athlete") -> dict:
     """Get aggregate macro totals for a date."""
     row = conn.execute(
