@@ -25,7 +25,7 @@ def power_curve(
         rows = get_power_bests_rows(conn, start_date, end_date)
 
     return [
-        {"duration_s": r["duration_s"], "power": r["power"], "avg_hr": r["avg_hr"], "date": r["date"], "ride_id": r["ride_id"]}
+        {"duration_s": r["duration_s"], "power": r["power"], "avg_hr": r["avg_hr"], "date": str(r["date"]), "ride_id": r["ride_id"]}
         for r in rows
     ]
 
@@ -199,7 +199,7 @@ def weight_history(
             "SELECT date_set, value FROM athlete_settings WHERE key = 'weight_kg' ORDER BY date_set"
         ).fetchall()
         for r in settings_rows:
-            d = r["date_set"]
+            d = str(r["date_set"])
             if (not start_date or d >= start_date) and (not end_date or d <= end_date):
                 points[d] = float(r["value"])
 
@@ -208,7 +208,7 @@ def weight_history(
             "SELECT date, weight_kg FROM body_measurements WHERE source = 'withings' AND weight_kg IS NOT NULL ORDER BY date"
         ).fetchall()
         for r in withings_rows:
-            d = r["date"]
+            d = str(r["date"])
             if (not start_date or d >= start_date) and (not end_date or d <= end_date):
                 points[d] = float(r["weight_kg"])
 

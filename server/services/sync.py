@@ -416,17 +416,17 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     # Get existing rides for dedup: by filename AND by (date, distance) fingerprint.
     # Distance is more reliable than duration because moving-time vs elapsed-time
     # differs between sources (Garmin auto-pause, Strava, intervals.icu).
-    # TODO Phase 3: after rides.date is dropped, fingerprint on start_time-derived
-    # local date instead of string-slicing start_time[:10] (which is UTC-only).
+    # Fingerprint uses UTC date from start_time (sufficient for cross-source dedup;
+    # at most one day off for rides near midnight UTC which is acceptable).
     existing_filenames = set()
     existing_fingerprints = set()
     rows = conn.execute("SELECT filename, start_time, distance_m FROM rides").fetchall()
     for r in rows:
         row = dict(r)
         existing_filenames.add(row["filename"])
-        # Fingerprint: (date from start_time, distance rounded to nearest 100m)
-        st = row.get("start_time") or ""
-        date_str = str(st)[:10] if st else ""
+        # Fingerprint: (UTC date from start_time, distance rounded to nearest 100m)
+        st = row.get("start_time")
+        date_str = st.strftime("%Y-%m-%d") if hasattr(st, "strftime") else (str(st)[:10] if st else "")
         dist = round((row["distance_m"] or 0) / 100) * 100
         existing_fingerprints.add((date_str, dist))
 
@@ -591,9 +591,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                                     (metrics["tss"], ride_db_id),
                                 )
 
-                        # Insert all power bests
-                        # TODO Phase 3: derive pb_date from start_time with timezone
-                        # instead of UTC string-slice after column type migration
+                        # Insert all power bests (date is UTC-derived from start_time)
                         if metrics["power_bests"]:
                             pb_date = ride_date_str
                             conn.executemany(
@@ -681,13 +679,15 @@ async def _download_planned_workouts(sync_id: str, log_lines: list[str], conn) -
         log_lines.append(_tlog("No upcoming calendar events on intervals.icu"))
         return 0
 
-    # Build a set of (date, name) pairs already in the local DB so we don't duplicate
+    # Build a set of (date, name) pairs already in the local DB so we don't duplicate.
+    # Use str() on date since planned_workouts.date is DATE type (returns
+    # datetime.date) but event_date from intervals.icu API is a string.
     existing = set()
     for row in conn.execute(
         "SELECT date, name FROM planned_workouts WHERE date >= ?", (today,)
     ).fetchall():
         r = dict(row)
-        existing.add((r["date"], r["name"] or ""))
+        existing.add((str(r["date"]), r["name"] or ""))
 
     imported = 0
     for event in raw_events:

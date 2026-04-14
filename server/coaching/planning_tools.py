@@ -79,7 +79,7 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
         if not phase:
             return {"status": "error", "message": f"Phase '{phase_name}' not found"}
 
-        old_end = phase["end_date"]
+        old_end = str(phase["end_date"])
         conn.execute(
             "UPDATE periodization_phases SET end_date = ? WHERE name = ?",
             (new_end_date, phase_name),
@@ -410,7 +410,7 @@ def get_week_summary(date: str = "") -> dict:
     return {
         "week": f"{start_str} to {end_str}",
         "planned_workouts": [
-            {"date": p["date"], "name": p["name"], "duration_min": round((p["total_duration_s"] or 0) / 60)}
+            {"date": str(p["date"]), "name": p["name"], "duration_min": round((p["total_duration_s"] or 0) / 60)}
             for p in planned
         ],
         "actual_rides": [
@@ -484,21 +484,23 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
         errors = []
         for row in rows:
             row = dict(row)
+            # Convert planned_workouts.date (now DATE type, datetime.date) to string
+            row_date = str(row["date"])
             if not row["workout_xml"]:
-                errors.append({"name": row["name"], "date": row["date"], "error": "No structured workout data (ZWO) available"})
+                errors.append({"name": row["name"], "date": row_date, "error": "No structured workout data (ZWO) available"})
                 continue
 
             w_name = row["name"] or "Workout"
             moving_time = int(row["total_duration_s"] or 0)
-            current_hash = compute_sync_hash(w_name, row["date"], row["workout_xml"], moving_time)
+            current_hash = compute_sync_hash(w_name, row_date, row["workout_xml"], moving_time)
 
             # Skip if unchanged
             if row.get("sync_hash") == current_hash and row.get("icu_event_id"):
-                skipped.append({"name": w_name, "date": row["date"]})
+                skipped.append({"name": w_name, "date": row_date})
                 continue
 
             result = push_workout(
-                date=row["date"],
+                date=row_date,
                 name=w_name,
                 zwo_xml=row["workout_xml"],
                 moving_time_secs=moving_time,
@@ -510,9 +512,9 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
                     "UPDATE planned_workouts SET icu_event_id = ?, sync_hash = ?, synced_at = ? WHERE id = ?",
                     (result.get("event_id"), current_hash, now_iso, row["id"]),
                 )
-                synced.append({"name": w_name, "date": row["date"]})
+                synced.append({"name": w_name, "date": row_date})
             else:
-                errors.append({"name": w_name, "date": row["date"], "error": result.get("message", "Unknown error")})
+                errors.append({"name": w_name, "date": row_date, "error": result.get("message", "Unknown error")})
 
     msg = f"Synced {len(synced)} workout(s) to Garmin via intervals.icu"
     if skipped:

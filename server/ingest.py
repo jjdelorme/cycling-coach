@@ -36,9 +36,16 @@ def _semicircles_to_degrees(val):
     return val
 
 
-def _start_time_to_date(start_time: str) -> str:
-    """Extract YYYY-MM-DD from a UTC ISO8601 timestamp (best-effort for rides.date backward compat)."""
-    return start_time[:10] if start_time and len(start_time) >= 10 else ""
+def _start_time_to_date(start_time) -> str:
+    """Extract YYYY-MM-DD from a start_time value for benchmark lookups.
+
+    Handles both string (pre-migration TEXT column) and datetime
+    (post-migration TIMESTAMPTZ column) inputs.
+    """
+    if hasattr(start_time, "strftime"):
+        return start_time.strftime("%Y-%m-%d")
+    s = str(start_time) if start_time else ""
+    return s[:10] if len(s) >= 10 else ""
 
 
 def file_hash(filepath):
@@ -62,13 +69,13 @@ def get_benchmark_for_date(conn, key: str, date_str: str) -> float:
         if str(val) != str(ATHLETE_SETTINGS_DEFAULTS.get(key)):
             return val
 
-    # 2. Look back to the most recent ride with this metric
-    # Uses start_time for ordering; date_str comparison works because
-    # ISO timestamp strings sort correctly against YYYY-MM-DD prefixes.
-    # TODO Phase 3: rewrite to use start_time::TIMESTAMPTZ comparison after column type migration
+    # 2. Look back to the most recent ride with this metric.
+    # After the timezone migration, start_time is TIMESTAMPTZ; casting
+    # date_str to TIMESTAMPTZ gives midnight UTC on that date, which is
+    # correct for a "on or before this date" lookup.
     col = "ftp" if key == "ftp" else "weight"
     row = conn.execute(
-        f"SELECT {col} FROM rides WHERE {col} > 0 AND start_time <= %s ORDER BY start_time DESC LIMIT 1",
+        f"SELECT {col} FROM rides WHERE {col} > 0 AND start_time <= %s::TIMESTAMPTZ ORDER BY start_time DESC LIMIT 1",
         (date_str,)
     ).fetchone()
     if row and row[col]:
@@ -333,11 +340,7 @@ def parse_zwo(filepath):
 
 
 def backfill_hr_tss(conn):
-    """Backfill hrTSS for rides that have HR data but no power-based TSS.
-
-    # TODO Phase 3: after start_time column type migrates to TIMESTAMPTZ,
-    # date derivation can use proper casting instead of string slicing.
-    """
+    """Backfill hrTSS for rides that have HR data but no power-based TSS."""
     from server.queries import get_latest_metric
 
     rows = conn.execute(
@@ -346,8 +349,7 @@ def backfill_hr_tss(conn):
 
     updated = 0
     for r in rows:
-        st = r["start_time"]
-        date_str = st.strftime("%Y-%m-%d") if hasattr(st, "strftime") else (str(st)[:10] if st else "")
+        date_str = _start_time_to_date(r["start_time"])
         lthr = get_latest_metric(conn, "lthr", date_str)
         max_hr = get_latest_metric(conn, "max_hr", date_str)
         resting_hr = get_latest_metric(conn, "resting_hr", date_str)
@@ -422,7 +424,9 @@ def compute_daily_pmc(conn, since_date: str | None = None, tz_name: str = "UTC")
     withings_rows = conn.execute(
         "SELECT date, weight_kg FROM body_measurements WHERE source = 'withings' AND weight_kg IS NOT NULL ORDER BY date"
     ).fetchall()
-    withings_weights = {r["date"]: r["weight_kg"] for r in withings_rows}
+    # Use str() to ensure dict keys are strings, matching the "YYYY-MM-DD"
+    # format of ds lookups below. After Phase 3, r["date"] is datetime.date.
+    withings_weights = {str(r["date"]): r["weight_kg"] for r in withings_rows}
 
     def _lookup_setting_metric(ds: str, settings_list):
         if not settings_list:
@@ -544,8 +548,7 @@ def sync_athlete_settings_from_latest_ride(conn):
 
         new_ftp = str(int(row["ftp"]))
         new_weight = str(round(row["weight"], 2))
-        st = row["start_time"]
-        source_date = st.strftime("%Y-%m-%d") if hasattr(st, "strftime") else (str(st)[:10] if st else "")
+        source_date = _start_time_to_date(row["start_time"])
 
         if new_ftp != current_ftp:
             logger.info("ftp_auto_synced", previous=current_ftp, new=new_ftp, source_date=source_date)
@@ -616,7 +619,7 @@ def ingest_rides(conn, rides_dir=None):
 
         # Insert power bests
         if power_bests:
-            pb_date = ride["start_time"][:10] if ride.get("start_time") else ""
+            pb_date = _start_time_to_date(ride.get("start_time"))
             conn.executemany(
                 "INSERT INTO power_bests (ride_id, date, duration_s, power, avg_hr, avg_cadence, start_offset_s) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [(ride_id, pb_date, pb["duration_s"], pb["power"], pb.get("avg_hr"), pb.get("avg_cadence"), pb.get("start_offset_s")) for pb in power_bests],

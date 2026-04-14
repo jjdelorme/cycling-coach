@@ -134,7 +134,7 @@ def get_pmc_metrics(date: str = "") -> dict:
         return {"error": "No PMC data found"}
 
     return {
-        "date": row["date"],
+        "date": str(row["date"]),
         "ctl": row["ctl"],
         "atl": row["atl"],
         "tsb": row["tsb"],
@@ -207,7 +207,7 @@ def get_upcoming_workouts(days_ahead: int = 7) -> list[dict]:
 
     return [
         {
-            "date": r["date"],
+            "date": str(r["date"]),
             "name": r["name"],
             "sport": r["sport"],
             "duration_min": round((r["total_duration_s"] or 0) / 60),

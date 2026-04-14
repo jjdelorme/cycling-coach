@@ -229,7 +229,9 @@ def plan_compliance(
             r_query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
             r_params.extend([tz_name, end_date])
 
-        planned_dates = set(r["date"] for r in conn.execute(pw_query, pw_params).fetchall() if r["date"])
+        # Use str() on planned_workouts.date (now DATE type returning datetime.date)
+        # to match the string format from actual rides (::TEXT cast).
+        planned_dates = set(str(r["date"]) for r in conn.execute(pw_query, pw_params).fetchall() if r["date"])
         actual_dates = set(r["date"] for r in conn.execute(r_query, r_params).fetchall())
 
     completed = planned_dates & actual_dates
@@ -563,7 +565,7 @@ def get_workout_detail(workout_id: int, user: CurrentUser = Depends(require_read
 
     return {
         "id": workout["id"],
-        "date": workout["date"],
+        "date": str(workout["date"]),
         "name": workout["name"],
         "sport": workout["sport"],
         "total_duration_s": total_duration,
@@ -639,7 +641,7 @@ def download_planned_workout(workout_id: int, fmt: str = "tcx", user: CurrentUse
             row["workout_xml"],
             ftp=ftp,
             workout_name=row["name"] or "Workout",
-            scheduled_date=row["date"],
+            scheduled_date=str(row["date"]),
         )
         return Response(
             content=tcx_str,

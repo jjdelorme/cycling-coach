@@ -106,7 +106,7 @@ def push_workouts_bulk(workouts: list[dict]) -> dict:
     for w in workouts:
         event = {
             "category": "WORKOUT",
-            "start_date_local": w["date"] + "T00:00:00" if len(w["date"]) == 10 else w["date"],
+            "start_date_local": str(w["date"]) + "T00:00:00" if len(str(w["date"])) == 10 else str(w["date"]),
             "name": w["name"],
             "description": w.get("description", ""),
             "type": "Ride",

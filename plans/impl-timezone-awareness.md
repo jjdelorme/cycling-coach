@@ -72,10 +72,10 @@
   - [x] Step 2.J: Write integration tests for key query rewrites (Status: Created tests/integration/test_timezone_queries.py with 6 tests: local date derivation, UTC date, timezone-aware filtering, exclusion filtering, PMC grouping by local date, TSS aggregation by timezone)
   - [ ] Step 2.K: Run all tests
 - [ ] Phase 3: Schema migration -- drop rides.date, promote column types
-  - [ ] Step 3.A: Write and apply migration SQL
-  - [ ] Step 3.B: Update `_SCHEMA` in `server/database.py`
-  - [ ] Step 3.C: Fix SUBSTR-based queries (get_ftp_history_rows, monthly_summary, power_curve_history)
-  - [ ] Step 3.D: Fix Python code that expects string returns from DATE/TIMESTAMPTZ columns
+  - [x] Step 3.A: Write migration SQL (Status: Created migrations/0006_timezone_schema.sql -- fixes non-UTC start_time, promotes to TIMESTAMPTZ, drops rides.date, promotes TEXT dates to DATE, adds planned_meals/meal_logs DATE promotion, updates indexes)
+  - [x] Step 3.B: Update schema definition (Status: No _SCHEMA in server/database.py -- schema is defined in migrations/0001_baseline.sql and the new 0006 migration alters it. Updated _start_time_to_date to handle datetime objects, updated get_benchmark_for_date to use TIMESTAMPTZ cast, removed all Phase 3 TODOs, updated seed data to remove rides.date, updated sync.py/single_sync.py fingerprint logic)
+  - [x] Step 3.C: Fix SUBSTR-based queries (get_ftp_history_rows, monthly_summary, power_curve_history) (Status: Already uses TO_CHAR; verified no SUBSTR on date columns remains in server/)
+  - [x] Step 3.D: Fix Python code that expects string returns from DATE/TIMESTAMPTZ columns (Status: Converted all row["date"], row["start_date"], row["end_date"], row["date_set"] reads to str() in queries.py, coaching/tools.py, coaching/planning_tools.py, routers/analysis.py, routers/planning.py, services/sync.py, services/intervals_icu.py, ingest.py; 310 unit tests passing)
   - [ ] Step 3.E: GPS-based historical data fix (timezonefinder for start_lat/start_lon, fallback America/New_York)
   - [ ] Step 3.F: Run integration tests against migrated schema
 - [ ] Phase 4: Rebuild PMC and smoke test
