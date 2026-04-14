@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.9.6-beta] - 2026-04-14
+
+- fix(nutrition): navigate to day view after logging a meal so the new meal is immediately visible
+- fix(nutrition): quick-log "Done" button now triggers navigation (previously only closed the modal)
+
 ## [v1.9.5-beta] - 2026-04-14
 
 - feat(nutrition): user notes on logged meals — editable textarea in MacroCard, saved via new `user_notes` column (migration 0005)
