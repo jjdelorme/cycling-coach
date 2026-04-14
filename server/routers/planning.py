@@ -80,7 +80,7 @@ def get_week_plan(date: str, user: CurrentUser = Depends(require_read), tz: Zone
 
 
 @router.post("/week/batch")
-def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_read)):
+def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     """Get planned workouts for multiple weeks in a single request."""
     from datetime import datetime, timedelta
 
@@ -95,7 +95,7 @@ def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_r
             end = start + timedelta(days=6)
             start_str = start.strftime("%Y-%m-%d")
             end_str = end.strftime("%Y-%m-%d")
-            planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
+            planned, actual = get_week_planned_and_actual(conn, start_str, end_str, tz_name=str(tz))
             results.append({
                 "week_start": start_str,
                 "week_end": end_str,

@@ -52,24 +52,24 @@
 - [ ] Phase 1: Normalize start_time to UTC and stop writing rides.date
   - [ ] Step 1.A: Fix intervals.icu to store UTC `start_date` instead of `start_date_local`
   - [ ] Step 1.B: Fix `server/ingest.py` -- stop computing `ride_date`, stop writing `rides.date`
-  - [ ] Step 1.C: Fix remaining `datetime.now()` calls (intervals_icu.py, planning.py)
-  - [ ] Step 1.D: Remove `athlete_settings.timezone` writes and reads
-  - [ ] Step 1.E: Fix background sync timezone source (`_get_athlete_tz()` in sync.py)
+  - [x] Step 1.C: Fix remaining `datetime.now()` calls (intervals_icu.py, planning.py) (Status: database.py set_athlete_setting uses user_today(); withings.py sync_weight uses datetime.now(timezone.utc); weight.py get_current_weight uses user_today(); intervals_icu.py fetch_activities and update_weight already fixed; planning.py already fixed)
+  - [x] Step 1.D: Remove `athlete_settings.timezone` writes and reads (Status: Already done by prior engineer; coaching.py no longer writes timezone to athlete_settings)
+  - [x] Step 1.E: Fix background sync timezone source (`_get_athlete_tz()` in sync.py) (Status: Already done; _get_athlete_tz() returns ZoneInfo("UTC") with explanatory comment)
   - [ ] Step 1.F: Write unit tests for intervals.icu mapping and ingest changes
   - [ ] Step 1.G: Run unit tests -- verify no regressions
 - [ ] Phase 2: Rewrite all rides.date queries to use start_time
-  - [ ] Step 2.A: Rewrite `server/queries.py` -- all rides.date references
-  - [ ] Step 2.B: Rewrite `server/routers/rides.py` -- all rides.date references
-  - [ ] Step 2.C: Rewrite `server/routers/analysis.py` -- all rides.date references
-  - [ ] Step 2.D: Rewrite `server/coaching/tools.py` -- all rides.date references
-  - [ ] Step 2.E: Rewrite `server/coaching/planning_tools.py` -- rides.date in `set_ride_coach_comments` AND `get_week_summary` call site
-  - [ ] Step 2.F: Rewrite `server/coaching/agent.py` -- recent rides query
-  - [ ] Step 2.G: Rewrite `server/ingest.py` -- compute_daily_pmc, backfill_hr_tss, get_benchmark_for_date, sync_athlete_settings_from_latest_ride, power_bests INSERT
-  - [ ] Step 2.H: Rewrite `server/services/sync.py` -- dedup fingerprints, ride_date references, power_bests INSERT
-  - [ ] Step 2.I: Rewrite `server/services/single_sync.py` -- date references, power_bests INSERT
-  - [ ] Step 2.B2: Rewrite `server/routers/planning.py` -- get_activity_dates, weekly_overview, plan_compliance rides.date refs
-  - [ ] Step 2.H2: Rewrite `server/routers/sync.py` -- backfill_streams rides.date reference
-  - [ ] Step 2.J: Write integration tests for key query rewrites
+  - [x] Step 2.A: Rewrite `server/queries.py` -- all rides.date references (Status: Already done; get_current_ftp uses ORDER BY start_time; get_week_planned_and_actual uses AT TIME ZONE pattern with tz_name param)
+  - [x] Step 2.B: Rewrite `server/routers/rides.py` -- all rides.date references (Status: All 5 endpoints already converted; verified via tests)
+  - [x] Step 2.C: Rewrite `server/routers/analysis.py` -- all rides.date references (Status: Fixed route_matches hardcoded UTC -> client tz; zone_distribution/efficiency_factor already done; power_curve_history deferred to Phase 3 per plan)
+  - [x] Step 2.D: Rewrite `server/coaching/tools.py` -- all rides.date references (Status: _resolve_ride_id, get_recent_rides, get_training_summary, get_planned_workout_for_ride already converted; get_athlete_nutrition_status fixed: naive datetime.now() -> user_today(), rides WHERE date -> AT TIME ZONE pattern)
+  - [x] Step 2.E: Rewrite `server/coaching/planning_tools.py` -- rides.date in `set_ride_coach_comments` AND `get_week_summary` call site (Status: Already done; set_ride_coach_comments uses AT TIME ZONE pattern; get_week_summary passes tz_name=get_request_tz().key)
+  - [x] Step 2.F: Rewrite `server/coaching/agent.py` -- recent rides query (Status: Already done; _build_system_instruction uses AT TIME ZONE pattern with tz_name from get_request_tz().key)
+  - [x] Step 2.G: Rewrite `server/ingest.py` -- compute_daily_pmc, backfill_hr_tss, get_benchmark_for_date, sync_athlete_settings_from_latest_ride, power_bests INSERT (Status: compute_daily_pmc already has tz_name param and AT TIME ZONE queries; run_ingestion passes tz_name="UTC"; sync_athlete_settings uses start_time ordering; get_benchmark_for_date uses start_time ordering with TODO Phase 3 comment; backfill_hr_tss uses start_time with TODO Phase 3 comment; power_bests INSERT uses start_time[:10]; withings webhook passes tz_name="UTC")
+  - [x] Step 2.H: Rewrite `server/services/sync.py` -- dedup fingerprints, ride_date references, power_bests INSERT (Status: compute_daily_pmc call passes tz_name="UTC"; fingerprint dedup uses start_time[:10] with TODO Phase 3 comment; power_bests INSERT has TODO Phase 3 comment)
+  - [x] Step 2.I: Rewrite `server/services/single_sync.py` -- date references, power_bests INSERT (Status: target_date uses start_time[:10] with TODO Phase 3 comment; power_bests INSERT has TODO Phase 3 comment)
+  - [x] Step 2.B2: Rewrite `server/routers/planning.py` -- get_activity_dates, weekly_overview, plan_compliance rides.date refs (Status: Fixed get_week_plans_batch missing tz passthrough; get_activity_dates/weekly_overview/plan_compliance/get_week_plan already done)
+  - [x] Step 2.H2: Rewrite `server/routers/sync.py` -- backfill_streams rides.date reference (Status: No rides.date references found; queries use r.start_time already)
+  - [x] Step 2.J: Write integration tests for key query rewrites (Status: Created tests/integration/test_timezone_queries.py with 6 tests: local date derivation, UTC date, timezone-aware filtering, exclusion filtering, PMC grouping by local date, TSS aggregation by timezone)
   - [ ] Step 2.K: Run all tests
 - [ ] Phase 3: Schema migration -- drop rides.date, promote column types
   - [ ] Step 3.A: Write and apply migration SQL

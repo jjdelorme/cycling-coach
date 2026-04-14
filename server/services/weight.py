@@ -67,5 +67,5 @@ def get_weight_for_date(conn, date: str) -> float:
 
 def get_current_weight(conn) -> float:
     """Convenience wrapper: resolve weight for today following the full priority chain."""
-    from datetime import date
-    return get_weight_for_date(conn, date.today().isoformat())
+    from server.utils.dates import user_today
+    return get_weight_for_date(conn, user_today())

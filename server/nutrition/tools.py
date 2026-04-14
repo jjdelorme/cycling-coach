@@ -89,16 +89,17 @@ def get_weekly_summary(date: str = "") -> dict:
     start = dt - timedelta(days=dt.weekday())
     end = start + timedelta(days=6)
 
+    tz_name = get_request_tz().key
     days = []
     with get_db() as conn:
         for i in range(7):
             day = (start + timedelta(days=i)).strftime("%Y-%m-%d")
             totals = get_daily_meal_totals(conn, day)
-            # Get ride calories for this day
+            # Get ride calories for this day -- derive local date from start_time
             ride_row = conn.execute(
                 "SELECT COALESCE(SUM(total_calories), 0) AS ride_cal "
-                "FROM rides WHERE date = %s",
-                (day,),
+                "FROM rides WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE = %s::DATE",
+                (tz_name, day),
             ).fetchone()
             totals["date"] = day
             totals["calories_out_rides"] = int(ride_row["ride_cal"]) if ride_row else 0
@@ -131,11 +132,13 @@ def get_caloric_balance(date: str = "") -> dict:
         date = user_today()
 
     from server.services.weight import get_weight_for_date
+    tz_name = get_request_tz().key
     with get_db() as conn:
         totals = get_daily_meal_totals(conn, date)
         ride_row = conn.execute(
-            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides WHERE date = %s",
-            (date,),
+            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE = %s::DATE",
+            (tz_name, date),
         ).fetchone()
         ride_cal = int(ride_row["total"]) if ride_row else 0
         weight_kg = get_weight_for_date(conn, date)
@@ -215,13 +218,17 @@ def get_recent_workouts(days_back: int = 3) -> list[dict]:
         List of ride summaries with TSS, duration, and calories burned.
     """
     cutoff = (datetime.now(get_request_tz()) - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    tz_name = get_request_tz().key
 
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT date, sub_sport, duration_s, tss, total_calories, "
+            "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE::TEXT AS date, "
+            "sub_sport, duration_s, tss, total_calories, "
             "avg_power, normalized_power "
-            "FROM rides WHERE date >= %s ORDER BY date DESC",
-            (cutoff,),
+            "FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE >= %s::DATE "
+            "ORDER BY start_time DESC",
+            (tz_name, tz_name, cutoff),
         ).fetchall()
 
     return [

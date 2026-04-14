@@ -216,8 +216,9 @@ def weight_history(
 
 
 @router.get("/route-matches")
-def route_matches(ride_id: int, threshold: float = Query(0.8), user: CurrentUser = Depends(require_read)):
+def route_matches(ride_id: int, threshold: float = Query(0.8), user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     """Find rides on similar routes using GPS start position proximity."""
+    tz_name = str(tz)
     with get_db() as conn:
         target = conn.execute(
             "SELECT start_lat, start_lon, distance_m, total_ascent FROM rides WHERE id = ?",
@@ -229,7 +230,7 @@ def route_matches(ride_id: int, threshold: float = Query(0.8), user: CurrentUser
 
         # Find rides starting within ~1km and similar distance/ascent
         rows = conn.execute("""
-            SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE 'UTC')::DATE::TEXT AS date,
+            SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,
                    sub_sport, duration_s, distance_m, total_ascent,
                    avg_power, normalized_power, avg_hr, tss, start_lat, start_lon
             FROM rides
@@ -238,7 +239,7 @@ def route_matches(ride_id: int, threshold: float = Query(0.8), user: CurrentUser
               AND ABS(start_lat - ?) < 0.01
               AND ABS(start_lon - ?) < 0.01
             ORDER BY start_time
-        """, (ride_id, target["start_lat"], target["start_lon"])).fetchall()
+        """, (tz_name, ride_id, target["start_lat"], target["start_lon"])).fetchall()
 
     # Filter by similar distance (within 20%)
     target_dist = target["distance_m"] or 0

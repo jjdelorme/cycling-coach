@@ -65,6 +65,7 @@ def get_benchmark_for_date(conn, key: str, date_str: str) -> float:
     # 2. Look back to the most recent ride with this metric
     # Uses start_time for ordering; date_str comparison works because
     # ISO timestamp strings sort correctly against YYYY-MM-DD prefixes.
+    # TODO Phase 3: rewrite to use start_time::TIMESTAMPTZ comparison after column type migration
     col = "ftp" if key == "ftp" else "weight"
     row = conn.execute(
         f"SELECT {col} FROM rides WHERE {col} > 0 AND start_time <= %s ORDER BY start_time DESC LIMIT 1",
@@ -332,7 +333,11 @@ def parse_zwo(filepath):
 
 
 def backfill_hr_tss(conn):
-    """Backfill hrTSS for rides that have HR data but no power-based TSS."""
+    """Backfill hrTSS for rides that have HR data but no power-based TSS.
+
+    # TODO Phase 3: after start_time column type migrates to TIMESTAMPTZ,
+    # date derivation can use proper casting instead of string slicing.
+    """
     from server.queries import get_latest_metric
 
     rows = conn.execute(
@@ -733,7 +738,7 @@ def run_ingestion():
         backfill_hr_tss(conn)
 
         logger.info("Computing PMC (CTL/ATL/TSB)...")
-        compute_daily_pmc(conn)
+        compute_daily_pmc(conn, tz_name="UTC")
 
         logger.info("Seeding periodization phases...")
         seed_periodization(conn)

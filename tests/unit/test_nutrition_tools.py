@@ -214,3 +214,135 @@ def test_save_meal_analysis_uses_user_today_for_date():
         )
         mock_today.assert_called_once()
         assert result["date"] == "2026-04-13"
+
+
+# ---------------------------------------------------------------------------
+# Tests for rides.date -> start_time AT TIME ZONE conversion (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+def test_get_weekly_summary_ride_calories_uses_start_time():
+    """get_weekly_summary ride calorie query uses AT TIME ZONE, not rides.date."""
+    from unittest.mock import patch, MagicMock, call
+    from zoneinfo import ZoneInfo
+
+    with patch("server.nutrition.tools.user_today", return_value="2026-04-14"), \
+         patch("server.nutrition.tools.get_request_tz", return_value=ZoneInfo("America/Chicago")), \
+         patch("server.nutrition.tools.get_db") as mock_db, \
+         patch("server.nutrition.tools.get_daily_meal_totals", return_value={
+             "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "meal_count": 0,
+         }):
+        mock_conn = MagicMock()
+        mock_ride_row = MagicMock()
+        mock_ride_row.__getitem__ = lambda self, key: 0
+        mock_conn.execute.return_value.fetchone.return_value = mock_ride_row
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.tools import get_weekly_summary
+        get_weekly_summary()
+
+        # Check that AT TIME ZONE appears in the SQL for rides queries
+        ride_queries = [
+            c for c in mock_conn.execute.call_args_list
+            if "rides" in str(c).lower()
+        ]
+        assert len(ride_queries) > 0, "Expected at least one rides query"
+        for c in ride_queries:
+            sql = str(c[0][0])
+            assert "AT TIME ZONE" in sql, f"Expected AT TIME ZONE in rides query: {sql}"
+            assert "rides.date" not in sql and "WHERE date" not in sql, (
+                f"Should not reference rides.date directly: {sql}"
+            )
+
+
+def test_get_caloric_balance_ride_calories_uses_start_time():
+    """get_caloric_balance ride calorie query uses AT TIME ZONE, not rides.date."""
+    from unittest.mock import patch, MagicMock
+    from zoneinfo import ZoneInfo
+
+    with patch("server.nutrition.tools.user_today", return_value="2026-04-14"), \
+         patch("server.nutrition.tools.get_request_tz", return_value=ZoneInfo("America/Chicago")), \
+         patch("server.nutrition.tools.get_db") as mock_db, \
+         patch("server.nutrition.tools.get_daily_meal_totals", return_value={
+             "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "meal_count": 0,
+         }), \
+         patch("server.services.weight.get_weight_for_date", return_value=75.0):
+        mock_conn = MagicMock()
+        mock_ride_row = MagicMock()
+        mock_ride_row.__getitem__ = lambda self, key: 0
+        mock_conn.execute.return_value.fetchone.return_value = mock_ride_row
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.tools import get_caloric_balance
+        get_caloric_balance()
+
+        # Check that AT TIME ZONE appears in the SQL for rides queries
+        ride_queries = [
+            c for c in mock_conn.execute.call_args_list
+            if "rides" in str(c).lower()
+        ]
+        assert len(ride_queries) > 0, "Expected at least one rides query"
+        for c in ride_queries:
+            sql = str(c[0][0])
+            assert "AT TIME ZONE" in sql, f"Expected AT TIME ZONE in rides query: {sql}"
+
+
+def test_get_recent_workouts_uses_start_time():
+    """get_recent_workouts queries rides using AT TIME ZONE, not rides.date."""
+    from unittest.mock import patch, MagicMock
+    from zoneinfo import ZoneInfo
+
+    with patch("server.nutrition.tools.get_request_tz", return_value=ZoneInfo("America/Chicago")) as mock_tz, \
+         patch("server.nutrition.tools.get_db") as mock_db:
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.nutrition.tools import get_recent_workouts
+        get_recent_workouts(days_back=3)
+
+        # Verify AT TIME ZONE is in the SQL
+        ride_queries = [
+            c for c in mock_conn.execute.call_args_list
+            if "rides" in str(c).lower()
+        ]
+        assert len(ride_queries) == 1
+        sql = str(ride_queries[0][0][0])
+        assert "AT TIME ZONE" in sql, f"Expected AT TIME ZONE in rides query: {sql}"
+        assert "ORDER BY start_time" in sql, f"Expected ORDER BY start_time: {sql}"
+
+
+def test_get_athlete_nutrition_status_uses_timezone():
+    """get_athlete_nutrition_status uses user_today and AT TIME ZONE for rides."""
+    from unittest.mock import patch, MagicMock
+    from zoneinfo import ZoneInfo
+
+    with patch("server.coaching.tools.user_today", return_value="2026-04-14") as mock_today, \
+         patch("server.coaching.tools.get_request_tz", return_value=ZoneInfo("America/Chicago")), \
+         patch("server.coaching.tools.get_db") as mock_db:
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []  # meals
+        mock_ride_row = MagicMock()
+        mock_ride_row.__getitem__ = lambda self, key: 0
+        mock_conn.execute.return_value.fetchone.return_value = mock_ride_row
+        mock_db.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db.return_value.__exit__ = MagicMock(return_value=False)
+
+        from server.coaching.tools import get_athlete_nutrition_status
+        result = get_athlete_nutrition_status()
+
+        # Should use user_today() not naive datetime.now()
+        mock_today.assert_called_once()
+        assert result["date"] == "2026-04-14"
+
+        # Verify ride calorie query uses AT TIME ZONE
+        ride_queries = [
+            c for c in mock_conn.execute.call_args_list
+            if "rides" in str(c).lower() and "total_calories" in str(c).lower()
+        ]
+        assert len(ride_queries) == 1
+        sql = str(ride_queries[0][0][0])
+        assert "AT TIME ZONE" in sql, f"Expected AT TIME ZONE in rides query: {sql}"

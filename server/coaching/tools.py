@@ -778,7 +778,9 @@ def get_athlete_nutrition_status(date: str = "") -> dict:
         and last meal timestamp for the specified day.
     """
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
+
+    tz_name = get_request_tz().key
 
     with get_db() as conn:
         meals = conn.execute(
@@ -788,10 +790,11 @@ def get_athlete_nutrition_status(date: str = "") -> dict:
             (date, "athlete"),
         ).fetchall()
 
-        # Ride calories
+        # Ride calories -- derive local date from start_time
         ride_row = conn.execute(
-            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides WHERE date = %s",
-            (date,),
+            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE = %s::DATE",
+            (tz_name, date),
         ).fetchone()
         ride_cal = int(ride_row["total"]) if ride_row else 0
 

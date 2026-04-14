@@ -36,6 +36,7 @@ async def import_specific_activity(icu_id):
     if not ride_data:
         logger.error("single_sync_map_failed", icu_id=icu_id)
         raise ValueError(f"Activity {icu_id} could not be mapped to a ride.")
+    # TODO Phase 3: derive target_date from start_time with timezone after column type migration
     target_date = ride_data["start_time"][:10] if ride_data.get("start_time") else ""
     logger.info("single_sync_mapped", icu_id=icu_id, date=target_date, sport=ride_data["sport"])
     
@@ -140,6 +141,8 @@ async def import_specific_activity(icu_id):
                 if metrics.get("tss", 0) > 0:
                     conn.execute("UPDATE rides SET tss = %(tss)s WHERE id = %(id)s", {"tss": metrics["tss"], "id": ride_id})
             
+            # TODO Phase 3: derive power_bests date from start_time with timezone
+            # after column type migration instead of UTC string-slice
             if metrics.get("power_bests"):
                 params_list = [
                     {"ride_id": ride_id, "date": target_date, "dur": pb["duration_s"], "pwr": pb["power"],

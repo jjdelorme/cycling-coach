@@ -108,11 +108,15 @@ def _build_system_instruction(ctx) -> str:
             (three_days_ago, "athlete"),
         ).fetchall()
 
-        # Recent rides (last 3 days)
+        # Recent rides (last 3 days) -- derive local date from start_time
+        tz_name = tz.key
         recent_rides = conn.execute(
-            "SELECT date, sub_sport, duration_s, tss, total_calories "
-            "FROM rides WHERE date >= %s ORDER BY date DESC LIMIT 5",
-            (three_days_ago,),
+            "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE::TEXT AS date, "
+            "sub_sport, duration_s, tss, total_calories "
+            "FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE >= %s::DATE "
+            "ORDER BY start_time DESC LIMIT 5",
+            (tz_name, tz_name, three_days_ago),
         ).fetchall()
 
     ctl = round(pmc["ctl"], 1) if pmc and pmc.get("ctl") is not None else "N/A"

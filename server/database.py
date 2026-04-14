@@ -38,7 +38,7 @@ class _DbConnection:
         # Convert ? positional params to %s
         sql = sql.replace("?", "%s")
         # Convert :name named params to %(name)s
-        sql = re.sub(r":([a-zA-Z_]\w*)", r"%(\1)s", sql)
+        sql = re.sub(r"(?<!:):([a-zA-Z_]\w*)", r"%(\1)s", sql)
         return sql
 
     def execute(self, sql, params=None):
@@ -241,9 +241,9 @@ def get_athlete_setting(key: str) -> str:
 
 def set_athlete_setting(key: str, value: str, date_set: str = None):
     """Set an athlete setting value, deactivating the old one."""
-    from datetime import datetime
     if not date_set:
-        date_set = datetime.now().strftime("%Y-%m-%d")
+        from server.utils.dates import user_today
+        date_set = user_today()
     
     with get_db() as conn:
         # Deactivate current active setting

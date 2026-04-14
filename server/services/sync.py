@@ -416,6 +416,8 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     # Get existing rides for dedup: by filename AND by (date, distance) fingerprint.
     # Distance is more reliable than duration because moving-time vs elapsed-time
     # differs between sources (Garmin auto-pause, Strava, intervals.icu).
+    # TODO Phase 3: after rides.date is dropped, fingerprint on start_time-derived
+    # local date instead of string-slicing start_time[:10] (which is UTC-only).
     existing_filenames = set()
     existing_fingerprints = set()
     rows = conn.execute("SELECT filename, start_time, distance_m FROM rides").fetchall()
@@ -590,6 +592,8 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                                 )
 
                         # Insert all power bests
+                        # TODO Phase 3: derive pb_date from start_time with timezone
+                        # instead of UTC string-slice after column type migration
                         if metrics["power_bests"]:
                             pb_date = ride_date_str
                             conn.executemany(
@@ -934,7 +938,7 @@ async def run_sync(sync_id: str | None = None) -> str:
                 await _broadcast(sync_id, {"phase": "pmc", "detail": msg})
                 try:
                     from server.ingest import compute_daily_pmc
-                    compute_daily_pmc(conn, since_date=earliest)
+                    compute_daily_pmc(conn, since_date=earliest, tz_name="UTC")
                     conn.commit()
                     log_lines.append(_tlog("PMC recomputed successfully"))
                 except Exception as e:
