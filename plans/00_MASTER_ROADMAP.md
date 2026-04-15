@@ -32,6 +32,10 @@ This document serves as the top-level view of all active, planned, and completed
   - *Status:* Implemented alongside Campaign 11 (feat/withings-weight-integration)
   - *Goal:* Subscribe to Withings push notifications so new weight measurements sync automatically without polling. Withings calls our webhook when new data arrives; we fetch only the notified window and recompute PMC.
 
+- [ ] **Campaign 13: Database Infrastructure & Reliability** (`plans/fix_db_shared_cursor.md`)
+  - *Status:* Planned
+  - *Goal:* Refactor `_DbConnection` to use independent cursors, eliminating the shared cursor anti-pattern and enabling nested query execution.
+
 ---
 
 ### Campaign: Macro Tracker v1.9.x — Core Meal Logging
