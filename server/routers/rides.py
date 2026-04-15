@@ -287,6 +287,6 @@ def delete_ride(ride_id: int, user: CurrentUser = Depends(require_write), tz: Zo
         conn.execute("DELETE FROM rides WHERE id = ?", (ride_id,))
 
         # 4. Recalculate PMC
-        compute_daily_pmc(conn, since_date=ride_date, tz_name=str(tz))
+        compute_daily_pmc(conn, since_date=ride_date)
 
     return {"status": "ok"}
