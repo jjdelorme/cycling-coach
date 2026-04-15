@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.11.1-beta] - 2026-04-15
+
+### Fixes
+- **fix(timezone): 2 runtime crashes** — `server/services/weight.py` and `server/routers/nutrition.py` still referenced the dropped `rides.date` column; rewritten to use `AT TIME ZONE` pattern
+- **fix(pmc): always compute PMC in UTC** — eliminates flip-flopping between UTC (background sync) and local timezone (user actions) when recomputing daily_metrics; PMC is a mathematical model where calendar day boundaries don't affect 42-day exponential averages
+- **fix(frontend): 18 UTC date bugs** — replaced all `toISOString().slice(0,10)` calls across 6 nutrition components (`Nutrition.tsx`, `MealTimeline.tsx`, `NutritionDashboardWidget.tsx`, `MealPlanCalendar.tsx`, `MealPlanDayDetail.tsx`, `MacroCard.tsx`) with `localDateStr()` from the new format utilities
+- **fix(migration): make 0006_timezone_schema.sql idempotent** — safe to re-run on databases where partial migration occurred
+
+### Features
+- **Frontend date formatting utilities** — 7 new functions in `format.ts`: `fmtDateShort`, `fmtDateLong`, `fmtDateTime`, `fmtTimestamp`, `fmtDateStr`, `fmtDateStrLong`, `localDateStr`; handles both UTC timestamps and date-only strings correctly
+- **Call site updates** — `Rides.tsx`, `Calendar.tsx`, `Dashboard.tsx`, `UserManagement.tsx` now use shared format utilities instead of inline date formatting
+
+### Database
+- Migration `0007_ride_records_timestamp.sql`: promotes `ride_records.timestamp_utc` from TEXT to TIMESTAMPTZ (idempotent, guarded by column type check)
+
+### Chores
+- `.gitignore` updated: e2e test artifacts (`test-results/`, `playwright-report/`) no longer tracked
+
 ## [v1.11.0-beta] - 2026-04-14
 
 ### Features
