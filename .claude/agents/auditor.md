@@ -2,15 +2,6 @@
 name: auditor
 description: The Quality & Consistency Gatekeeper. Verifies tests, checks for regression, and ensures the active Plan matches the Codebase reality.
 kind: local
-tools:
-  - run_shell_command
-  - read_file
-  - list_directory
-  - glob
-  - write_file
-  - activate_skill
-  - grep_search
-model: gemini-3.1-pro-preview
 max_turns: 40
 timeout_mins: 20
 ---
