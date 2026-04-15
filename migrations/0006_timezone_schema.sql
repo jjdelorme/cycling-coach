@@ -16,29 +16,31 @@
 --   - All queries use AT TIME ZONE pattern instead of rides.date
 
 -- ---------------------------------------------------------------------------
--- Step 1: Fix non-UTC start_time values from legacy intervals.icu syncs
+-- Step 1: Fix non-UTC start_time values and promote to TIMESTAMPTZ
 -- ---------------------------------------------------------------------------
--- Legacy syncs stored start_date_local (local time, no timezone suffix).
--- FIT-ingested rides store UTC but also without a suffix (e.g., "2026-04-09T03:30:00").
--- Append '+00:00' to timestamps missing timezone info so the TIMESTAMPTZ cast
--- treats them as UTC (best-effort approximation for historical data).
---
--- We use a regex to precisely identify timestamps that already carry a
--- timezone offset (ending in +NN:NN or -NN:NN or Z), and skip those.
-UPDATE rides
-SET start_time = start_time || '+00:00'
-WHERE start_time IS NOT NULL
-  AND start_time NOT LIKE '%Z'
-  AND start_time NOT LIKE '%+%'
-  AND LENGTH(start_time) > 10
-  AND start_time !~ '[+-]\d{2}:\d{2}$';
+-- If start_time is still TEXT, fix timestamps missing timezone info, then cast.
+-- If start_time is already TIMESTAMPTZ (e.g., from prior partial migration),
+-- skip this step entirely.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'rides' AND column_name = 'start_time'
+      AND data_type = 'text'
+  ) THEN
+    -- Append '+00:00' to timestamps missing timezone info (best-effort UTC)
+    UPDATE rides
+    SET start_time = start_time || '+00:00'
+    WHERE start_time IS NOT NULL
+      AND start_time NOT LIKE '%Z'
+      AND start_time NOT LIKE '%+%'
+      AND LENGTH(start_time) > 10
+      AND start_time !~ '[+-]\d{2}:\d{2}$';
 
--- ---------------------------------------------------------------------------
--- Step 2: Promote start_time TEXT -> TIMESTAMPTZ
--- ---------------------------------------------------------------------------
--- After Step 1, every start_time value is a valid ISO8601 string with
--- timezone info. The cast is now safe.
-ALTER TABLE rides ALTER COLUMN start_time TYPE TIMESTAMPTZ USING start_time::TIMESTAMPTZ;
+    -- Now safe to cast
+    ALTER TABLE rides ALTER COLUMN start_time TYPE TIMESTAMPTZ USING start_time::TIMESTAMPTZ;
+  END IF;
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- Step 3: Drop the now-unused rides.date column
@@ -52,17 +54,30 @@ ALTER TABLE rides DROP COLUMN IF EXISTS date;
 -- ---------------------------------------------------------------------------
 -- These columns store YYYY-MM-DD strings and benefit from proper DATE type
 -- for comparison operators, indexing, and type safety.
-ALTER TABLE daily_metrics ALTER COLUMN date TYPE DATE USING date::DATE;
-ALTER TABLE planned_workouts ALTER COLUMN date TYPE DATE USING date::DATE;
-ALTER TABLE periodization_phases ALTER COLUMN start_date TYPE DATE USING start_date::DATE;
-ALTER TABLE periodization_phases ALTER COLUMN end_date TYPE DATE USING end_date::DATE;
-ALTER TABLE power_bests ALTER COLUMN date TYPE DATE USING date::DATE;
-ALTER TABLE athlete_settings ALTER COLUMN date_set TYPE DATE USING date_set::DATE;
-
--- Promote meal-related TEXT date columns to DATE as well.
--- These store YYYY-MM-DD calendar dates for meal plans and logs.
-ALTER TABLE planned_meals ALTER COLUMN date TYPE DATE USING date::DATE;
-ALTER TABLE meal_logs ALTER COLUMN date TYPE DATE USING date::DATE;
+-- Wrapped in DO block to skip columns that are already DATE type.
+DO $$
+DECLARE
+  _tbl TEXT; _col TEXT;
+BEGIN
+  FOR _tbl, _col IN VALUES
+    ('daily_metrics', 'date'),
+    ('planned_workouts', 'date'),
+    ('periodization_phases', 'start_date'),
+    ('periodization_phases', 'end_date'),
+    ('power_bests', 'date'),
+    ('athlete_settings', 'date_set'),
+    ('planned_meals', 'date'),
+    ('meal_logs', 'date')
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = _tbl AND column_name = _col
+        AND data_type = 'text'
+    ) THEN
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE DATE USING %I::DATE', _tbl, _col, _col);
+    END IF;
+  END LOOP;
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- Step 5: Update indexes
