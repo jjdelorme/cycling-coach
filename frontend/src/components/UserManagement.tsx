@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { fetchUsers, createUser, updateUserRole, deleteUser, type UserRecord } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Users, UserPlus, Trash2, Shield, Mail, Calendar, RefreshCw } from 'lucide-react'
+import { fmtDateShort } from '../lib/format'
 
 const ROLE_OPTIONS = [
   { value: 'none', label: 'None' },
@@ -149,7 +150,7 @@ export default function UserManagement() {
                     <td className="py-4 px-5">
                       <div className="flex items-center gap-1.5 text-[10px] font-bold text-text-muted uppercase tracking-tighter">
                         <Calendar size={12} />
-                        {u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never Active'}
+                        {u.last_login ? fmtDateShort(u.last_login) : 'Never Active'}
                       </div>
                     </td>
                     <td className="py-4 px-5 text-right">

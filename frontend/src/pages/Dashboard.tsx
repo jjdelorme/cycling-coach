@@ -15,7 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { usePMC, useRides, useWeeklySummary, useDailySummary } from '../hooks/useApi'
 import type { DailySummary } from '../types/api'
 import { fetchWeekPlan } from '../lib/api'
-import { fmtDuration, fmtDistance, fmtWeight, fmtSport } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtWeight, fmtSport, fmtDateStr, localDateStr } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useChartColors } from '../lib/theme'
 import {
@@ -227,7 +227,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
     const now = new Date()
     const dow = now.getDay()
     const thisMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (dow === 0 ? 6 : dow - 1))
-    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const fmt = localDateStr
     const mondays: string[] = []
     for (let i = 0; i < 4; i++) {
       const m = new Date(thisMon)
@@ -250,8 +250,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
   )
 
   // Find next upcoming workout (today if no ride yet, otherwise tomorrow+)
-  const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const today = localDateStr()
   const rodeTodayAlready = rides?.some((r) => r.date === today) ?? false
 
   const nextWorkout = useMemo(() => {
@@ -354,7 +353,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xl font-bold text-text group-hover:text-accent transition-colors">{nextWorkout.name}</h3>
                   <span className="text-xs font-medium px-2.5 py-1 bg-accent/10 text-accent rounded-full capitalize">
-                    {nextWorkout.date === today ? 'Today' : new Date(nextWorkout.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {nextWorkout.date === today ? 'Today' : fmtDateStr(nextWorkout.date)}
                   </span>
                 </div>
                 <div className="flex gap-4 mb-4">

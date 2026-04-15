@@ -11,7 +11,7 @@ import {
   useSendChat, 
   useActivityDates 
 } from '../hooks/useApi'
-import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, fmtSport } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, fmtSport, fmtTimestamp, fmtDateStr } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useQueryClient } from '@tanstack/react-query'
 import { 
@@ -248,7 +248,7 @@ const syncSingleRide = useSyncSingleRide()
       const ts = raw.includes('Z') || raw.includes('+') || raw.includes('T') && raw.match(/[+-]\d{2}:?\d{2}$/)
         ? raw
         : raw + 'Z'
-      return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      return fmtTimestamp(ts)
     })()
 
     const displayTitle = ride?.title || fmtSport(ride?.sport)
@@ -275,7 +275,7 @@ const syncSingleRide = useSyncSingleRide()
             </button>
             <div className="px-4 text-center min-w-[140px]">
               <span className="block text-[10px] font-bold text-accent uppercase tracking-tighter">
-                {currentDate && new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                {currentDate && fmtDateStr(currentDate)}
               </span>
               <span className="text-xs font-mono font-bold text-text">{currentDate ?? ''}</span>
             </div>

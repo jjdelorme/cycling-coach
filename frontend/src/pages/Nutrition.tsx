@@ -7,13 +7,14 @@ import MealTimeline from '../components/MealTimeline'
 import MealCapture from '../components/MealCapture'
 import MealPlanCalendar from '../components/MealPlanCalendar'
 import { Loader2 } from 'lucide-react'
+import { localDateStr } from '../lib/format'
 
 interface Props {
   onOpenNutritionist?: (context?: string, sessionId?: string) => void
 }
 
 export default function Nutrition({ onOpenNutritionist }: Props) {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(() => localDateStr())
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'plan'>('day')
 
   const { data: dailyData, isLoading: dailyLoading } = useDailyNutrition(date)
@@ -167,7 +168,7 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
       <MealCapture
         onMealSaved={() => {
           // Navigate to today's day view so the new meal is visible
-          const today = new Date().toISOString().slice(0, 10)
+          const today = localDateStr()
           if (date !== today) setDate(today)
           if (viewMode !== 'day') setViewMode('day')
         }}

@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { ChevronLeft, ChevronRight, UtensilsCrossed } from 'lucide-react'
 import MacroCard from './MacroCard'
 import type { MealSummary } from '../types/api'
+import { localDateStr } from '../lib/format'
 
 interface Props {
   meals: MealSummary[]
@@ -12,7 +13,7 @@ interface Props {
 
 export default function MealTimeline({ meals, date, onDateChange, onAskNutritionist }: Props) {
   const d = new Date(date + 'T12:00:00') // noon to avoid timezone shift
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const isToday = date === today
   const timelineTouchRef = useRef<{ x: number } | null>(null)
 
@@ -20,14 +21,14 @@ export default function MealTimeline({ meals, date, onDateChange, onAskNutrition
     if (isToday) return 'Today'
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
-    if (date === yesterday.toISOString().slice(0, 10)) return 'Yesterday'
+    if (date === localDateStr(yesterday)) return 'Yesterday'
     return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
   }
 
   const shiftDate = (delta: number) => {
     const next = new Date(d)
     next.setDate(next.getDate() + delta)
-    onDateChange(next.toISOString().slice(0, 10))
+    onDateChange(localDateStr(next))
   }
 
   const handleTimelineTouchStart = (e: React.TouchEvent) => {

@@ -32,11 +32,15 @@ def get_weight_for_date(conn, date: str) -> float:
     if row and row["weight_kg"]:
         return float(row["weight_kg"])
 
-    # 2. Ride-recorded weight — most recent ride on or before date
+    # 2. Ride-recorded weight -- most recent ride on or before date
+    from server.utils.dates import get_request_tz
+    tz_name = str(get_request_tz())
     row = conn.execute(
-        "SELECT weight FROM rides WHERE date <= %s AND weight IS NOT NULL AND weight > 0 "
-        "ORDER BY date DESC LIMIT 1",
-        (date,),
+        "SELECT weight FROM rides "
+        "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE <= %s::DATE "
+        "AND weight IS NOT NULL AND weight > 0 "
+        "ORDER BY start_time DESC LIMIT 1",
+        (tz_name, date),
     ).fetchone()
     if row and row["weight"]:
         return float(row["weight"])

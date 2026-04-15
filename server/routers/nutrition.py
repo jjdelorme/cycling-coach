@@ -2,10 +2,12 @@
 
 import uuid
 import base64
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException
 from fastapi.responses import Response
 
 from server.auth import CurrentUser, require_read, require_write
+from server.dependencies import get_client_tz
 from server.models.schemas import (
     MealSummary, MealDetail, MealItem, MacroTargets,
     DailyNutritionSummary, MealUpdateRequest,
@@ -382,19 +384,25 @@ async def analyze_meal_endpoint(meal_id: int, user: CurrentUser = Depends(requir
 # ---------------------------------------------------------------------------
 
 @router.get("/daily-summary")
-async def daily_summary(date: str = "", user: CurrentUser = Depends(require_read)):
+async def daily_summary(
+    date: str = "",
+    user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
+):
     """Get aggregated macros and caloric balance for a date."""
     from server.utils.dates import user_today
     if not date:
-        date = user_today()
+        date = user_today(tz)
 
     with get_db() as conn:
         totals = get_daily_meal_totals(conn, date)
         targets = get_macro_targets(conn)
 
+        tz_name = str(tz)
         ride_row = conn.execute(
-            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides WHERE date = %s",
-            (date,),
+            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE = %s::DATE",
+            (tz_name, date),
         ).fetchone()
         ride_cal = int(ride_row["total"]) if ride_row else 0
 

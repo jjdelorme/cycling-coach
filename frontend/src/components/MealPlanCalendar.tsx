@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { useMealPlan } from '../hooks/useApi'
 import MealPlanDayDetail from './MealPlanDayDetail'
+import { localDateStr } from '../lib/format'
 
 const MEAL_SLOTS = [
   { key: 'breakfast', label: 'Breakfast' },
@@ -18,7 +19,7 @@ function getMonday(dateStr: string): string {
   const day = d.getDay()
   const diff = day === 0 ? -6 : 1 - day
   d.setDate(d.getDate() + diff)
-  return d.toISOString().slice(0, 10)
+  return localDateStr(d)
 }
 
 interface Props {
@@ -26,7 +27,7 @@ interface Props {
 }
 
 export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
-  const [weekStart, setWeekStart] = useState(() => getMonday(new Date().toISOString().slice(0, 10)))
+  const [weekStart, setWeekStart] = useState(() => getMonday(localDateStr()))
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const touchRef = useRef<{ x: number } | null>(null)
 
@@ -40,16 +41,16 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
   const shiftWeek = (delta: number) => {
     const d = new Date(weekStart + 'T12:00:00')
     d.setDate(d.getDate() + delta * 7)
-    setWeekStart(d.toISOString().slice(0, 10))
+    setWeekStart(localDateStr(d))
     setSelectedDate(null)
   }
 
   const goToThisWeek = () => {
-    setWeekStart(getMonday(new Date().toISOString().slice(0, 10)))
+    setWeekStart(getMonday(localDateStr()))
     setSelectedDate(null)
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const thisWeekMonday = getMonday(today)
   const isCurrentWeek = weekStart === thisWeekMonday
 
@@ -91,8 +92,8 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
         // Navigate to the last day of the previous week
         const d = new Date(weekStart + 'T12:00:00')
         d.setDate(d.getDate() - 1)
-        setWeekStart(getMonday(d.toISOString().slice(0, 10)))
-        setSelectedDate(d.toISOString().slice(0, 10))
+        setWeekStart(getMonday(localDateStr(d)))
+        setSelectedDate(localDateStr(d))
       }
     }
 
@@ -103,8 +104,8 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
         // Navigate to the first day of the next week
         const d = new Date(weekStart + 'T12:00:00')
         d.setDate(d.getDate() + 7)
-        setWeekStart(d.toISOString().slice(0, 10))
-        setSelectedDate(d.toISOString().slice(0, 10))
+        setWeekStart(localDateStr(d))
+        setSelectedDate(localDateStr(d))
       }
     }
 

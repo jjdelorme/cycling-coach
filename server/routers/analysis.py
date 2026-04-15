@@ -61,11 +61,10 @@ def zone_distribution(
     """Power zone distribution from ride records.
 
     PERFORMANCE NOTE: This query does a full scan of ride_records joined to rides.
-    Adding a composite index on ride_records(ride_id, power) and an index on
-    rides(date) would significantly speed up filtered queries.
+    Adding a composite index on ride_records(ride_id, power) would speed up
+    filtered queries. An index on rides(start_time) already exists (idx_rides_start_time).
     Example migration:
       CREATE INDEX IF NOT EXISTS idx_ride_records_ride_id_power ON ride_records(ride_id, power);
-      CREATE INDEX IF NOT EXISTS idx_rides_date ON rides(date);
     """
     tz_name = str(tz)
     query = """
