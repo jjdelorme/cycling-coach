@@ -41,4 +41,8 @@ Thumbs.db
 # Playwright MCP artifacts
 .playwright-mcp/
 
+# Playwright E2E test artifacts
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+
 .scion/
