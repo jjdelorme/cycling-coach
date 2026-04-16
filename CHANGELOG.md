@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.11.2-beta] - 2026-04-16
+
+### Fixes
+- **fix(timezone): backfill NULL `start_time` from legacy `date` column** — migration 0006 now populates `start_time` at noon UTC for the ~310 ride rows from legacy intervals.icu syncs that wrote `date` but not `start_time`. After 0006 cast `start_time` to TIMESTAMPTZ and dropped `date`, queries that derive local date via `(start_time AT TIME ZONE :tz)::DATE` returned NULL, breaking the non-optional `RideSummary.date` field and emptying the rides list / 7-day strip on environments restored from prod (Calendar still worked because its date-range WHERE predicate implicitly filtered NULL rows). Migration also enforces `NOT NULL` on `start_time` so future ingestion can't reintroduce the failure mode.
+- **fix(rides): defense-in-depth `WHERE start_time IS NOT NULL`** added to the four list/summary query sites in `server/routers/rides.py`.
+
+### Deployment
+- **fix(cloudbuild-test): attach Cloud SQL instance from secret** — beta deploy step was missing `--set-cloudsql-instances`, so test revisions stayed bound to prod regardless of the test secret. Now parses `host=/cloudsql/PROJECT:REGION:INSTANCE` from `CYCLING_COACH_DATABASE_URL_TEST` in the migrate step, persists to `/workspace/CLOUD_SQL_INSTANCE`, and passes it to `gcloud run deploy`. Removed hardcoded `_CLOUD_SQL_INSTANCE` substitution.
+
 ## [v1.11.1-beta] - 2026-04-15
 
 ### Fixes
