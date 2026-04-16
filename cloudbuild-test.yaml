@@ -38,22 +38,33 @@ steps:
       - '/workspace/cloud-sql-proxy'
       - 'https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64'
 
-  # Run database migrations via Cloud SQL Proxy
+  # Run database migrations via Cloud SQL Proxy.
+  # The Cloud SQL instance (project:region:instance) is parsed out of the
+  # connection-string secret's host=/cloudsql/... param so there is no
+  # hardcoded region in this file.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'migrate'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
+        CLOUD_SQL_INSTANCE=$$(echo "$$CYCLING_COACH_DATABASE_URL" | sed -nE 's|.*[?&]host=/cloudsql/([^&]+).*|\1|p')
+        if [ -z "$$CLOUD_SQL_INSTANCE" ]; then
+          echo "ERROR: could not parse Cloud SQL instance from CYCLING_COACH_DATABASE_URL"
+          exit 1
+        fi
+        echo "Cloud SQL instance: $$CLOUD_SQL_INSTANCE"
+        echo "$$CLOUD_SQL_INSTANCE" > /workspace/CLOUD_SQL_INSTANCE
+
         chmod +x /workspace/cloud-sql-proxy
         mkdir -p /workspace/cloudsql
-        /workspace/cloud-sql-proxy ${_CLOUD_SQL_INSTANCE} \
+        /workspace/cloud-sql-proxy "$$CLOUD_SQL_INSTANCE" \
           --unix-socket /workspace/cloudsql &
         PROXY_PID=$$!
 
         # Wait for proxy socket
         for i in $$(seq 1 30); do
-          if [ -S "/workspace/cloudsql/${_CLOUD_SQL_INSTANCE}/.s.PGSQL.5432" ]; then
+          if [ -S "/workspace/cloudsql/$$CLOUD_SQL_INSTANCE/.s.PGSQL.5432" ]; then
             echo "Cloud SQL Proxy ready"
             break
           fi
@@ -87,6 +98,7 @@ steps:
           --format 'value(status.url)' 2>/dev/null || echo '')
 
         REVISION_SUFFIX="v$$(cat /workspace/VERSION | tr '.' '-')"
+        CLOUD_SQL_INSTANCE=$$(cat /workspace/CLOUD_SQL_INSTANCE)
 
         gcloud run deploy ${_SERVICE_NAME} \
           --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION) \
@@ -95,7 +107,8 @@ steps:
           --tag test \
           --no-traffic \
           --allow-unauthenticated \
-          --set-secrets "CYCLING_COACH_DATABASE_URL=CYCLING_COACH_DATABASE_URL:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,JWT_SECRET=JWT_SECRET:latest,WITHINGS_CLIENT_ID=WITHINGS_CLIENT_ID:latest,WITHINGS_CLIENT_SECRET=WITHINGS_CLIENT_SECRET:latest" \
+          --set-cloudsql-instances "$${CLOUD_SQL_INSTANCE}" \
+          --set-secrets "CYCLING_COACH_DATABASE_URL=CYCLING_COACH_DATABASE_URL_TEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,JWT_SECRET=JWT_SECRET:latest,WITHINGS_CLIENT_ID=WITHINGS_CLIENT_ID:latest,WITHINGS_CLIENT_SECRET=WITHINGS_CLIENT_SECRET:latest" \
           --set-env-vars "GOOGLE_AUTH_ENABLED=true,CORS_ALLOWED_ORIGIN=$${SERVICE_URL}"
 
         TEST_URL=$$(gcloud run services describe ${_SERVICE_NAME} \
@@ -114,13 +127,12 @@ substitutions:
   _SERVICE_NAME: cycling-coach
   _REGION: us-central1
   _REPO: cloud-run-source-deploy
-  _CLOUD_SQL_INSTANCE: jasondel-cloudrun10:us-central1:cycling-coach-db
 
 availableSecrets:
   secretManager:
     - versionName: projects/${PROJECT_ID}/secrets/GOOGLE_CLIENT_ID/versions/latest
       env: GOOGLE_CLIENT_ID
-    - versionName: projects/${PROJECT_ID}/secrets/CYCLING_COACH_DATABASE_URL/versions/latest
+    - versionName: projects/${PROJECT_ID}/secrets/CYCLING_COACH_DATABASE_URL_TEST/versions/latest
       env: CYCLING_COACH_DATABASE_URL
 
 serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/cycling-coach-deployer@${PROJECT_ID}.iam.gserviceaccount.com'

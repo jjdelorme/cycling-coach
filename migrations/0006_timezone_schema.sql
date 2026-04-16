@@ -18,7 +18,8 @@
 -- ---------------------------------------------------------------------------
 -- Step 1: Fix non-UTC start_time values and promote to TIMESTAMPTZ
 -- ---------------------------------------------------------------------------
--- If start_time is still TEXT, fix timestamps missing timezone info, then cast.
+-- If start_time is still TEXT, backfill NULLs from the legacy date column,
+-- fix timestamps missing timezone info, then cast.
 -- If start_time is already TIMESTAMPTZ (e.g., from prior partial migration),
 -- skip this step entirely.
 DO $$
@@ -28,6 +29,21 @@ BEGIN
     WHERE table_name = 'rides' AND column_name = 'start_time'
       AND data_type = 'text'
   ) THEN
+    -- Backfill NULL start_time from the legacy date column at noon UTC.
+    -- Legacy intervals.icu syncs wrote `date` (and start_date_local) but
+    -- not start_time. Without this, downstream queries that derive date
+    -- via (start_time AT TIME ZONE :tz)::DATE return NULL and break the
+    -- API response shape (RideSummary.date is non-optional).
+    -- Noon UTC is chosen so the local date is stable across most timezones.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'rides' AND column_name = 'date'
+    ) THEN
+      UPDATE rides
+      SET start_time = date || 'T12:00:00+00:00'
+      WHERE start_time IS NULL AND date IS NOT NULL;
+    END IF;
+
     -- Append '+00:00' to timestamps missing timezone info (best-effort UTC)
     UPDATE rides
     SET start_time = start_time || '+00:00'
@@ -41,6 +57,14 @@ BEGIN
     ALTER TABLE rides ALTER COLUMN start_time TYPE TIMESTAMPTZ USING start_time::TIMESTAMPTZ;
   END IF;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Step 2: Enforce NOT NULL on start_time
+-- ---------------------------------------------------------------------------
+-- After the backfill above, every ride should have a start_time. Enforce it
+-- so future ingestion paths can't reintroduce NULL rows that break the
+-- timezone-aware query pattern.
+ALTER TABLE rides ALTER COLUMN start_time SET NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- Step 3: Drop the now-unused rides.date column

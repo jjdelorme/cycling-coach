@@ -34,7 +34,7 @@ def list_rides(
     tz_name = str(tz)
     query = (
         "SELECT *, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date"
-        " FROM rides WHERE 1=1"
+        " FROM rides WHERE start_time IS NOT NULL"
     )
     params: list = [tz_name]
     if start_date:
@@ -104,7 +104,8 @@ def daily_summary(
         rows = conn.execute(
             "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,"
             " duration_s, tss, total_calories, distance_m, total_ascent, avg_power"
-            " FROM rides WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+            " FROM rides WHERE start_time IS NOT NULL"
+            " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
             " ORDER BY start_time",
             (tz_name, tz_name, since),
         ).fetchall()
@@ -123,7 +124,7 @@ def weekly_summary(
     query = (
         "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,"
         " duration_s, tss, distance_m, total_ascent, avg_power, avg_hr, best_20min_power"
-        " FROM rides WHERE 1=1"
+        " FROM rides WHERE start_time IS NOT NULL"
     )
     params: list = [tz_name]
     if start_date:
@@ -193,7 +194,7 @@ def monthly_summary(
             ROUND(CAST(AVG(CASE WHEN avg_hr > 0 THEN avg_hr END) AS NUMERIC), 0) as avg_hr,
             MAX(best_20min_power) as best_20min
         FROM rides
-        WHERE 1=1
+        WHERE start_time IS NOT NULL
     """
     params: list = [tz_name]
     if start_date:
