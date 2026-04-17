@@ -2,46 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.11.2-beta] - 2026-04-16
-
-### Fixes
-- **fix(timezone): backfill NULL `start_time` from legacy `date` column** — migration 0006 now populates `start_time` at noon UTC for the ~310 ride rows from legacy intervals.icu syncs that wrote `date` but not `start_time`. After 0006 cast `start_time` to TIMESTAMPTZ and dropped `date`, queries that derive local date via `(start_time AT TIME ZONE :tz)::DATE` returned NULL, breaking the non-optional `RideSummary.date` field and emptying the rides list / 7-day strip on environments restored from prod (Calendar still worked because its date-range WHERE predicate implicitly filtered NULL rows). Migration also enforces `NOT NULL` on `start_time` so future ingestion can't reintroduce the failure mode.
-- **fix(rides): defense-in-depth `WHERE start_time IS NOT NULL`** added to the four list/summary query sites in `server/routers/rides.py`.
-
-### Deployment
-- **fix(cloudbuild-test): attach Cloud SQL instance from secret** — beta deploy step was missing `--set-cloudsql-instances`, so test revisions stayed bound to prod regardless of the test secret. Now parses `host=/cloudsql/PROJECT:REGION:INSTANCE` from `CYCLING_COACH_DATABASE_URL_TEST` in the migrate step, persists to `/workspace/CLOUD_SQL_INSTANCE`, and passes it to `gcloud run deploy`. Removed hardcoded `_CLOUD_SQL_INSTANCE` substitution.
-
-## [v1.11.1-beta] - 2026-04-15
-
-### Fixes
-- **fix(timezone): 2 runtime crashes** — `server/services/weight.py` and `server/routers/nutrition.py` still referenced the dropped `rides.date` column; rewritten to use `AT TIME ZONE` pattern
-- **fix(pmc): always compute PMC in UTC** — eliminates flip-flopping between UTC (background sync) and local timezone (user actions) when recomputing daily_metrics; PMC is a mathematical model where calendar day boundaries don't affect 42-day exponential averages
-- **fix(frontend): 18 UTC date bugs** — replaced all `toISOString().slice(0,10)` calls across 6 nutrition components (`Nutrition.tsx`, `MealTimeline.tsx`, `NutritionDashboardWidget.tsx`, `MealPlanCalendar.tsx`, `MealPlanDayDetail.tsx`, `MacroCard.tsx`) with `localDateStr()` from the new format utilities
-- **fix(migration): make 0006_timezone_schema.sql idempotent** — safe to re-run on databases where partial migration occurred
+## [v1.12.0] - 2026-04-17
 
 ### Features
-- **Frontend date formatting utilities** — 7 new functions in `format.ts`: `fmtDateShort`, `fmtDateLong`, `fmtDateTime`, `fmtTimestamp`, `fmtDateStr`, `fmtDateStrLong`, `localDateStr`; handles both UTC timestamps and date-only strings correctly
-- **Call site updates** — `Rides.tsx`, `Calendar.tsx`, `Dashboard.tsx`, `UserManagement.tsx` now use shared format utilities instead of inline date formatting
+- **Full timezone awareness across the app:** all date computations now respect the user's local timezone via `X-Client-Timezone` header and `ContextVar`-based request context; users in non-UTC timezones see correct local dates for meals, rides, coaching, and training summaries
+- **Router timezone dependency:** every ride-querying API endpoint now accepts the client timezone via `get_client_tz` FastAPI dependency
+- **Frontend date formatting utilities:** 7 new functions in `format.ts` (`fmtDateShort`, `fmtDateLong`, `fmtDateTime`, `fmtTimestamp`, `fmtDateStr`, `fmtDateStrLong`, `localDateStr`); handle both UTC timestamps and date-only strings correctly. `Rides.tsx`, `Calendar.tsx`, `Dashboard.tsx`, `UserManagement.tsx` now use shared format utilities instead of inline date formatting
+
+### Fixes
+- **fix(timezone): ride queries rewritten** — all `rides.date` WHERE/ORDER references replaced with `(start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE` derivation; local dates computed at query time, not storage time
+- **fix(timezone): 18 frontend UTC date bugs** across 6 nutrition components (`Nutrition.tsx`, `MealTimeline.tsx`, `NutritionDashboardWidget.tsx`, `MealPlanCalendar.tsx`, `MealPlanDayDetail.tsx`, `MacroCard.tsx`) — replaced `toISOString().slice(0,10)` with `localDateStr()`
+- **fix(timezone): naive datetime.now() purge** — replaced with timezone-aware `get_request_tz()` / `user_today()` across nutrition, settings, withings, and weight services
+- **fix(timezone): backfill NULL `start_time`** — migration 0006 populates `start_time` at noon UTC for ~310 ride rows from legacy intervals.icu syncs that wrote `date` but not `start_time`; restores rides list / 7-day strip on environments restored from prod. Migration also enforces `NOT NULL` on `start_time`
+- **fix(timezone): runtime crashes** — `server/services/weight.py` and `server/routers/nutrition.py` still referenced the dropped `rides.date` column; rewritten to use `AT TIME ZONE` pattern
+- **fix(rides): defense-in-depth `WHERE start_time IS NOT NULL`** added to the four list/summary query sites in `server/routers/rides.py`
+- **fix(pmc): always compute PMC in UTC** — eliminates flip-flopping between UTC (background sync) and local timezone (user actions); PMC is a mathematical model where calendar day boundaries don't affect 42-day exponential averages
+- **fix(database): `_adapt_sql` regex** no longer mangles Postgres `::TYPE` cast syntax (e.g. `::TIMESTAMPTZ`); added negative lookbehind to skip double-colon casts
 
 ### Database
-- Migration `0007_ride_records_timestamp.sql`: promotes `ride_records.timestamp_utc` from TEXT to TIMESTAMPTZ (idempotent, guarded by column type check)
+- Migration `0006_timezone_schema.sql`: cast `start_time` to TIMESTAMPTZ, drop legacy `date` column, enforce `NOT NULL` on `start_time` (idempotent, safe to re-run)
+- Migration `0007_ride_records_timestamp.sql`: promote `ride_records.timestamp_utc` from TEXT to TIMESTAMPTZ (idempotent, guarded by column type check)
 
-### Chores
-- `.gitignore` updated: e2e test artifacts (`test-results/`, `playwright-report/`) no longer tracked
-
-## [v1.11.0-beta] - 2026-04-14
-
-### Features
-- **Full timezone awareness (Phases 0-2):** all date computations now respect the user's local timezone via `X-Client-Timezone` header and `ContextVar`-based request context; users in non-UTC timezones see correct local dates for meals, rides, coaching, and training summaries
-- **Ride queries rewritten:** all `rides.date` WHERE/ORDER references replaced with `(start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE` derivation — local dates computed at query time, not storage time
-- **Router timezone dependency:** every ride-querying API endpoint now accepts the client timezone via `get_client_tz` FastAPI dependency
-
-### Fixes
-- fix(nutrition): replace all naive `datetime.now()` calls with timezone-aware equivalents using `get_request_tz()` / `user_today()`
-- fix(database): `_adapt_sql` regex no longer mangles Postgres `::TYPE` cast syntax (e.g. `::TIMESTAMPTZ`); added negative lookbehind to skip double-colon casts
-- fix(database): `set_athlete_setting()` date_set default now uses `user_today()` instead of naive `datetime.now()`
-- fix(services): `withings.py` and `weight.py` date computations now use UTC-aware or request-scoped timezone
-- fix(pipeline): `compute_daily_pmc()` and sync callers pass explicit `tz_name="UTC"` for background jobs
+### Deployment
+- **cloudbuild.yaml:** run DB migrations via Cloud SQL Proxy before prod deploy
+- **cloudbuild-test.yaml:** parse Cloud SQL instance from `CYCLING_COACH_DATABASE_URL_TEST` secret and pass via `--set-cloudsql-instances` for both migrate and deploy steps; test revisions previously stayed bound to prod regardless of the test secret. Removed hardcoded `_CLOUD_SQL_INSTANCE` substitution
 
 ### Tests
 - 5 unit tests for nutrition timezone-aware tool calls
@@ -50,6 +34,9 @@ All notable changes to this project will be documented in this file.
 - 2 unit tests for `set_athlete_setting` timezone behavior
 - 1 unit test for withings UTC-aware datetime
 - 6 integration tests for `AT TIME ZONE` query pattern against real Postgres
+
+### Chores
+- `.gitignore` updated: e2e test artifacts (`test-results/`, `playwright-report/`) no longer tracked
 
 ## [v1.10.0] - 2026-04-14
 
