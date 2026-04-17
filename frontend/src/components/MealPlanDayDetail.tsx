@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, UtensilsCrossed, MessageSquare } from 'lucid
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import MacroCard from './MacroCard'
+import { localDateStr } from '../lib/format'
 import type { MealPlanDay, PlannedMeal } from '../types/api'
 
 const MEAL_SLOTS = [
@@ -24,7 +25,7 @@ interface Props {
 
 export default function MealPlanDayDetail({ day, onBack, onPrev, onNext, onOpenNutritionist }: Props) {
   const d = new Date(day.date + 'T12:00:00')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const isToday = day.date === today
 
   const plannedSlots = MEAL_SLOTS.filter(s => day.planned[s.key])

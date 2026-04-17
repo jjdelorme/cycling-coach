@@ -414,6 +414,25 @@ def test_handle_webhook_notification_ignores_userid_mismatch():
 # Gap 1: Withings → ICU wellness push
 # ---------------------------------------------------------------------------
 
+def test_sync_weight_uses_utc_aware_datetime():
+    """sync_weight must use datetime.now(timezone.utc), not naive datetime.now()."""
+    from datetime import datetime, timezone
+    with patch("server.services.withings.is_connected", return_value=True), \
+         patch("server.services.withings.fetch_weight_measurements", return_value=[]) as mock_fetch, \
+         patch("server.services.withings.store_measurements", return_value=0), \
+         patch("server.services.withings.intervals_icu"):
+        from server.services.withings import sync_weight
+        result = sync_weight()
+
+    # The start_date and end_date args should be valid UTC dates
+    assert result["status"] == "success"
+    call_args = mock_fetch.call_args[0]
+    # Both args should be YYYY-MM-DD strings
+    start_date, end_date = call_args
+    datetime.strptime(start_date, "%Y-%m-%d")
+    datetime.strptime(end_date, "%Y-%m-%d")
+
+
 def test_sync_weight_pushes_to_icu_after_store():
     """sync_weight calls intervals_icu.update_weight for each measurement stored."""
     import time

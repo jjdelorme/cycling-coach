@@ -1,7 +1,8 @@
 """Pydantic models for API request/response schemas."""
 
+from datetime import date, datetime
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 
 
 class RideSummary(BaseModel):
@@ -37,11 +38,11 @@ class RideSummary(BaseModel):
     post_ride_comments: Optional[str] = None
     coach_comments: Optional[str] = None
     title: Optional[str] = None
-    start_time: Optional[str] = None
+    start_time: Optional[Union[str, datetime]] = None
 
 
 class RideRecord(BaseModel):
-    timestamp_utc: Optional[str] = None
+    timestamp_utc: Optional[Union[str, datetime]] = None
     power: Optional[int] = None
     heart_rate: Optional[int] = None
     cadence: Optional[int] = None
@@ -88,7 +89,7 @@ class RideDetail(RideSummary):
 
 
 class PMCEntry(BaseModel):
-    date: str
+    date: Union[str, date]
     total_tss: Optional[float] = None
     ctl: Optional[float] = None
     atl: Optional[float] = None
@@ -135,13 +136,13 @@ class PowerBestEntry(BaseModel):
     duration_s: int
     power: float
     avg_hr: Optional[float] = None
-    date: str
+    date: Union[str, date]
     ride_id: int
 
 
 class PlannedWorkout(BaseModel):
     id: int
-    date: Optional[str] = None
+    date: Optional[Union[str, date]] = None
     name: Optional[str] = None
     sport: Optional[str] = None
     total_duration_s: Optional[float] = None
@@ -154,8 +155,8 @@ class PlannedWorkout(BaseModel):
 class PeriodizationPhase(BaseModel):
     id: int
     name: str
-    start_date: str
-    end_date: str
+    start_date: Union[str, date]
+    end_date: Union[str, date]
     focus: Optional[str] = None
     hours_per_week_low: Optional[float] = None
     hours_per_week_high: Optional[float] = None

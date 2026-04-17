@@ -93,11 +93,13 @@ def _build_system_instruction(ctx) -> str:
     from datetime import datetime
     from server.database import get_all_settings, get_all_athlete_settings, get_db
     from server.queries import get_current_pmc_row
+    from server.utils.dates import get_request_tz
     from server.services.weight import get_current_weight
     settings = get_all_settings()
     benchmarks = get_all_athlete_settings()
 
-    today = datetime.now()
+    tz = get_request_tz()
+    today = datetime.now(tz)
     today_str = today.strftime("%A, %B %d, %Y")  # e.g. "Friday, March 28, 2026"
     today_iso = today.strftime("%Y-%m-%d")
 
@@ -151,11 +153,15 @@ def _build_system_instruction(ctx) -> str:
     # Add last 7 days of rides for immediate adaptive context
     from datetime import timedelta
     seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+    tz_name = get_request_tz().key
     with get_db() as conn:
         recent_rides = conn.execute(
-            """SELECT date, sub_sport, duration_s, tss, normalized_power
-               FROM rides WHERE date >= ? ORDER BY date DESC LIMIT 7""",
-            (seven_days_ago,),
+            """SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,
+                      sub_sport, duration_s, tss, normalized_power
+               FROM rides
+               WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE
+               ORDER BY start_time DESC LIMIT 7""",
+            (tz_name, tz_name, seven_days_ago),
         ).fetchall()
 
     if recent_rides:
@@ -287,7 +293,7 @@ def get_runner():
     return _runner, _session_service, _memory_service
 
 
-async def chat(message: str, user_id: str = "athlete", session_id: str = "default", user=None) -> str:
+async def chat(message: str, user_id: str = "athlete", session_id: str = "default", user=None, tz=None) -> str:
     """Send a message to the coaching agent and get a response."""
     import os
 
@@ -324,6 +330,10 @@ async def chat(message: str, user_id: str = "athlete", session_id: str = "defaul
         _current_user_role.role = user.role
     else:
         _current_user_role.role = "admin"
+
+    from server.utils.dates import set_request_tz
+    from zoneinfo import ZoneInfo
+    set_request_tz(tz if tz is not None else ZoneInfo("UTC"))
 
     runner, session_service, memory_service = get_runner()
 

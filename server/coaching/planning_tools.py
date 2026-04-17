@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from server.database import get_db, get_setting, set_setting, get_all_settings, get_athlete_setting, set_athlete_setting
+from server.utils.dates import get_request_tz, user_today
 from server.queries import get_current_ftp, get_periodization_phases, get_week_planned_and_actual
 from server.services.workout_generator import generate_zwo, generate_custom_zwo, get_template, list_templates as _list_templates, calculate_planned_tss
 from server.services.intervals_icu import push_workout, delete_event, compute_sync_hash, is_configured as icu_is_configured
@@ -78,7 +79,7 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
         if not phase:
             return {"status": "error", "message": f"Phase '{phase_name}' not found"}
 
-        old_end = phase["end_date"]
+        old_end = str(phase["end_date"])
         conn.execute(
             "UPDATE periodization_phases SET end_date = ? WHERE name = ?",
             (new_end_date, phase_name),
@@ -94,7 +95,7 @@ def adjust_phase(phase_name: str, new_end_date: str, reason: str) -> dict:
         cursor = datetime.fromisoformat(new_end_date) + timedelta(days=1)
 
         for s in subsequent:
-            original_duration = (datetime.fromisoformat(s["end_date"]) - datetime.fromisoformat(s["start_date"])).days
+            original_duration = (datetime.fromisoformat(str(s["end_date"])) - datetime.fromisoformat(str(s["start_date"]))).days
             new_start = cursor.strftime("%Y-%m-%d")
             new_end = (cursor + timedelta(days=original_duration)).strftime("%Y-%m-%d")
             conn.execute(
@@ -391,7 +392,7 @@ def get_week_summary(date: str = "") -> dict:
         Weekly overview with planned, actual rides, and compliance.
     """
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     dt = datetime.fromisoformat(date)
     start = dt - timedelta(days=dt.weekday())
@@ -400,7 +401,7 @@ def get_week_summary(date: str = "") -> dict:
     end_str = end.strftime("%Y-%m-%d")
 
     with get_db() as conn:
-        planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
+        planned, actual = get_week_planned_and_actual(conn, start_str, end_str, tz_name=get_request_tz().key)
 
         # Weekly totals
         total_tss = sum(r["tss"] or 0 for r in actual)
@@ -409,7 +410,7 @@ def get_week_summary(date: str = "") -> dict:
     return {
         "week": f"{start_str} to {end_str}",
         "planned_workouts": [
-            {"date": p["date"], "name": p["name"], "duration_min": round((p["total_duration_s"] or 0) / 60)}
+            {"date": str(p["date"]), "name": p["name"], "duration_min": round((p["total_duration_s"] or 0) / 60)}
             for p in planned
         ],
         "actual_rides": [
@@ -447,7 +448,8 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
     if not icu_is_configured():
         return {"status": "error", "message": "intervals.icu is not configured. Cannot sync to Garmin."}
 
-    now_iso = datetime.now().isoformat(timespec="seconds")
+    _now = datetime.now(get_request_tz())
+    now_iso = _now.isoformat(timespec="seconds")
 
     with get_db() as conn:
         ftp = get_current_ftp(conn)
@@ -466,9 +468,8 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
                 ).fetchall()
         else:
             # Sync all upcoming workouts for the current week
-            today = datetime.now().strftime("%Y-%m-%d")
-            dt = datetime.now()
-            end = dt + timedelta(days=(6 - dt.weekday()))
+            today = _now.strftime("%Y-%m-%d")
+            end = _now + timedelta(days=(6 - _now.weekday()))
             end_str = end.strftime("%Y-%m-%d")
             rows = conn.execute(
                 "SELECT id, date, name, workout_xml, total_duration_s, icu_event_id, sync_hash FROM planned_workouts WHERE date >= ? AND date <= ? AND workout_xml IS NOT NULL",
@@ -483,21 +484,23 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
         errors = []
         for row in rows:
             row = dict(row)
+            # Convert planned_workouts.date (now DATE type, datetime.date) to string
+            row_date = str(row["date"])
             if not row["workout_xml"]:
-                errors.append({"name": row["name"], "date": row["date"], "error": "No structured workout data (ZWO) available"})
+                errors.append({"name": row["name"], "date": row_date, "error": "No structured workout data (ZWO) available"})
                 continue
 
             w_name = row["name"] or "Workout"
             moving_time = int(row["total_duration_s"] or 0)
-            current_hash = compute_sync_hash(w_name, row["date"], row["workout_xml"], moving_time)
+            current_hash = compute_sync_hash(w_name, row_date, row["workout_xml"], moving_time)
 
             # Skip if unchanged
             if row.get("sync_hash") == current_hash and row.get("icu_event_id"):
-                skipped.append({"name": w_name, "date": row["date"]})
+                skipped.append({"name": w_name, "date": row_date})
                 continue
 
             result = push_workout(
-                date=row["date"],
+                date=row_date,
                 name=w_name,
                 zwo_xml=row["workout_xml"],
                 moving_time_secs=moving_time,
@@ -509,9 +512,9 @@ def sync_workouts_to_garmin(date: str = "", workout_name: str = "") -> dict:
                     "UPDATE planned_workouts SET icu_event_id = ?, sync_hash = ?, synced_at = ? WHERE id = ?",
                     (result.get("event_id"), current_hash, now_iso, row["id"]),
                 )
-                synced.append({"name": w_name, "date": row["date"]})
+                synced.append({"name": w_name, "date": row_date})
             else:
-                errors.append({"name": w_name, "date": row["date"], "error": result.get("message", "Unknown error")})
+                errors.append({"name": w_name, "date": row_date, "error": result.get("message", "Unknown error")})
 
     msg = f"Synced {len(synced)} workout(s) to Garmin via intervals.icu"
     if skipped:
@@ -724,9 +727,12 @@ def set_ride_coach_comments(date: str, comments: str) -> dict:
         Status of the update.
     """
     with get_db() as conn:
+        tz_name = get_request_tz().key
         row = conn.execute(
-            "SELECT id, sub_sport FROM rides WHERE date = ? ORDER BY duration_s DESC LIMIT 1",
-            (date,),
+            """SELECT id, sub_sport FROM rides
+               WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE = ?::DATE
+               ORDER BY duration_s DESC LIMIT 1""",
+            (tz_name, date),
         ).fetchone()
         if not row:
             return {"status": "error", "message": f"No ride found on {date}"}
@@ -811,7 +817,7 @@ def update_athlete_setting(key: str, value: str, date_set: str = "") -> dict:
         "status": "success",
         "key": key,
         "value": value,
-        "date_set": date_set or datetime.now().strftime("%Y-%m-%d"),
+        "date_set": date_set or user_today(),
         "sync_status": sync_status,
         "message": f"Updated {key} to {value}. This structured benchmark will be used for future metric calculations and interval analysis. Changes were {'successfully' if sync_status == 'synced' else 'not'} pushed to Intervals.icu.",
     }

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useRides, useDeleteWorkout } from '../hooks/useApi'
 import { fetchWeekPlansBatch } from '../lib/api'
-import { fmtDuration, fmtDistance, fmtSport } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtSport, fmtDateStrLong } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useQuery } from '@tanstack/react-query'
 import { 
@@ -214,7 +214,7 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
           <div className="px-6 py-4 border-b border-border bg-surface-low flex items-center justify-between">
             <h3 className="text-sm font-bold text-text uppercase tracking-wider flex items-center gap-3">
               <CalendarIcon size={18} className="text-accent" />
-              {new Date(selectedDay + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              {fmtDateStrLong(selectedDay)}
             </h3>
             {selectedRides.length === 0 && selectedWorkouts.length === 0 && (
               <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-3 py-1 bg-surface rounded-full border border-border/50 italic">Recovery Day</span>

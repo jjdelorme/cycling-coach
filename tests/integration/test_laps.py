@@ -18,7 +18,7 @@ def _make_ride_json(laps=None, records=None):
         }],
         "sport": [{"sport": "cycling", "sub_sport": "road"}],
         "user_profile": [{"weight": 75.0}],
-        "record": records or [{"power": 200, "heart_rate": 140} for _ in range(60)],
+        "record": records or [{"timestamp": f"2025-06-01T10:00:{i:02d}", "power": 200, "heart_rate": 140} for i in range(60)],
     }
     if laps is not None:
         data["lap"] = laps

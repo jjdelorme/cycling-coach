@@ -5,23 +5,23 @@ from server.database import get_db
 
 def test_rides_new_columns():
     """Test that new columns in rides table work as expected."""
-    
+
     with get_db() as conn:
         # Insert a ride with new columns
         conn.execute(
-            """INSERT INTO rides (date, filename, sport, duration_s, has_power_data, data_status)
-            VALUES ('2025-07-01', 'test_new_columns.json', 'cycling', 3600, TRUE, 'cleaned')
-            ON CONFLICT (filename) DO UPDATE SET 
+            """INSERT INTO rides (start_time, filename, sport, duration_s, has_power_data, data_status)
+            VALUES ('2025-07-01T10:00:00+00:00', 'test_new_columns.json', 'cycling', 3600, TRUE, 'cleaned')
+            ON CONFLICT (filename) DO UPDATE SET
                 has_power_data = EXCLUDED.has_power_data,
                 data_status = EXCLUDED.data_status"""
         )
-        
+
         row = conn.execute("SELECT has_power_data, data_status FROM rides WHERE filename='test_new_columns.json'").fetchone()
-        
+
     assert row is not None
     assert row["has_power_data"] is True
     assert row["data_status"] == 'cleaned'
-    
+
     # Cleanup
     with get_db() as conn:
         conn.execute("DELETE FROM rides WHERE filename='test_new_columns.json'")
@@ -31,7 +31,7 @@ def test_power_bests_new_columns():
     with get_db() as conn:
         # Need a ride first for the foreign key
         conn.execute(
-            "INSERT INTO rides (date, filename, sport) VALUES ('2025-07-01', 'test_power_bests.json', 'cycling') ON CONFLICT (filename) DO NOTHING"
+            "INSERT INTO rides (start_time, filename, sport) VALUES ('2025-07-01T10:00:00+00:00', 'test_power_bests.json', 'cycling') ON CONFLICT (filename) DO NOTHING"
         )
         ride_id = conn.execute("SELECT id FROM rides WHERE filename='test_power_bests.json'").fetchone()["id"]
         

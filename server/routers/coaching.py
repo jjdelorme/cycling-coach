@@ -1,10 +1,12 @@
 """AI coaching chat and session endpoints."""
 
 import uuid
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from zoneinfo import ZoneInfo
 
 from server.auth import CurrentUser, require_read, require_write
+from server.dependencies import get_client_tz
 from server.models.schemas import (
     ChatRequest, ChatResponse, SessionSummary, SessionDetail, SessionMessage,
 )
@@ -14,7 +16,7 @@ router = APIRouter(prefix="/api/coaching", tags=["coaching"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(require_read)):
+async def chat_endpoint(req: ChatRequest, request: Request, user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     from server.coaching.agent import chat
 
     session_id = req.session_id or str(uuid.uuid4())
@@ -24,6 +26,7 @@ async def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(require_re
             message=req.message,
             session_id=session_id,
             user=user,
+            tz=tz,
         )
     except Exception as e:
         if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):

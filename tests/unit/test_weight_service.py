@@ -107,18 +107,18 @@ class TestGetWeightForDate:
 # ---------------------------------------------------------------------------
 
 class TestGetCurrentWeight:
-    def test_delegates_to_get_weight_for_date_with_today(self):
-        """get_current_weight calls get_weight_for_date with today's ISO date."""
-        from datetime import date
+    def test_delegates_to_get_weight_for_date_with_user_today(self):
+        """get_current_weight calls get_weight_for_date with user_today()."""
         from unittest.mock import patch
         from server.services.weight import get_current_weight
 
-        today = date.today().isoformat()
         conn = _make_conn(_row({"weight_kg": 71.0}))
 
-        with patch("server.services.weight.get_weight_for_date") as mock_fn:
+        with patch("server.services.weight.get_weight_for_date") as mock_fn, \
+             patch("server.utils.dates.user_today", return_value="2026-04-14") as mock_today:
             mock_fn.return_value = 71.0
             result = get_current_weight(conn)
 
-        mock_fn.assert_called_once_with(conn, today)
+        mock_today.assert_called_once()
+        mock_fn.assert_called_once_with(conn, "2026-04-14")
         assert result == 71.0

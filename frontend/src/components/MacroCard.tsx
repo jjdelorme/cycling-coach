@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Trash2, ChevronDown, ChevronUp, Loader2, Sparkles } from 'lucide-react'
 import { useUpdateMeal, useDeleteMeal, useAnalyzeMeal } from '../hooks/useApi'
+import { localDateStr } from '../lib/format'
 import type { MealSummary } from '../types/api'
 
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Other']
@@ -192,7 +193,7 @@ export default function MacroCard({ meal, onAskNutritionist }: Props) {
                 <input
                   type="date"
                   value={editValues.date}
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={localDateStr()}
                   onChange={e => setEditValues(prev => ({ ...prev, date: e.target.value }))}
                   className="w-full bg-surface-low border border-border rounded-lg px-2 py-2 text-center text-sm font-bold text-text focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                 />

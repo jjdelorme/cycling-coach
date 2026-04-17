@@ -95,10 +95,10 @@ async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200), user:
     with get_db() as conn:
         # Find rides from intervals.icu (filename starts with icu_) that have no records
         rows = conn.execute(
-            "SELECT r.id, r.filename, r.date FROM rides r "
+            "SELECT r.id, r.filename, r.start_time FROM rides r "
             "WHERE r.filename LIKE ? "
             "AND NOT EXISTS (SELECT 1 FROM ride_records rr WHERE rr.ride_id = r.id) "
-            "ORDER BY r.date DESC LIMIT ?",
+            "ORDER BY r.start_time DESC LIMIT ?",
             ("icu_%", limit),
         ).fetchall()
 
@@ -115,10 +115,10 @@ async def backfill_streams(limit: Optional[int] = Query(50, ge=1, le=200), user:
             if streams:
                 _store_streams(row["id"], streams)
                 backfilled += 1
-                logger.info("streams_backfilled", ride_id=row["id"], date=row["date"])
+                logger.info("streams_backfilled", ride_id=row["id"], start_time=row["start_time"])
         except Exception as e:
-            errors.append(f"{row['date']}: {e}")
-            logger.warning("streams_backfill_failed", ride_id=row["id"], date=row["date"], error=str(e))
+            errors.append(f"{row['start_time']}: {e}")
+            logger.warning("streams_backfill_failed", ride_id=row["id"], start_time=row["start_time"], error=str(e))
 
     return {
         "backfilled": backfilled,

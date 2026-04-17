@@ -8,6 +8,7 @@ function authHeaders(): Record<string, string> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
+  headers['X-Client-Timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone
   return headers
 }
 

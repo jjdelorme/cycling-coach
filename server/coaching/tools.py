@@ -3,6 +3,7 @@
 import math
 from datetime import datetime, timedelta
 from server.database import get_db, get_athlete_setting, get_all_athlete_settings
+from server.utils.dates import get_request_tz, user_today
 from server.queries import get_current_pmc_row, get_pmc_row_for_date, get_power_bests_rows, get_ftp_history_rows, get_periodization_phases
 from server.zones import compute_power_zones, compute_hr_zones
 
@@ -24,9 +25,13 @@ def _wrap_athlete_data(value):
 
 def _resolve_ride_id(conn, date: str):
     """Resolve a YYYY-MM-DD date to a ride_id (longest ride on that date)."""
+    tz_name = get_request_tz().key
     row = conn.execute(
-        "SELECT id, date, duration_s FROM rides WHERE date = ? ORDER BY duration_s DESC LIMIT 1",
-        (date,),
+        """SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date, duration_s
+           FROM rides
+           WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE = ?::DATE
+           ORDER BY duration_s DESC LIMIT 1""",
+        (tz_name, tz_name, date),
     ).fetchone()
     if not row:
         return None, f"No ride found for date {date}"
@@ -129,7 +134,7 @@ def get_pmc_metrics(date: str = "") -> dict:
         return {"error": "No PMC data found"}
 
     return {
-        "date": row["date"],
+        "date": str(row["date"]),
         "ctl": row["ctl"],
         "atl": row["atl"],
         "tsb": row["tsb"],
@@ -146,15 +151,19 @@ def get_recent_rides(days_back: int = 7) -> list[dict]:
     Returns:
         List of ride summaries with date, sport, duration, TSS, power, HR.
     """
-    cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(get_request_tz()) - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    tz_name = get_request_tz().key
 
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT id, date, sub_sport, duration_s, distance_m, tss, avg_power,
+            """SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,
+                      sub_sport, duration_s, distance_m, tss, avg_power,
                       normalized_power, avg_hr, total_ascent, best_20min_power,
                       post_ride_comments, coach_comments
-               FROM rides WHERE date >= ? ORDER BY date DESC""",
-            (cutoff,),
+               FROM rides
+               WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE
+               ORDER BY start_time DESC""",
+            (tz_name, tz_name, cutoff),
         ).fetchall()
 
     return [
@@ -186,8 +195,9 @@ def get_upcoming_workouts(days_ahead: int = 7) -> list[dict]:
     Returns:
         List of planned workouts with date, name, duration.
     """
-    today = datetime.now().strftime("%Y-%m-%d")
-    end = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    _now = datetime.now(get_request_tz())
+    today = _now.strftime("%Y-%m-%d")
+    end = (_now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
 
     with get_db() as conn:
         rows = conn.execute(
@@ -197,7 +207,7 @@ def get_upcoming_workouts(days_ahead: int = 7) -> list[dict]:
 
     return [
         {
-            "date": r["date"],
+            "date": str(r["date"]),
             "name": r["name"],
             "sport": r["sport"],
             "duration_min": round((r["total_duration_s"] or 0) / 60),
@@ -220,7 +230,7 @@ def get_power_bests() -> dict:
         rows = get_power_bests_rows(conn)
 
     return {
-        labels.get(r["duration_s"], f"{r['duration_s']}s"): {"power": r["power"], "date": r["date"]}
+        labels.get(r["duration_s"], f"{r['duration_s']}s"): {"power": r["power"], "date": str(r["date"])}
         for r in rows
     }
 
@@ -241,7 +251,8 @@ def get_training_summary(period: str = "month") -> dict:
     else:
         days = 365
 
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(get_request_tz()) - timedelta(days=days)).strftime("%Y-%m-%d")
+    tz_name = get_request_tz().key
 
     with get_db() as conn:
         row = conn.execute(
@@ -250,8 +261,9 @@ def get_training_summary(period: str = "month") -> dict:
                       ROUND(CAST(SUM(COALESCE(tss, 0)) AS NUMERIC), 0) as tss,
                       ROUND(CAST(SUM(COALESCE(distance_m, 0)) / 1000.0 AS NUMERIC), 0) as distance_km,
                       ROUND(CAST(SUM(COALESCE(total_ascent, 0)) AS NUMERIC), 0) as ascent_m
-               FROM rides WHERE date >= ?""",
-            (cutoff,),
+               FROM rides
+               WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE""",
+            (tz_name, cutoff),
         ).fetchone()
 
     return {
@@ -291,7 +303,7 @@ def get_periodization_status() -> dict:
     Returns:
         Current phase info and all phases with dates.
     """
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = user_today()
 
     with get_db() as conn:
         phases = get_periodization_phases(conn)
@@ -302,14 +314,14 @@ def get_periodization_status() -> dict:
         phase = {
             "id": p["id"],
             "name": p["name"],
-            "start_date": p["start_date"],
-            "end_date": p["end_date"],
+            "start_date": str(p["start_date"]),
+            "end_date": str(p["end_date"]),
             "focus": p["focus"],
             "hours_per_week": f"{p['hours_per_week_low']}-{p['hours_per_week_high']}",
             "tss_target": f"{p['tss_target_low']}-{p['tss_target_high']}",
         }
         all_phases.append(phase)
-        if p["start_date"] <= today <= p["end_date"]:
+        if str(p["start_date"]) <= today <= str(p["end_date"]):
             current = phase
 
     return {
@@ -590,8 +602,9 @@ def get_power_curve(start_date: str = "", end_date: str = "", last_n_days: int =
         Dictionary with best power at each standard duration.
     """
     if last_n_days > 0:
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=last_n_days)).strftime("%Y-%m-%d")
+        _now = datetime.now(get_request_tz())
+        end_date = _now.strftime("%Y-%m-%d")
+        start_date = (_now - timedelta(days=last_n_days)).strftime("%Y-%m-%d")
     elif not start_date and not end_date:
         start_date = None
         end_date = None
@@ -615,7 +628,7 @@ def get_power_curve(start_date: str = "", end_date: str = "", last_n_days: int =
             "duration": _DURATION_LABELS.get(dur, f"{dur}s"),
             "duration_s": dur,
             "power": r["power"],
-            "date": r["date"],
+            "date": str(r["date"]),
             "ride_id": r["ride_id"],
         })
 
@@ -663,7 +676,7 @@ def get_athlete_status() -> dict:
         "ctl": round(pmc["ctl"], 1) if pmc and pmc.get("ctl") is not None else None,
         "atl": round(pmc["atl"], 1) if pmc and pmc.get("atl") is not None else None,
         "tsb": round(pmc["tsb"], 1) if pmc and pmc.get("tsb") is not None else None,
-        "as_of_date": pmc["date"] if pmc else None,
+        "as_of_date": str(pmc["date"]) if pmc else None,
     }
 
 
@@ -688,11 +701,15 @@ def get_planned_workout_for_ride(date: str) -> dict:
         ).fetchone()
 
         # Get actual ride for this date
+        tz_name = get_request_tz().key
         actual = conn.execute(
-            """SELECT id, date, sub_sport, duration_s, distance_m, tss,
+            """SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,
+                      sub_sport, duration_s, distance_m, tss,
                       avg_power, normalized_power, avg_hr, total_ascent, ftp
-               FROM rides WHERE date = ? ORDER BY duration_s DESC LIMIT 1""",
-            (date,),
+               FROM rides
+               WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE = ?::DATE
+               ORDER BY duration_s DESC LIMIT 1""",
+            (tz_name, tz_name, date),
         ).fetchone()
 
     result = {"date": date, "planned": None, "actual": None, "comparison": None}
@@ -761,7 +778,9 @@ def get_athlete_nutrition_status(date: str = "") -> dict:
         and last meal timestamp for the specified day.
     """
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
+
+    tz_name = get_request_tz().key
 
     with get_db() as conn:
         meals = conn.execute(
@@ -771,10 +790,11 @@ def get_athlete_nutrition_status(date: str = "") -> dict:
             (date, "athlete"),
         ).fetchall()
 
-        # Ride calories
+        # Ride calories -- derive local date from start_time
         ride_row = conn.execute(
-            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides WHERE date = %s",
-            (date,),
+            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE = %s::DATE",
+            (tz_name, date),
         ).fetchone()
         ride_cal = int(ride_row["total"]) if ride_row else 0
 

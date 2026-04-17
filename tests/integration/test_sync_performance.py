@@ -17,14 +17,19 @@ def test_executemany_batch_matches_row_by_row(db_conn):
     ride_id = ride_row["id"]
 
     # Insert 100 test records via executemany
+    # Generate valid TIMESTAMPTZ values spread across minutes:seconds
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    base_ts = _dt(2026, 1, 1, 0, 0, 0, tzinfo=_tz.utc)
     test_rows = [
-        (ride_id, f"2026-01-01T00:00:{i:02d}Z", i * 10, 120 + i, 85, None, None, None, None, None, None)
+        (ride_id, (base_ts + _td(seconds=i)).isoformat(), i * 10, 120 + i, 85, None, None, None, None, None, None)
         for i in range(100)
     ]
 
     # Delete any existing test records for this ride with these timestamps
-    for row in test_rows:
-        conn.execute("DELETE FROM ride_records WHERE ride_id = ? AND timestamp_utc = ?", (row[0], row[1]))
+    conn.execute(
+        "DELETE FROM ride_records WHERE ride_id = ? AND timestamp_utc >= '2026-01-01T00:00:00+00:00'::TIMESTAMPTZ AND timestamp_utc < '2026-01-01T00:02:00+00:00'::TIMESTAMPTZ",
+        (ride_id,),
+    )
 
     conn.executemany(
         "INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate, cadence, speed, altitude, distance, lat, lon, temperature) "
@@ -34,21 +39,24 @@ def test_executemany_batch_matches_row_by_row(db_conn):
 
     # Verify all rows present
     count = conn.execute(
-        "SELECT COUNT(*) as cnt FROM ride_records WHERE ride_id = ? AND timestamp_utc LIKE '2026-01-01T00:00:%%'",
+        "SELECT COUNT(*) as cnt FROM ride_records WHERE ride_id = ? AND timestamp_utc >= '2026-01-01T00:00:00+00:00'::TIMESTAMPTZ AND timestamp_utc < '2026-01-01T00:02:00+00:00'::TIMESTAMPTZ",
         (ride_id,),
     ).fetchone()["cnt"]
     assert count == 100
 
-    # Verify data integrity on a sample row
+    # Verify data integrity on a sample row (i=50 -> 00:00:50 UTC, power=500, hr=170)
     sample = conn.execute(
-        "SELECT power, heart_rate FROM ride_records WHERE ride_id = ? AND timestamp_utc = '2026-01-01T00:00:50Z'",
+        "SELECT power, heart_rate FROM ride_records WHERE ride_id = ? AND timestamp_utc = '2026-01-01T00:00:50+00:00'::TIMESTAMPTZ",
         (ride_id,),
     ).fetchone()
     assert sample["power"] == 500
     assert sample["heart_rate"] == 170
 
     # Cleanup
-    conn.execute("DELETE FROM ride_records WHERE ride_id = ? AND timestamp_utc LIKE '2026-01-01T00:00:%%'", (ride_id,))
+    conn.execute(
+        "DELETE FROM ride_records WHERE ride_id = ? AND timestamp_utc >= '2026-01-01T00:00:00+00:00'::TIMESTAMPTZ AND timestamp_utc < '2026-01-01T00:02:00+00:00'::TIMESTAMPTZ",
+        (ride_id,),
+    )
 
 
 def test_incremental_pmc_matches_full_recompute(db_conn):
@@ -65,7 +73,7 @@ def test_incremental_pmc_matches_full_recompute(db_conn):
     # Full recompute
     compute_daily_pmc(conn)
     full_rows = {
-        r["date"]: r
+        str(r["date"]): r
         for r in conn.execute("SELECT date, ctl, atl, tsb FROM daily_metrics ORDER BY date").fetchall()
     }
 
@@ -80,7 +88,7 @@ def test_incremental_pmc_matches_full_recompute(db_conn):
     # Incremental recompute
     compute_daily_pmc(conn, since_date=since_date)
     incr_rows = {
-        r["date"]: r
+        str(r["date"]): r
         for r in conn.execute("SELECT date, ctl, atl, tsb FROM daily_metrics ORDER BY date").fetchall()
     }
 
@@ -100,7 +108,7 @@ def test_weight_prefetch_matches_n_plus_1(db_conn):
     conn = db_conn
 
     weight_rows = conn.execute(
-        "SELECT date, weight FROM rides WHERE weight IS NOT NULL ORDER BY date"
+        "SELECT (start_time AT TIME ZONE 'UTC')::DATE::TEXT AS date, weight FROM rides WHERE weight IS NOT NULL ORDER BY start_time"
     ).fetchall()
     if not weight_rows:
         pytest.skip("No weight data")
@@ -118,7 +126,7 @@ def test_weight_prefetch_matches_n_plus_1(db_conn):
 
         # SQL lookup (original N+1 approach)
         sql_row = conn.execute(
-            "SELECT weight FROM rides WHERE date <= ? AND weight IS NOT NULL ORDER BY date DESC LIMIT 1",
+            "SELECT weight FROM rides WHERE (start_time AT TIME ZONE 'UTC')::DATE::TEXT <= ? AND weight IS NOT NULL ORDER BY start_time DESC LIMIT 1",
             (ds,),
         ).fetchone()
         sql_weight = sql_row["weight"] if sql_row else None

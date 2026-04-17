@@ -111,3 +111,54 @@ export function zoneLabel(pct: number): string {
   if (pct < 1.21) return 'Z5'
   return 'Z6'
 }
+
+// ---------------------------------------------------------------------------
+// Date / time formatting for timezone-aware display
+// ---------------------------------------------------------------------------
+
+// For UTC timestamp strings from the server (rides.start_time, sync timestamps)
+// new Date() parses UTC correctly; toLocaleDateString renders in browser timezone.
+export function fmtDateShort(isoUtc: string): string {
+  return new Date(isoUtc).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+  })
+}
+
+export function fmtDateLong(isoUtc: string): string {
+  return new Date(isoUtc).toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  })
+}
+
+export function fmtDateTime(isoUtc: string): string {
+  return new Date(isoUtc).toLocaleString('en-US', {
+    month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  })
+}
+
+export function fmtTimestamp(isoUtc: string): string {
+  return new Date(isoUtc).toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit',
+  })
+}
+
+// For date-only strings (YYYY-MM-DD) from planned_workouts, periodization_phases, etc.
+// Appending T00:00:00 forces local midnight -- prevents UTC shift turning Apr 9 into Apr 8.
+export function fmtDateStr(dateStr: string): string {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+  })
+}
+
+export function fmtDateStrLong(dateStr: string): string {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  })
+}
+
+// Canonical local YYYY-MM-DD string for use as API query parameters.
+// Replaces scattered getFullYear()/getMonth()/getDate() constructions.
+export function localDateStr(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}

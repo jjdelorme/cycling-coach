@@ -44,6 +44,21 @@ def _tlog(msg: str) -> str:
     return f"[{_now_iso()}] {msg}"
 
 
+def _get_athlete_tz():
+    """Return UTC for background sync date windows.
+
+    Background sync runs without an HTTP request context, so there is no
+    X-Client-Timezone header. Using UTC means the fetch window could be off
+    by up to one calendar day at timezone boundaries. This is acceptable
+    because:
+      - Ride dedup (filename + date+distance fingerprint) prevents duplicates
+      - The watermark prevents re-downloading already-synced rides
+      - Planned workout dedup uses (date, name) pairs
+    """
+    from zoneinfo import ZoneInfo
+    return ZoneInfo("UTC")
+
+
 # ---------------------------------------------------------------------------
 # Watermark helpers
 # ---------------------------------------------------------------------------
@@ -360,6 +375,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     earliest_date: str | None = None
 
     # Determine date range from watermark
+    _tz = _get_athlete_tz()
     watermark = get_watermark("rides_newest", conn=conn)
     if watermark:
         # Re-fetch from watermark date (not day after) — a ride may have been
@@ -367,9 +383,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
         # Dedup logic handles any rides we already have.
         oldest = datetime.fromisoformat(watermark).strftime("%Y-%m-%d")
     else:
-        oldest = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        oldest = (datetime.now(_tz) - timedelta(days=365)).strftime("%Y-%m-%d")
 
-    newest = datetime.now().strftime("%Y-%m-%d")
+    newest = datetime.now(_tz).strftime("%Y-%m-%d")
 
     if oldest > newest:
         msg = "Rides already up to date"
@@ -400,15 +416,19 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
     # Get existing rides for dedup: by filename AND by (date, distance) fingerprint.
     # Distance is more reliable than duration because moving-time vs elapsed-time
     # differs between sources (Garmin auto-pause, Strava, intervals.icu).
+    # Fingerprint uses UTC date from start_time (sufficient for cross-source dedup;
+    # at most one day off for rides near midnight UTC which is acceptable).
     existing_filenames = set()
     existing_fingerprints = set()
-    rows = conn.execute("SELECT filename, date, distance_m FROM rides").fetchall()
+    rows = conn.execute("SELECT filename, start_time, distance_m FROM rides").fetchall()
     for r in rows:
         row = dict(r)
         existing_filenames.add(row["filename"])
-        # Fingerprint: (date, distance rounded to nearest 100m)
+        # Fingerprint: (UTC date from start_time, distance rounded to nearest 100m)
+        st = row.get("start_time")
+        date_str = st.strftime("%Y-%m-%d") if hasattr(st, "strftime") else (str(st)[:10] if st else "")
         dist = round((row["distance_m"] or 0) / 100) * 100
-        existing_fingerprints.add((row["date"], dist))
+        existing_fingerprints.add((date_str, dist))
 
     # Early exit: check if all activities already exist locally
     has_new = False
@@ -419,7 +439,8 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
         if ride["filename"] in existing_filenames:
             continue
         dist = round((ride["distance_m"] or 0) / 100) * 100
-        if (ride["date"], dist) in existing_fingerprints:
+        rd = ride["start_time"][:10] if ride.get("start_time") else ""
+        if (rd, dist) in existing_fingerprints:
             continue
         has_new = True
         break
@@ -446,8 +467,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
 
         # Check fingerprint match (cross-source dedup: JSON import vs intervals.icu)
         # Same date + same distance (within 100m) = same ride
+        ride_date_str = ride["start_time"][:10] if ride.get("start_time") else ""
         dist = round((ride["distance_m"] or 0) / 100) * 100
-        fingerprint = (ride["date"], dist)
+        fingerprint = (ride_date_str, dist)
         if fingerprint in existing_fingerprints:
             skipped += 1
             continue
@@ -472,9 +494,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
             downloaded += 1
             existing_filenames.add(ride["filename"])
             existing_fingerprints.add(fingerprint)
-            if earliest_date is None or ride["date"] < earliest_date:
-                earliest_date = ride["date"]
-            detail = f"Downloaded ride: {ride['date']} ({ride.get('sport', 'ride')})"
+            if earliest_date is None or ride_date_str < earliest_date:
+                earliest_date = ride_date_str
+            detail = f"Downloaded ride: {ride_date_str} ({ride.get('sport', 'ride')})"
             logger.info(detail)
             log_lines.append(_tlog(detail))
 
@@ -491,7 +513,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         _store_streams(ride_db_id, streams, conn=conn)
                         # Backfill start_lat/start_lon from stream GPS data
                         _backfill_start_location(ride_db_id, streams, conn=conn)
-                        log_lines.append(_tlog(f"  + stored stream data for {ride['date']} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
+                        log_lines.append(_tlog(f"  + stored stream data for {ride_date_str} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
 
                         # Step 3.A: Process ride samples for metrics and power bests
                         stream_map = _extract_streams(streams)
@@ -500,7 +522,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         raw_cadences = stream_map.get("cadence", [])
 
                         # Fetch HR benchmarks for hrTSS fallback
-                        ride_date = ride["date"]
+                        ride_date = ride_date_str
                         lthr = get_latest_metric(conn, "lthr", ride_date)
                         max_hr_setting = get_latest_metric(conn, "max_hr", ride_date)
                         resting_hr = get_latest_metric(conn, "resting_hr", ride_date)
@@ -569,14 +591,15 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                                     (metrics["tss"], ride_db_id),
                                 )
 
-                        # Insert all power bests
+                        # Insert all power bests (date is UTC-derived from start_time)
                         if metrics["power_bests"]:
+                            pb_date = ride_date_str
                             conn.executemany(
                                 "INSERT INTO power_bests (ride_id, date, duration_s, power, avg_hr, avg_cadence, start_offset_s) VALUES (?, ?, ?, ?, ?, ?, ?)",
                                 [
                                     (
                                         ride_db_id,
-                                        ride["date"],
+                                        pb_date,
                                         pb["duration_s"],
                                         pb["power"],
                                         pb.get("avg_hr"),
@@ -600,7 +623,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         if is_cycling and stream_map:
                             _enrich_laps_with_np(laps, stream_map)
                         _store_laps(ride_db_id, laps, conn=conn)
-                        log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride['date']}"))
+                        log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride_date_str}"))
                 except Exception as le:
                     logger.warning("laps_fetch_failed", icu_id=icu_id, error=str(le))
 
@@ -636,8 +659,10 @@ async def _download_planned_workouts(sync_id: str, log_lines: list[str], conn) -
     Returns the number of workouts imported.
     """
     t0 = time.monotonic()
-    today = datetime.now().strftime("%Y-%m-%d")
-    end_date = (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d")
+    _tz = _get_athlete_tz()
+    _now_local = datetime.now(_tz)
+    today = _now_local.strftime("%Y-%m-%d")
+    end_date = (_now_local + timedelta(days=28)).strftime("%Y-%m-%d")
 
     msg = f"Checking intervals.icu for planned workouts ({today} to {end_date})..."
     logger.info(msg)
@@ -654,13 +679,15 @@ async def _download_planned_workouts(sync_id: str, log_lines: list[str], conn) -
         log_lines.append(_tlog("No upcoming calendar events on intervals.icu"))
         return 0
 
-    # Build a set of (date, name) pairs already in the local DB so we don't duplicate
+    # Build a set of (date, name) pairs already in the local DB so we don't duplicate.
+    # Use str() on date since planned_workouts.date is DATE type (returns
+    # datetime.date) but event_date from intervals.icu API is a string.
     existing = set()
     for row in conn.execute(
         "SELECT date, name FROM planned_workouts WHERE date >= ?", (today,)
     ).fetchall():
         r = dict(row)
-        existing.add((r["date"], r["name"] or ""))
+        existing.add((str(r["date"]), r["name"] or ""))
 
     imported = 0
     for event in raw_events:
@@ -705,12 +732,14 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
 
     # Get watermark - tracks the newest date we've synced workouts for
     watermark = get_watermark("workouts_synced_through", conn=conn)
-    today = datetime.now().strftime("%Y-%m-%d")
+    _tz = _get_athlete_tz()
+    _now_local = datetime.now(_tz)
+    today = _now_local.strftime("%Y-%m-%d")
 
     # Only sync workouts from today onward (no point syncing past workouts)
     start_date = today
     # Look ahead 4 weeks
-    end_date = (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d")
+    end_date = (_now_local + timedelta(days=28)).strftime("%Y-%m-%d")
 
     msg = f"Checking workouts to sync: {start_date} to {end_date}"
     logger.info(msg)
@@ -761,7 +790,7 @@ async def _upload_workouts(sync_id: str, log_lines: list[str], conn) -> tuple[in
 
     for i, w in enumerate(local_workouts):
         w = dict(w)
-        w_date = w["date"]
+        w_date = str(w["date"])
         w_name = w["name"] or "Workout"
         moving_time = int(w.get("total_duration_s") or 0)
 
@@ -909,7 +938,7 @@ async def run_sync(sync_id: str | None = None) -> str:
                 await _broadcast(sync_id, {"phase": "pmc", "detail": msg})
                 try:
                     from server.ingest import compute_daily_pmc
-                    compute_daily_pmc(conn, since_date=earliest)
+                    compute_daily_pmc(conn, since_date=earliest, tz_name="UTC")
                     conn.commit()
                     log_lines.append(_tlog("PMC recomputed successfully"))
                 except Exception as e:

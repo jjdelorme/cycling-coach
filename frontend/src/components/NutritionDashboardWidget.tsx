@@ -2,13 +2,14 @@ import { useMemo } from 'react'
 import { Line } from 'react-chartjs-2'
 import { useDailyNutrition, useWeeklyNutrition } from '../hooks/useApi'
 import { Apple, ChevronRight } from 'lucide-react'
+import { localDateStr } from '../lib/format'
 
 interface Props {
   onNavigateToNutrition?: () => void
 }
 
 export default function NutritionDashboardWidget({ onNavigateToNutrition }: Props) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const { data: daily } = useDailyNutrition(today)
   const { data: weekly } = useWeeklyNutrition(today)
 

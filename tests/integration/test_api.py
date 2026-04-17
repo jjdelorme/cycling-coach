@@ -119,16 +119,16 @@ def test_zones_spike_filter(client):
     with get_db() as conn:
         # Create a mock ride with FTP = 200
         row = conn.execute(
-            "INSERT INTO rides (date, filename, sport, ftp) VALUES ('2099-01-01', 'mock_spike.json', 'ride', 200) RETURNING id"
+            "INSERT INTO rides (start_time, filename, sport, ftp) VALUES ('2099-01-01T10:00:00+00:00', 'mock_spike.json', 'ride', 200) RETURNING id"
         ).fetchone()
         ride_id = row["id"]
-        
+
         # Insert records: 100W (valid), 2001W (too high), 1001W (> 5x 200)
         conn.execute("INSERT INTO ride_records (ride_id, power) VALUES (?, ?)", (ride_id, 100))
         conn.execute("INSERT INTO ride_records (ride_id, power) VALUES (?, ?)", (ride_id, 2001))
         conn.execute("INSERT INTO ride_records (ride_id, power) VALUES (?, ?)", (ride_id, 1001))
         conn.commit()
-    
+
     try:
         # Fetch zones for that date
         resp = client.get("/api/analysis/zones?start_date=2099-01-01&end_date=2099-01-01")
@@ -147,70 +147,70 @@ def test_efficiency_enhanced(client):
     """Test /api/analysis/efficiency filtering and rolling average."""
     with get_db() as conn:
         # Clear any existing data on our test dates
-        conn.execute("DELETE FROM rides WHERE date >= '2099-01-01'")
-        
+        conn.execute("DELETE FROM rides WHERE start_time >= '2099-01-01T00:00:00+00:00'")
+
         # Ride 1: Jan 1, 31min, IF 0.7, sport 'ride', EF = 200/100 = 2.0
         conn.execute(
-            "INSERT INTO rides (date, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
-            "VALUES ('2099-01-01', 'ef1.json', 'ride', 1860, 0.7, 200, 100)"
+            "INSERT INTO rides (start_time, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
+            "VALUES ('2099-01-01T10:00:00+00:00', 'ef1.json', 'ride', 1860, 0.7, 200, 100)"
         )
         # Ride 2: Jan 2, 31min, IF 0.7, sport 'ride', EF = 300/100 = 3.0. Rolling EF = (2+3)/2 = 2.5
         conn.execute(
-            "INSERT INTO rides (date, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
-            "VALUES ('2099-01-02', 'ef2.json', 'ride', 1860, 0.7, 300, 100)"
+            "INSERT INTO rides (start_time, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
+            "VALUES ('2099-01-02T10:00:00+00:00', 'ef2.json', 'ride', 1860, 0.7, 300, 100)"
         )
         # Ride 3: Too short (29min) - should be excluded
         conn.execute(
-            "INSERT INTO rides (date, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
-            "VALUES ('2099-01-03', 'ef3.json', 'ride', 1740, 0.7, 200, 100)"
+            "INSERT INTO rides (start_time, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
+            "VALUES ('2099-01-03T10:00:00+00:00', 'ef3.json', 'ride', 1740, 0.7, 200, 100)"
         )
         # Ride 4: Too intense (IF 0.85) - should be excluded
         conn.execute(
-            "INSERT INTO rides (date, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
-            "VALUES ('2099-01-04', 'ef4.json', 'ride', 1860, 0.85, 200, 100)"
+            "INSERT INTO rides (start_time, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
+            "VALUES ('2099-01-04T10:00:00+00:00', 'ef4.json', 'ride', 1860, 0.85, 200, 100)"
         )
         # Ride 5: Wrong sport ('run') - should be excluded
         conn.execute(
-            "INSERT INTO rides (date, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
-            "VALUES ('2099-01-05', 'ef5.json', 'run', 1860, 0.7, 200, 100)"
+            "INSERT INTO rides (start_time, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
+            "VALUES ('2099-01-05T10:00:00+00:00', 'ef5.json', 'run', 1860, 0.7, 200, 100)"
         )
         # Ride 6: Feb 15 (45 days later), 31min, IF 0.7, sport 'ride', EF = 400/100 = 4.0.
         # Rolling EF = 4.0 because Jan rides are out of range.
         conn.execute(
-            "INSERT INTO rides (date, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
-            "VALUES ('2099-02-15', 'ef6.json', 'ride', 1860, 0.7, 400, 100)"
+            "INSERT INTO rides (start_time, filename, sport, duration_s, intensity_factor, normalized_power, avg_hr) "
+            "VALUES ('2099-02-15T10:00:00+00:00', 'ef6.json', 'ride', 1860, 0.7, 400, 100)"
         )
         conn.commit()
-    
+
     try:
         resp = client.get("/api/analysis/efficiency?start_date=2099-01-01")
         assert resp.status_code == 200
         data = resp.json()
-        
+
         # Sort results for easier verification
         mock_efs = sorted([r for r in data if r["date"] >= '2099-01-01'], key=lambda x: x["date"])
-        
+
         # Only Ride 1, 2, and 6 should be included
         assert len(mock_efs) == 3
-        
+
         # Ride 1
         assert mock_efs[0]["date"] == '2099-01-01'
         assert mock_efs[0]["ef"] == 2.0
         assert mock_efs[0]["rolling_ef"] == 2.0
-        
+
         # Ride 2
         assert mock_efs[1]["date"] == '2099-01-02'
         assert mock_efs[1]["ef"] == 3.0
         assert mock_efs[1]["rolling_ef"] == 2.5
-        
+
         # Ride 6
         assert mock_efs[2]["date"] == '2099-02-15'
         assert mock_efs[2]["ef"] == 4.0
         assert mock_efs[2]["rolling_ef"] == 4.0
-        
+
     finally:
         with get_db() as conn:
-            conn.execute("DELETE FROM rides WHERE date >= '2099-01-01'")
+            conn.execute("DELETE FROM rides WHERE start_time >= '2099-01-01T00:00:00+00:00'")
             conn.commit()
 
 

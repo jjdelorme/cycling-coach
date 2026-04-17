@@ -3,8 +3,10 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from server.auth import CurrentUser, require_read, require_write
+from server.dependencies import get_client_tz
 from server.database import get_db
 from server.models.schemas import RideSummary, RideDetail, RideRecord, RideLap, WeeklySummary, MonthlySummary, DailySummary
 from server.ingest import compute_daily_pmc
@@ -27,19 +29,24 @@ def list_rides(
     sport: Optional[str] = Query(None),
     limit: int = Query(500),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
-    query = "SELECT * FROM rides WHERE 1=1"
-    params = []
+    tz_name = str(tz)
+    query = (
+        "SELECT *, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date"
+        " FROM rides WHERE start_time IS NOT NULL"
+    )
+    params: list = [tz_name]
     if start_date:
-        query += " AND date >= %s"
-        params.append(start_date)
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+        params.extend([tz_name, start_date])
     if end_date:
-        query += " AND date <= %s"
-        params.append(end_date)
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
+        params.extend([tz_name, end_date])
     if sport:
-        query += " AND (sport = %s OR sub_sport = %s)"
+        query += " AND (sport = ? OR sub_sport = ?)"
         params.extend([sport, sport])
-    query += " ORDER BY date DESC LIMIT %s"
+    query += " ORDER BY start_time DESC LIMIT ?"
     params.append(limit)
 
     with get_db() as conn:
@@ -87,13 +94,20 @@ def aggregate_daily_rides(rows: list[dict], days: int = 7) -> list[DailySummary]
 def daily_summary(
     days: int = Query(7, ge=1, le=90),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
-    from datetime import date as dt_date, timedelta
-    since = (dt_date.today() - timedelta(days=days - 1)).isoformat()
+    from datetime import datetime, timedelta
+    from server.utils.dates import user_today
+    since = (datetime.fromisoformat(user_today(tz)) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    tz_name = str(tz)
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT date, duration_s, tss, total_calories, distance_m, total_ascent, avg_power FROM rides WHERE date >= %s ORDER BY date",
-            (since,),
+            "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,"
+            " duration_s, tss, total_calories, distance_m, total_ascent, avg_power"
+            " FROM rides WHERE start_time IS NOT NULL"
+            " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+            " ORDER BY start_time",
+            (tz_name, tz_name, since),
         ).fetchall()
     return aggregate_daily_rides([dict(r) for r in rows], days=days)
 
@@ -103,20 +117,23 @@ def weekly_summary(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
     from datetime import date as dt_date
-    query = """
-        SELECT date, duration_s, tss, distance_m, total_ascent, avg_power, avg_hr, best_20min_power
-        FROM rides WHERE 1=1
-    """
-    params = []
+    tz_name = str(tz)
+    query = (
+        "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,"
+        " duration_s, tss, distance_m, total_ascent, avg_power, avg_hr, best_20min_power"
+        " FROM rides WHERE start_time IS NOT NULL"
+    )
+    params: list = [tz_name]
     if start_date:
-        query += " AND date >= %s"
-        params.append(start_date)
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+        params.extend([tz_name, start_date])
     if end_date:
-        query += " AND date <= %s"
-        params.append(end_date)
-    query += " ORDER BY date"
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
+        params.extend([tz_name, end_date])
+    query += " ORDER BY start_time"
 
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -162,10 +179,12 @@ def monthly_summary(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
+    tz_name = str(tz)
     query = """
         SELECT
-            SUBSTR(date, 1, 7) as month,
+            TO_CHAR((start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE, 'YYYY-MM') as month,
             COUNT(*) as rides,
             ROUND(CAST(SUM(duration_s) / 3600.0 AS NUMERIC), 1) as duration_h,
             ROUND(CAST(SUM(COALESCE(tss, 0)) AS NUMERIC), 1) as tss,
@@ -175,15 +194,15 @@ def monthly_summary(
             ROUND(CAST(AVG(CASE WHEN avg_hr > 0 THEN avg_hr END) AS NUMERIC), 0) as avg_hr,
             MAX(best_20min_power) as best_20min
         FROM rides
-        WHERE 1=1
+        WHERE start_time IS NOT NULL
     """
-    params = []
+    params: list = [tz_name]
     if start_date:
-        query += " AND date >= %s"
-        params.append(start_date)
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+        params.extend([tz_name, start_date])
     if end_date:
-        query += " AND date <= %s"
-        params.append(end_date)
+        query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
+        params.extend([tz_name, end_date])
     query += " GROUP BY month ORDER BY month"
 
     with get_db() as conn:
@@ -192,9 +211,13 @@ def monthly_summary(
 
 
 @router.get("/{ride_id}", response_model=RideDetail)
-def get_ride(ride_id: int, user: CurrentUser = Depends(require_read)):
+def get_ride(ride_id: int, user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
+    tz_name = str(tz)
     with get_db() as conn:
-        ride = conn.execute("SELECT * FROM rides WHERE id = %s", (ride_id,)).fetchone()
+        ride = conn.execute(
+            "SELECT *, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date FROM rides WHERE id = ?",
+            (tz_name, ride_id),
+        ).fetchone()
         if not ride:
             raise HTTPException(status_code=404, detail="Ride not found")
 
@@ -242,22 +265,27 @@ def update_ride_title(ride_id: int, body: RideTitleUpdate, user: CurrentUser = D
 
 
 @router.delete("/{ride_id}")
-def delete_ride(ride_id: int, user: CurrentUser = Depends(require_write)):
+def delete_ride(ride_id: int, user: CurrentUser = Depends(require_write), tz: ZoneInfo = Depends(get_client_tz)):
+    tz_name = str(tz)
     with get_db() as conn:
-        # 1. Get ride date for PMC recalculation
-        ride = conn.execute("SELECT date FROM rides WHERE id = %s", (ride_id,)).fetchone()
+        # 1. Get ride local date for PMC recalculation (derived from start_time)
+        ride = conn.execute(
+            "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS local_date"
+            " FROM rides WHERE id = ?",
+            (tz_name, ride_id),
+        ).fetchone()
         if not ride:
             raise HTTPException(status_code=404, detail="Ride not found")
 
-        ride_date = ride["date"]
+        ride_date = ride["local_date"]
 
         # 2. Delete dependencies
-        conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_id,))
-        conn.execute("DELETE FROM ride_laps WHERE ride_id = %s", (ride_id,))
-        conn.execute("DELETE FROM power_bests WHERE ride_id = %s", (ride_id,))
+        conn.execute("DELETE FROM ride_records WHERE ride_id = ?", (ride_id,))
+        conn.execute("DELETE FROM ride_laps WHERE ride_id = ?", (ride_id,))
+        conn.execute("DELETE FROM power_bests WHERE ride_id = ?", (ride_id,))
 
         # 3. Delete ride
-        conn.execute("DELETE FROM rides WHERE id = %s", (ride_id,))
+        conn.execute("DELETE FROM rides WHERE id = ?", (ride_id,))
 
         # 4. Recalculate PMC
         compute_daily_pmc(conn, since_date=ride_date)

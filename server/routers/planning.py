@@ -6,8 +6,11 @@ from fastapi.responses import Response
 from typing import Optional
 from pydantic import BaseModel
 
+from zoneinfo import ZoneInfo
+
 from server.auth import CurrentUser, require_read, require_write
 from server.database import get_db, get_athlete_setting
+from server.dependencies import get_client_tz
 from server.models.schemas import PlannedWorkout, PeriodizationPhase
 from server.queries import get_current_ftp as _get_current_ftp_with_conn, get_periodization_phases, get_week_planned_and_actual
 from server.services.workout_generator import generate_zwo, list_templates, get_template
@@ -26,16 +29,19 @@ router = APIRouter(prefix="/api/plan", tags=["plan"])
 
 
 @router.get("/activity-dates")
-def get_activity_dates(user: CurrentUser = Depends(require_read)):
+def get_activity_dates(user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     """Return sorted list of all dates that have a ride or planned workout."""
+    tz_name = str(tz)
     try:
         with get_db() as conn:
             rows = conn.execute(
                 "SELECT DISTINCT date FROM ("
-                "  SELECT SUBSTR(date, 1, 10) AS date FROM rides WHERE date IS NOT NULL"
+                "  SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date"
+                "   FROM rides WHERE start_time IS NOT NULL"
                 "  UNION"
-                "  SELECT SUBSTR(date, 1, 10) AS date FROM planned_workouts WHERE date IS NOT NULL"
-                ") AS combined ORDER BY date"
+                "  SELECT date::TEXT AS date FROM planned_workouts WHERE date IS NOT NULL"
+                ") AS combined ORDER BY date",
+                (tz_name,),
             ).fetchall()
         return [r["date"] for r in rows]
     except Exception as e:
@@ -52,7 +58,7 @@ def get_macro_plan(user: CurrentUser = Depends(require_read)):
 
 
 @router.get("/week/{date}")
-def get_week_plan(date: str, user: CurrentUser = Depends(require_read)):
+def get_week_plan(date: str, user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     """Get planned workouts for the week containing the given date."""
     from datetime import datetime, timedelta
     dt = datetime.fromisoformat(date)
@@ -63,7 +69,7 @@ def get_week_plan(date: str, user: CurrentUser = Depends(require_read)):
     end_str = end.strftime("%Y-%m-%d")
 
     with get_db() as conn:
-        planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
+        planned, actual = get_week_planned_and_actual(conn, start_str, end_str, tz_name=str(tz))
 
     return {
         "week_start": start_str,
@@ -74,7 +80,7 @@ def get_week_plan(date: str, user: CurrentUser = Depends(require_read)):
 
 
 @router.post("/week/batch")
-def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_read)):
+def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     """Get planned workouts for multiple weeks in a single request."""
     from datetime import datetime, timedelta
 
@@ -89,7 +95,7 @@ def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_r
             end = start + timedelta(days=6)
             start_str = start.strftime("%Y-%m-%d")
             end_str = end.strftime("%Y-%m-%d")
-            planned, actual = get_week_planned_and_actual(conn, start_str, end_str)
+            planned, actual = get_week_planned_and_actual(conn, start_str, end_str, tz_name=str(tz))
             results.append({
                 "week_start": start_str,
                 "week_end": end_str,
@@ -100,7 +106,7 @@ def get_week_plans_batch(dates: list[str], user: CurrentUser = Depends(require_r
 
 
 @router.get("/weekly-overview")
-def weekly_overview(user: CurrentUser = Depends(require_read)):
+def weekly_overview(user: CurrentUser = Depends(require_read), tz: ZoneInfo = Depends(get_client_tz)):
     """Weekly rollup of planned vs actual hours and TSS across the full plan.
 
     Returns one entry per week for every week spanned by periodization phases,
@@ -114,8 +120,8 @@ def weekly_overview(user: CurrentUser = Depends(require_read)):
         if not phases:
             return []
 
-        plan_start = dt_date.fromisoformat(phases[0]["start_date"])
-        plan_end = dt_date.fromisoformat(phases[-1]["end_date"])
+        plan_start = dt_date.fromisoformat(str(phases[0]["start_date"]))
+        plan_end = dt_date.fromisoformat(str(phases[-1]["end_date"]))
 
         # Monday of the first week
         first_monday = plan_start - timedelta(days=plan_start.weekday())
@@ -129,7 +135,7 @@ def weekly_overview(user: CurrentUser = Depends(require_read)):
             mid = mon + timedelta(days=3)  # use mid-week to assign phase
             mid_str = mid.isoformat()
             for p in phase_list:
-                if p["start_date"] <= mid_str <= p["end_date"]:
+                if str(p["start_date"]) <= mid_str <= str(p["end_date"]):
                     return p
             return None
 
@@ -141,7 +147,7 @@ def weekly_overview(user: CurrentUser = Depends(require_read)):
 
         planned_by_week = defaultdict(lambda: {"hours": 0.0, "tss": 0.0, "workouts": 0})
         for r in planned_rows:
-            d = dt_date.fromisoformat(r["date"])
+            d = dt_date.fromisoformat(str(r["date"]))
             mon = d - timedelta(days=d.weekday())
             pw = planned_by_week[mon.isoformat()]
             pw["workouts"] += 1
@@ -149,9 +155,14 @@ def weekly_overview(user: CurrentUser = Depends(require_read)):
             pw["tss"] += float(r["planned_tss"] or 0)
 
         # Actual rides aggregated by week
+        tz_name = str(tz)
         actual_rows = conn.execute(
-            "SELECT date, duration_s, tss FROM rides WHERE date >= ? AND date <= ? ORDER BY date",
-            (first_monday.isoformat(), last_sunday.isoformat()),
+            "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date,"
+            " duration_s, tss FROM rides"
+            " WHERE (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+            " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
+            " ORDER BY start_time",
+            (tz_name, tz_name, first_monday.isoformat(), tz_name, last_sunday.isoformat()),
         ).fetchall()
 
         actual_by_week = defaultdict(lambda: {"hours": 0.0, "tss": 0.0, "rides": 0})
@@ -195,23 +206,33 @@ def plan_compliance(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
 ):
     """Planned vs actual workout compliance."""
+    tz_name = str(tz)
     with get_db() as conn:
         pw_query = "SELECT date FROM planned_workouts WHERE 1=1"
-        r_query = "SELECT DISTINCT date FROM rides WHERE 1=1"
-        params = []
+        pw_params: list = []
+        r_query = (
+            "SELECT DISTINCT (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date"
+            " FROM rides WHERE 1=1"
+        )
+        r_params: list = [tz_name]
         if start_date:
             pw_query += " AND date >= ?"
-            r_query += " AND date >= ?"
-            params.append(start_date)
+            pw_params.append(start_date)
+            r_query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE >= ?::DATE"
+            r_params.extend([tz_name, start_date])
         if end_date:
             pw_query += " AND date <= ?"
-            r_query += " AND date <= ?"
-            params.append(end_date)
+            pw_params.append(end_date)
+            r_query += " AND (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE <= ?::DATE"
+            r_params.extend([tz_name, end_date])
 
-        planned_dates = set(r["date"] for r in conn.execute(pw_query, params).fetchall() if r["date"])
-        actual_dates = set(r["date"] for r in conn.execute(r_query, params).fetchall())
+        # Use str() on planned_workouts.date (now DATE type returning datetime.date)
+        # to match the string format from actual rides (::TEXT cast).
+        planned_dates = set(str(r["date"]) for r in conn.execute(pw_query, pw_params).fetchall() if r["date"])
+        actual_dates = set(r["date"] for r in conn.execute(r_query, r_params).fetchall())
 
     completed = planned_dates & actual_dates
     missed = planned_dates - actual_dates
@@ -335,7 +356,7 @@ def sync_workout_to_intervals(workout_id: int, user: CurrentUser = Depends(requi
         )
 
     from server.services.intervals_icu import compute_sync_hash
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     with get_db() as conn:
         row = conn.execute(
@@ -353,11 +374,12 @@ def sync_workout_to_intervals(workout_id: int, user: CurrentUser = Depends(requi
         icu_event_id = row.get("icu_event_id")
 
         # Step 2.B Implementation: Check for existing event on Intervals.icu if we don't have an ID
+        w_date = str(row["date"])
         if not icu_event_id:
-            icu_event_id = find_matching_workout(row["date"], w_name)
+            icu_event_id = find_matching_workout(w_date, w_name)
 
         result = push_workout(
-            date=row["date"],
+            date=w_date,
             name=w_name,
             zwo_xml=row["workout_xml"],
             moving_time_secs=moving_time,
@@ -368,10 +390,10 @@ def sync_workout_to_intervals(workout_id: int, user: CurrentUser = Depends(requi
             raise HTTPException(status_code=502, detail=result.get("error") or result.get("message", "Sync failed"))
 
         # Store event_id and hash
-        current_hash = compute_sync_hash(w_name, row["date"], row["workout_xml"], moving_time)
+        current_hash = compute_sync_hash(w_name, w_date, row["workout_xml"], moving_time)
         conn.execute(
             "UPDATE planned_workouts SET icu_event_id = ?, sync_hash = ?, synced_at = ? WHERE id = ?",
-            (result.get("event_id"), current_hash, datetime.now().isoformat(timespec="seconds"), row["id"]),
+            (result.get("event_id"), current_hash, datetime.now(timezone.utc).isoformat(timespec="seconds"), row["id"]),
         )
 
     return result
@@ -543,7 +565,7 @@ def get_workout_detail(workout_id: int, user: CurrentUser = Depends(require_read
 
     return {
         "id": workout["id"],
-        "date": workout["date"],
+        "date": str(workout["date"]),
         "name": workout["name"],
         "sport": workout["sport"],
         "total_duration_s": total_duration,
@@ -593,7 +615,7 @@ def download_planned_workout(workout_id: int, fmt: str = "tcx", user: CurrentUse
 
     with get_db() as conn:
         ftp_row = conn.execute(
-            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+            "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY start_time DESC LIMIT 1"
         ).fetchone()
     ftp = ftp_row["ftp"] if ftp_row else 0
 
@@ -619,7 +641,7 @@ def download_planned_workout(workout_id: int, fmt: str = "tcx", user: CurrentUse
             row["workout_xml"],
             ftp=ftp,
             workout_name=row["name"] or "Workout",
-            scheduled_date=row["date"],
+            scheduled_date=str(row["date"]),
         )
         return Response(
             content=tcx_str,

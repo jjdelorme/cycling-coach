@@ -153,8 +153,8 @@ def store_measurements(measurements: list[dict]) -> int:
 def sync_weight(days: int = 90) -> dict:
     if not is_connected():
         return {"status": "error", "message": "Withings not connected. Please authorize in Settings."}
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     measurements = fetch_weight_measurements(start_date, end_date)
     count = store_measurements(measurements)
     try:
@@ -278,7 +278,7 @@ def handle_webhook_notification(userid: str, startdate: int, enddate: int) -> di
             from server.database import get_db
             from server.ingest import compute_daily_pmc
             with get_db() as conn:
-                compute_daily_pmc(conn)
+                compute_daily_pmc(conn, tz_name="UTC")
         logger.info("withings_webhook_synced", synced=count, start=start_date, end=end_date)
         return {"status": "success", "synced": count}
     except Exception as e:

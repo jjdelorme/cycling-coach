@@ -1,6 +1,7 @@
 """Read-only ADK tools for the Nutritionist agent to query meal and training data."""
 
 from datetime import datetime, timedelta
+from server.utils.dates import get_request_tz, user_today
 from server.database import get_db, get_all_athlete_settings
 from server.queries import get_meals_for_date, get_meal_items, get_macro_targets, get_daily_meal_totals
 
@@ -14,7 +15,7 @@ def get_meal_history(days_back: int = 7) -> list[dict]:
     Returns:
         List of meal records with date, description, macros, and confidence.
     """
-    cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(get_request_tz()) - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
     with get_db() as conn:
         rows = conn.execute(
@@ -38,7 +39,7 @@ def get_daily_macros(date: str = "") -> dict:
         Daily macro summary including totals, targets, remaining, and per-meal breakdown.
     """
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     with get_db() as conn:
         meals = conn.execute(
@@ -82,22 +83,23 @@ def get_weekly_summary(date: str = "") -> dict:
         Weekly averages and per-day totals.
     """
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     dt = datetime.fromisoformat(date)
     start = dt - timedelta(days=dt.weekday())
     end = start + timedelta(days=6)
 
+    tz_name = get_request_tz().key
     days = []
     with get_db() as conn:
         for i in range(7):
             day = (start + timedelta(days=i)).strftime("%Y-%m-%d")
             totals = get_daily_meal_totals(conn, day)
-            # Get ride calories for this day
+            # Get ride calories for this day -- derive local date from start_time
             ride_row = conn.execute(
                 "SELECT COALESCE(SUM(total_calories), 0) AS ride_cal "
-                "FROM rides WHERE date = %s",
-                (day,),
+                "FROM rides WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE = %s::DATE",
+                (tz_name, day),
             ).fetchone()
             totals["date"] = day
             totals["calories_out_rides"] = int(ride_row["ride_cal"]) if ride_row else 0
@@ -127,14 +129,16 @@ def get_caloric_balance(date: str = "") -> dict:
         Intake, ride expenditure, estimated BMR, total expenditure, and net balance.
     """
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     from server.services.weight import get_weight_for_date
+    tz_name = get_request_tz().key
     with get_db() as conn:
         totals = get_daily_meal_totals(conn, date)
         ride_row = conn.execute(
-            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides WHERE date = %s",
-            (date,),
+            "SELECT COALESCE(SUM(total_calories), 0) AS total FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE = %s::DATE",
+            (tz_name, date),
         ).fetchone()
         ride_cal = int(ride_row["total"]) if ride_row else 0
         weight_kg = get_weight_for_date(conn, date)
@@ -171,8 +175,9 @@ def get_upcoming_training_load(days_ahead: int = 3) -> dict:
     Returns:
         Planned workouts with date, name, TSS, duration, and estimated calories.
     """
-    today = datetime.now().strftime("%Y-%m-%d")
-    end = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    _now = datetime.now(get_request_tz())
+    today = _now.strftime("%Y-%m-%d")
+    end = (_now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
 
     with get_db() as conn:
         rows = conn.execute(
@@ -212,14 +217,18 @@ def get_recent_workouts(days_back: int = 3) -> list[dict]:
     Returns:
         List of ride summaries with TSS, duration, and calories burned.
     """
-    cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(get_request_tz()) - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    tz_name = get_request_tz().key
 
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT date, sub_sport, duration_s, tss, total_calories, "
+            "SELECT (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE::TEXT AS date, "
+            "sub_sport, duration_s, tss, total_calories, "
             "avg_power, normalized_power "
-            "FROM rides WHERE date >= %s ORDER BY date DESC",
-            (cutoff,),
+            "FROM rides "
+            "WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE >= %s::DATE "
+            "ORDER BY start_time DESC",
+            (tz_name, tz_name, cutoff),
         ).fetchall()
 
     return [
@@ -250,7 +259,7 @@ def get_planned_meals(date: str = "", days_ahead: int = 7) -> dict:
     import json
 
     if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = user_today()
 
     start = datetime.fromisoformat(date)
     end = start + timedelta(days=days_ahead - 1)

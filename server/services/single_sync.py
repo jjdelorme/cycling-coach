@@ -36,7 +36,8 @@ async def import_specific_activity(icu_id):
     if not ride_data:
         logger.error("single_sync_map_failed", icu_id=icu_id)
         raise ValueError(f"Activity {icu_id} could not be mapped to a ride.")
-    target_date = ride_data["date"]
+    # Derive UTC date from start_time for benchmark lookups and power_bests.date
+    target_date = ride_data["start_time"][:10] if ride_data.get("start_time") else ""
     logger.info("single_sync_mapped", icu_id=icu_id, date=target_date, sport=ride_data["sport"])
     
     filename = f"icu_{icu_id}"
@@ -53,19 +54,19 @@ async def import_specific_activity(icu_id):
         else:
             logger.info("single_sync_inserting", icu_id=icu_id, date=target_date)
             res = conn.execute(
-                """INSERT INTO rides 
-                   (date, start_time, title, duration_s, distance_m, total_ascent,
+                """INSERT INTO rides
+                   (start_time, title, duration_s, distance_m, total_ascent,
                     sport, avg_power, max_power, avg_hr, max_hr, avg_cadence,
                     normalized_power, tss, intensity_factor, variability_index, filename, ftp,
                     best_1min_power, best_5min_power, best_20min_power, best_60min_power)
-                   VALUES 
-                   (%(date)s, %(st)s, %(title)s, %(dur)s, %(dist)s, %(elev)s,
+                   VALUES
+                   (%(st)s, %(title)s, %(dur)s, %(dist)s, %(elev)s,
                     %(sport)s, %(ap)s, %(mp)s, %(ahr)s, %(mhr)s, %(acad)s,
                     %(np)s, %(tss)s, %(if)s, %(vi)s, %(file)s, %(ftp)s,
                     %(b1)s, %(b5)s, %(b20)s, %(b60)s)
                    RETURNING id""",
                 {
-                    "date": ride_data["date"], "st": ride_data.get("start_time"), "title": activity.get("name", "Activity"),
+                    "st": ride_data.get("start_time"), "title": activity.get("name", "Activity"),
                     "dur": ride_data["duration_s"], 
                     "dist": ride_data.get("distance_m", 0),
                     "elev": ride_data.get("total_ascent"), "sport": ride_data.get("sport", "Ride"), 
@@ -140,6 +141,7 @@ async def import_specific_activity(icu_id):
                 if metrics.get("tss", 0) > 0:
                     conn.execute("UPDATE rides SET tss = %(tss)s WHERE id = %(id)s", {"tss": metrics["tss"], "id": ride_id})
             
+            # Insert power bests (date is UTC-derived from start_time)
             if metrics.get("power_bests"):
                 params_list = [
                     {"ride_id": ride_id, "date": target_date, "dur": pb["duration_s"], "pwr": pb["power"],

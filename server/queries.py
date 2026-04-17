@@ -34,12 +34,13 @@ def get_latest_metric(conn, key: str, as_of_date: str) -> float:
 
 def get_current_ftp(conn) -> int:
     """Get current FTP: prefer athlete_log/settings, fall back to latest ride."""
-    val = int(get_latest_metric(conn, "ftp", datetime.now().strftime("%Y-%m-%d")))
+    from server.utils.dates import user_today
+    val = int(get_latest_metric(conn, "ftp", user_today()))
     if val > 0:
         return val
 
     row = conn.execute(
-        "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY date DESC LIMIT 1"
+        "SELECT ftp FROM rides WHERE ftp > 0 ORDER BY start_time DESC LIMIT 1"
     ).fetchone()
     return row["ftp"] if row else 0
 
@@ -49,7 +50,12 @@ def get_current_pmc_row(conn) -> dict | None:
     row = conn.execute(
         "SELECT * FROM daily_metrics ORDER BY date DESC LIMIT 1"
     ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    d = dict(row)
+    # Convert daily_metrics.date from datetime.date (post-migration) to string
+    d["date"] = str(d["date"])
+    return d
 
 
 def get_pmc_row_for_date(conn, date: str) -> dict | None:
@@ -58,18 +64,24 @@ def get_pmc_row_for_date(conn, date: str) -> dict | None:
         "SELECT * FROM daily_metrics WHERE date <= %s ORDER BY date DESC LIMIT 1",
         (date,),
     ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    d = dict(row)
+    # Convert daily_metrics.date from datetime.date (post-migration) to string
+    d["date"] = str(d["date"])
+    return d
 
 
 def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Get best power at each standard duration, optionally filtered by date range.
 
-    Returns list of dicts with: duration_s, power, avg_hr, date, ride_id.
+    Returns list of dicts with: duration_s, power, avg_hr, date (str), ride_id.
     Uses DISTINCT ON to pick the single best row per duration.
     """
     if start_date or end_date:
         sd = start_date or "2000-01-01"
-        ed = end_date or datetime.now().strftime("%Y-%m-%d")
+        from server.utils.dates import user_today
+        ed = end_date or user_today()
         rows = conn.execute(
             """SELECT DISTINCT ON (duration_s) duration_s, power, avg_hr, date, ride_id
                FROM power_bests
@@ -83,22 +95,28 @@ def get_power_bests_rows(conn, start_date: str | None = None, end_date: str | No
                FROM power_bests
                ORDER BY duration_s, power DESC, date DESC"""
         ).fetchall()
-    return [dict(r) for r in rows]
+    # Convert power_bests.date from datetime.date (post-migration) to string
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["date"] = str(d["date"])
+        result.append(d)
+    return result
 
 
 def get_ftp_history_rows(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Get FTP progression by month from daily_metrics."""
-    query = """SELECT SUBSTR(date, 1, 7) as month, MAX(ftp) as ftp, AVG(weight) as weight_kg
+    query = """SELECT TO_CHAR(date, 'YYYY-MM') as month, MAX(ftp) as ftp, AVG(weight) as weight_kg
                FROM daily_metrics
                WHERE ftp > 0"""
     params = []
     if start_date:
-        query += " AND date >= %s"
+        query += " AND date >= %s::DATE"
         params.append(start_date)
     if end_date:
-        query += " AND date <= %s"
+        query += " AND date <= %s::DATE"
         params.append(end_date)
-    query += " GROUP BY SUBSTR(date, 1, 7) ORDER BY month"
+    query += " GROUP BY TO_CHAR(date, 'YYYY-MM') ORDER BY month"
 
     rows = conn.execute(query, params).fetchall()
 
@@ -118,11 +136,25 @@ def get_periodization_phases(conn) -> list[dict]:
     rows = conn.execute(
         "SELECT * FROM periodization_phases ORDER BY start_date"
     ).fetchall()
-    return [dict(r) for r in rows]
+    # Convert start_date/end_date from datetime.date (post-migration) to
+    # string for consistent downstream handling.
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["start_date"] = str(d["start_date"])
+        d["end_date"] = str(d["end_date"])
+        result.append(d)
+    return result
 
 
-def get_week_planned_and_actual(conn, start_str: str, end_str: str) -> tuple[list[dict], list[dict]]:
+def get_week_planned_and_actual(conn, start_str: str, end_str: str, tz_name: str = "UTC") -> tuple[list[dict], list[dict]]:
     """Get planned workouts and actual rides for a Mon-Sun date range.
+
+    Args:
+        conn: Database connection.
+        start_str: Week start YYYY-MM-DD.
+        end_str: Week end YYYY-MM-DD.
+        tz_name: IANA timezone for deriving ride local date from start_time.
 
     Returns (planned_rows, actual_rows) as lists of dicts.
     """
@@ -132,13 +164,25 @@ def get_week_planned_and_actual(conn, start_str: str, end_str: str) -> tuple[lis
     ).fetchall()
 
     actual = conn.execute(
-        """SELECT id, date, sport, sub_sport, duration_s, tss, avg_power,
+        """SELECT id, (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE::TEXT AS date,
+                  sport, sub_sport, duration_s, tss, avg_power,
                   normalized_power, avg_hr, distance_m, total_ascent
-           FROM rides WHERE date >= %s AND date <= %s ORDER BY date""",
-        (start_str, end_str),
+           FROM rides
+           WHERE (start_time::TIMESTAMPTZ AT TIME ZONE %s)::DATE BETWEEN %s::DATE AND %s::DATE
+           ORDER BY start_time""",
+        (tz_name, tz_name, start_str, end_str),
     ).fetchall()
 
-    return [dict(p) for p in planned], [dict(a) for a in actual]
+    # Convert planned_workouts.date from datetime.date to string for
+    # consistent handling downstream (callers compare with date strings,
+    # pass to APIs, and return in JSON responses).
+    planned_dicts = []
+    for p in planned:
+        d = dict(p)
+        d["date"] = str(d["date"])
+        planned_dicts.append(d)
+
+    return planned_dicts, [dict(a) for a in actual]
 
 
 def get_meals_for_date(conn, date: str, user_id: str = "athlete") -> list[dict]:
