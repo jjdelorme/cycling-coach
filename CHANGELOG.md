@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.12.1] - 2026-04-17
+
+### Fixes
+- **fix(rides): render markdown in AI Coaching card** — coach_comments on the Ride Detail page were rendered as plain pre-wrapped text, so when the LLM emitted markdown (`### headings`, `**bold**`, bullet lists) users saw raw syntax instead of formatted output. Now wrapped in `ReactMarkdown` + `remarkGfm` matching the `CoachPanel` pattern, with explicit `list-disc` / `list-decimal` / header-sizing utilities since Tailwind v4 preflight resets `ul`/`ol`/`h1-h3` styling
+
 ## [v1.12.0] - 2026-04-17
 
 ### Features
