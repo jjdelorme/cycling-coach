@@ -1,7 +1,7 @@
 # Timezone Awareness — Research Report
 
-**Status:** Architecture finalized — Phase 0 partially implemented in worktree (needs revision), Phases 1–4 pending
-**Branch:** `worktree-fix-timezone-awareness`
+**Status:** Complete — merged to main (merge commit `a8be0ad`); archived 2026-04-18
+**Branch:** `worktree-fix-timezone-awareness` (deleted post-merge)
 **Date:** 2026-04-10
 
 ---

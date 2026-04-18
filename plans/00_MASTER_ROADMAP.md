@@ -14,13 +14,14 @@ This document serves as the top-level view of all active, planned, and completed
   - *Status:* Planned
   - *Goal:* Resolve UX issue where lap selection breaks while the ride detail chart is zoomed. Implement "Option B" (zoom to lap) for better UX.
 
-- [ ] **Campaign 15: Timezone Awareness & Schema Hardening** (`plans/timezone-awareness.md`)
-  - *Status:* Planning/Phase 0 (Worktree)
-  - *Goal:* Correct system-wide "UTC by accident" behavior. Migrate DATE/TIMESTAMPTZ columns, implement header-based timezone transport, and fix all daily logic to respect athlete's local day.
-
 ---
 
 ## Archived Campaigns
+
+### Campaign 15: Timezone Awareness & Schema Hardening (Completed)
+**Tracking Plan:** `plans/archive/timezone-awareness.md`
+- *Merged to main (`a8be0ad`); local + worktree branch removed 2026-04-18.*
+
 
 ### Campaign: v1.5.2 Data Science & Dashboard Overhaul (Archived)
 **Tracking Plan:** `plans/archive/v1.5.2-roadmap.md`
