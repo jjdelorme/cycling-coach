@@ -194,6 +194,8 @@ export interface ChatRequest {
 export interface ChatResponse {
   response: string
   session_id: string
+  requires_clarification?: boolean
+  meal_saved?: boolean
 }
 
 export interface SessionSummary {
@@ -392,6 +394,8 @@ export interface NutritionChatRequest {
 export interface NutritionChatResponse {
   response: string
   session_id: string
+  requires_clarification?: boolean
+  meal_saved?: boolean
 }
 
 // --- Meal Plan Types ---

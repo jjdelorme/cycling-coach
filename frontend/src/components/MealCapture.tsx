@@ -44,7 +44,14 @@ export default function MealCapture({ onMealSaved, onOpenNutritionist }: Props) 
         message: `Log this meal: ${msg}`,
       })
       setQuickSessionId(res.session_id)
-      setQuickResponse(res.response)
+      
+      // Auto-forward to chat window if the AI needs more information
+      if (res.requires_clarification || !res.meal_saved) {
+        closeQuickLog()
+        onOpenNutritionist?.(undefined, res.session_id)
+      } else {
+        setQuickResponse(res.response)
+      }
     } catch {
       setQuickResponse('Error logging meal. Please try again.')
     }

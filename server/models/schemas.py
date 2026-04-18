@@ -314,3 +314,5 @@ class NutritionChatRequest(BaseModel):
 class NutritionChatResponse(BaseModel):
     response: str
     session_id: str
+    requires_clarification: bool = False
+    meal_saved: bool = False

@@ -130,7 +130,7 @@ async def create_meal(
 
     session_id = str(uuid.uuid4())
     try:
-        response_text = await nutrition_chat(
+        response_text, _, _ = await nutrition_chat(
             message=prompt,
             user_id=user.email if hasattr(user, "email") else "athlete",
             session_id=session_id,
@@ -353,7 +353,7 @@ async def analyze_meal_endpoint(meal_id: int, user: CurrentUser = Depends(requir
             image_mime = "image/jpeg"
 
     try:
-        response_text = await nutrition_chat(
+        response_text, _, _ = await nutrition_chat(
             message=prompt,
             user_id=user.email if hasattr(user, "email") else "athlete",
             session_id=session_id,
@@ -684,7 +684,7 @@ async def nutrition_chat_endpoint(req: NutritionChatRequest, user: CurrentUser =
         image_bytes = base64.b64decode(req.image_data)
 
     try:
-        response = await nutrition_chat(
+        response_text, requires_clarification, meal_saved = await nutrition_chat(
             message=req.message,
             session_id=session_id,
             user=user,
@@ -696,7 +696,12 @@ async def nutrition_chat_endpoint(req: NutritionChatRequest, user: CurrentUser =
             raise HTTPException(429, "The AI model is currently busy. Please try again in a moment.")
         raise
 
-    return NutritionChatResponse(response=response, session_id=session_id)
+    return NutritionChatResponse(
+        response=response_text,
+        session_id=session_id,
+        requires_clarification=requires_clarification,
+        meal_saved=meal_saved,
+    )
 
 
 # ---------------------------------------------------------------------------

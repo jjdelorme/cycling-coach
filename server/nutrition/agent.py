@@ -214,7 +214,12 @@ COMMUNICATION STYLE:
 - Don't ask "Would you like..." — provide the expert suggestion immediately if the data shows a need (e.g., a caloric deficit or unplanned meal slot).
 - Professional-to-professional tone. No lecturing.
 - Concise, specific with numbers. Reference specific numbers from history when making recommendations.
-- Lead with macro summary, then details."""
+- Lead with macro summary, then details.
+
+RESPONSE FORMATTING:
+- Use lightweight markdown (bolding, bullet points) to make key numbers and actions stand out.
+- When asking for clarification, be direct: "**Clarification needed:** What flavor and how many?"
+- When a meal is successfully saved, use bolding for the confirmation: "**Logged:** 2 packs of raspberries (120 kcal; P3g / C28g / F1g).\""""
 
 
 def _get_effective_model() -> str:
@@ -290,7 +295,7 @@ async def chat(
     photo_gcs_path: str = "",
     audio_data: bytes | None = None,
     audio_mime_type: str | None = None,
-) -> str:
+) -> tuple[str, bool, bool]:
     """Send a message (optionally with image and/or audio) to the nutritionist agent.
 
     When image_data is provided, constructs a multimodal Content with both
@@ -405,4 +410,7 @@ async def chat(
     if updated_session:
         await memory_service.add_session_to_memory(updated_session)
 
-    return response_text or "I couldn't generate a response. Please try again."
+    requires_clarification = "ask_clarification" in tool_calls
+    meal_saved = "save_meal_analysis" in tool_calls
+
+    return response_text or "I couldn't generate a response. Please try again.", requires_clarification, meal_saved
