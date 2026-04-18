@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.12.2] - 2026-04-18
+
+### Features
+- **feat(nutrition): auto-forward ambiguous meal logs to chat** — When logging an ambiguous meal (e.g., "pop tarts") via the Quick Log modal, the UI now automatically forwards you to the full nutritionist chat window instead of presenting a generic "Done" button. The agent also uses bold markdown for key actions.
+
+
 ## [v1.12.1] - 2026-04-17
 
 ### Fixes
