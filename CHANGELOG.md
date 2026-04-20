@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.12.3-beta] - 2026-04-20
+## [v1.12.3] - 2026-04-20
 
 ### Features
 - **feat(calendar): show ride name inline on month grid (md+)** — Calendar day cells now display the ride title alongside the TSS number on `md+` breakpoints, with a native browser tooltip exposing the full title on every breakpoint (including mobile, where the inline span is hidden). Added an E2E assertion for the title attribute.
