@@ -48,23 +48,67 @@ must be implementable as additive query params on the existing
 
 **Backend — schema (`migrations/0001_baseline.sql`):**
 - `rides` table already has `start_lat REAL`, `start_lon REAL` (lines 45-46).
+- `ride_records` table has per-record `lat REAL`, `lon REAL` (lines 63-64).
 - **No** PostGIS extension installed; no spatial index.
 - Searchable text columns on `rides`: `title`, `post_ride_comments`,
   `coach_comments`, `filename`. There is no `description` column — ride text
   comes from the user-edited `title`/`post_ride_comments` and the agent-written
   `coach_comments`. There is no separate "notes" column on rides.
 
-**Geo-data population — important data gap:**
-- `server/ingest.py` (FIT-file path): writes `start_lat` / `start_lon` from
-  `session.start_position_lat`/`long` (lines 192-193, 224-225). Populated.
-- `server/services/intervals_icu.py` (ICU sync path, line 356-357): explicitly
-  sets `"start_lat": None, "start_lon": None`. **Not populated.**
-- However, the same module already pulls per-second `latlng` streams into
-  `ride_records` (line 200, `params = {"types": "...latlng"}`), so geo data
-  exists per-record but not at the ride level for ICU-sourced rides.
-- **Consequence:** depending on how the user ingests rides, a non-trivial
-  fraction of historical `rides` rows may have `start_lat IS NULL`. Phase 2
-  must handle this and ship a backfill.
+**Geo-data population — current state (re-investigated 2026-04-20, second pass):**
+
+The first investigation pass concluded "the orchestrator already populates
+`start_lat`/`start_lon` for new ICU rides; only historical rides need a
+backfill." **That conclusion was wrong.** A live probe against the Neon dev DB
+revealed an outdoor ride from 2026-04-04 (id 3233, "Natick Road Cycling",
+filename `icu_i137210941`) with 10,892 stream records but **zero**
+`ride_records.lat`/`lon` populated and `rides.start_lat IS NULL`. Root cause:
+
+- `fetch_activity_streams()` returns `latlng` as a **flat array of alternating
+  floats** (`[lat, lon, lat, lon, ...]`), not as nested `[lat, lon]` pairs.
+- Both consumers handle only the pair format:
+  - `server/services/sync.py:274` in `_store_streams` —
+    `isinstance(latlng_raw[0], (list, tuple))` is False for a float, so
+    `latlng_pairs` stays empty and every record is written with
+    `lat=None, lon=None`.
+  - `server/services/sync.py:320` in `_backfill_start_location` — same check,
+    same silent skip.
+- The inline comment at `sync.py:271` literally says "intervals.icu may return
+  [lat, lng] pairs or flat values" — the author anticipated the flat case but
+  only implemented the pair case. Either ICU changed payload format or this
+  was always half-broken.
+
+**Consequences:**
+1. Every outdoor ICU-synced ride has `rides.start_lat IS NULL` AND
+   `ride_records.lat/lon` empty. The Ride Details page's city/state label is
+   therefore missing for *every* outdoor ICU ride, not just historical ones.
+2. The original Phase 1 plan (pure-DB backfill from `ride_records`) **cannot
+   work** because the source data isn't there either. We need to re-fetch
+   streams from ICU.
+3. The remaining FIT-ingested rides (`server/ingest.py:192-193`) DO have
+   `start_lat`/`start_lon` correctly — those go through `fitparse`, not the
+   ICU stream parser. That's why the city label appears for *some* rides.
+
+**Other call sites for the broken pattern** (need the same fix or to be
+verified):
+- `server/services/sync.py:515` (bulk sync) — ICU path
+- `server/services/single_sync.py:93` (single re-sync) — ICU path
+- `scripts/backfill_icu_streams.py:64` — uses the same broken helpers
+- `scripts/repair_missing_data.py:99` — same
+
+**Ride-detail city/state display — not a frontend regression:**
+- `frontend/src/pages/Rides.tsx:178-194` reverse-geocodes
+  `ride.start_lat`/`ride.start_lon` via Nominatim. When NULL it silently shows
+  nothing. No frontend change needed once the backend data is right.
+
+**Existing backfill prior art (need fixing alongside the parser):**
+- `scripts/backfill_icu_streams.py` — calls the broken `_backfill_start_location`
+  via the broken `_extract_streams` interpretation. Will work correctly after
+  the parser fix.
+- `scripts/repair_missing_data.py` — same. Will work after the parser fix.
+- **Once the parser is fixed**, re-running either script (or a new
+  narrowly-scoped `scripts/backfill_ride_start_geo.py`) will populate
+  `rides.start_lat/lon` for every historical outdoor ICU ride.
 
 **Existing geo-radius prior art (`server/routers/analysis.py:217-253`):**
 - `/api/analysis/route-matches` already does an `ABS(start_lat - ?) < 0.01 AND
@@ -87,17 +131,38 @@ must be implementable as additive query params on the existing
 
 ## Phasing
 
-This work is split into **two separable phases** because they have very
-different complexity, risk profiles, and data prerequisites. Phase 1 ships
-useful value on its own and de-risks the API/UX shape before tackling geo.
+This work is split into **three separable phases**. Phase 1 is now a code-bug
+fix + targeted backfill (not a pure-DB backfill — see investigation above) and
+delivers immediate user-visible value: city/state labels reappear on Ride
+Details for outdoor ICU rides. It is also a hard prerequisite for the radius
+filter.
 
 | Phase | Scope | Migrations | External services |
 | --- | --- | --- | --- |
-| **Phase 1** | Free-text search (`?q=`) | None | None |
-| **Phase 2** | Location radius (`?near=...&radius_km=...`) | One migration: index on `start_lat`; backfill script for ICU rides | Nominatim geocoder (server-side, cached) |
+| **Phase 1** | (a) Fix the `latlng` flat-array parser in `server/services/sync.py`. (b) Backfill `rides.start_lat`/`start_lon` for every ICU ride with `start_lat IS NULL` by re-fetching streams (one ICU API call per affected ride). | None (data + code) | intervals.icu (read-only, rate-limited) |
+| **Phase 2** | Free-text search (`?q=`) | None | None |
+| **Phase 3** | Location radius (`?near=...&radius_km=...`) | One migration: partial index on `(start_lat, start_lon)` | Nominatim geocoder (server-side, cached) |
 
-Phase 2 should not start until Phase 1 has shipped and the data-gap question
-(ICU rides missing geo) is resolved.
+- Phase 1 ships independently and is the highest-leverage piece of this whole
+  plan: it both fixes the visible bug (missing city names) AND removes the
+  blocking discovery flagged in old Phase 2 AND prevents *future* outdoor ICU
+  rides from regressing.
+- Phase 2 (free-text) is unblocked as soon as Phase 1 is verified.
+- Phase 3 should not start until Phase 1 has been run against the Neon dev
+  DB and the audit query confirms remaining `start_lat IS NULL` rides are
+  indoor/no-GPS only.
+
+**Note on `ride_records.lat/lon`:** Phase 1 deliberately does **not**
+re-populate per-record GPS in `ride_records` for historical rides. That would
+require deleting and re-inserting ~10k rows per ride, multiplied by every
+affected ride. The current downstream features (ride-detail city, future
+radius search) only need `rides.start_lat/lon`. If a future feature needs
+per-record GPS for historical rides (route geometry, heatmaps), do that
+backfill in a separate phase against the same re-fetched streams.
+
+**Worktree convention:** When this plan is implemented, do the work in a
+dedicated git worktree (e.g. `worktrees/rides-search`) so the data-only
+Phase 1 PR can land independently of the API/UX phases.
 
 ---
 
@@ -126,7 +191,46 @@ Response shape is unchanged — still `list[RideSummary]`. Rides without
 
 ## Affected Files
 
-### Phase 1 (free-text)
+### Phase 1 (parser fix + ICU re-fetch backfill)
+**Backend (code fix)**
+- `server/services/sync.py` — fix `_extract_streams` / `_store_streams` /
+  `_backfill_start_location` to handle the flat-array `latlng` format ICU
+  actually returns. Extract a shared helper `_normalize_latlng_pairs(raw)` that
+  accepts either `[(lat, lon), ...]` or `[lat, lon, lat, lon, ...]` and
+  always returns `[(lat, lon), ...]`. Both consumers call it.
+- `tests/unit/test_sync_streams.py` — **new** (or extend existing) — unit test
+  the helper across three inputs: nested pairs, flat alternating floats,
+  empty/None. Also test that `_backfill_start_location` skips `(0, 0)` and
+  `None` entries.
+
+**Backend / scripts (backfill)**
+- `scripts/backfill_ride_start_geo.py` — **new** — for every ride with
+  `start_lat IS NULL` AND `filename LIKE 'icu_%'`, calls
+  `fetch_activity_streams(icu_id)` and runs the (now-fixed)
+  `_backfill_start_location`. **Does not** rewrite `ride_records` — only
+  updates `rides.start_lat/start_lon`. Idempotent. Prints
+  `scanned/backfilled/no_streams/no_gps_in_streams/skipped_already_populated`
+  counts. Refuses to run unless `DATABASE_URL` points to localhost or
+  `--allow-remote` is passed (per AGENTS.md mandate). Supports `--dry-run`.
+  Respects ICU's 1 req/sec courtesy rate (intervals.icu is more permissive
+  than Nominatim, but be a good citizen).
+- `tests/unit/test_backfill_ride_start_geo.py` — **new** — unit test against
+  a mocked connection + monkeypatched `fetch_activity_streams`: asserts the
+  ride-selection SQL, the localhost guard, and the no-op behaviour when the
+  re-fetched streams have no GPS.
+- `tests/integration/test_backfill_ride_start_geo.py` — **new** — seed three
+  rides (one with NULL `start_lat`, one with NULL but no ICU id, one already
+  populated), monkeypatch `fetch_activity_streams` to return a synthetic
+  flat-array `latlng`, run the script, assert only the first ride was
+  updated and the second/third were untouched.
+
+**Note on existing scripts (will work after the parser fix):**
+- `scripts/backfill_icu_streams.py` and `scripts/repair_missing_data.py` both
+  call the broken helpers. After the Phase 1 parser fix they will produce
+  correct results, but they scope-creep into power-bests / metrics recompute.
+  The new `backfill_ride_start_geo.py` is intentionally narrow.
+
+### Phase 2 (free-text search)
 **Backend**
 - `server/routers/rides.py` — extend `list_rides()` signature + SQL.
 - `server/models/schemas.py` — no changes (response shape unchanged).
@@ -143,22 +247,15 @@ Response shape is unchanged — still `list[RideSummary]`. Rides without
   helper `_build_rides_filter(...)` in the same file so the unit test does not
   need a DB.
 
-### Phase 2 (radius)
+### Phase 3 (radius)
 **Backend**
 - `server/routers/rides.py` — extend `list_rides()` further; add Haversine
   post-filter helper.
 - `server/services/geocoding.py` — **new** — thin Nominatim wrapper with
   in-process LRU cache (TTL 24h) and a 1-req/sec rate limiter (Nominatim
   policy). Falls back to a stub in tests.
-- `server/services/intervals_icu.py` — populate `start_lat`/`start_lon` from
-  the `start_latlng` field in the activity payload (currently hard-coded to
-  `None` on line 356-357).
 - `migrations/0008_rides_start_lat_lon_index.sql` — **new** — partial B-tree
   index `CREATE INDEX IF NOT EXISTS idx_rides_start_lat_lon ON rides (start_lat, start_lon) WHERE start_lat IS NOT NULL;`
-- `scripts/backfill_ride_start_geo.py` — **new** — idempotent script that
-  walks every ride with `start_lat IS NULL`, looks at its first non-null
-  `ride_records` row, and writes that lat/lon up to the parent ride. Designed
-  to be safe to re-run.
 - `tests/unit/test_haversine.py` — **new** — unit test for the distance helper.
 - `tests/unit/test_geocoding_cache.py` — **new** — unit test for the cache and
   rate-limiter (with mocked HTTP).
@@ -169,6 +266,15 @@ Response shape is unchanged — still `list[RideSummary]`. Rides without
   `radius_km` to `fetchRides` params.
 - `frontend/src/pages/Rides.tsx` — add an "Advanced" disclosure panel below
   the existing toolbar containing the place + radius inputs.
+
+**Removed from old plan:**
+- ~~`server/services/intervals_icu.py` — populate `start_lat`/`start_lon` from
+  the `start_latlng` field~~ — the orchestrator already calls
+  `_backfill_start_location` in both sync paths. The actual problem is the
+  `latlng` flat-array parser in `server/services/sync.py` (now Phase 1.B).
+- ~~`scripts/backfill_ride_start_geo.py` as a pure-DB backfill from
+  `ride_records`~~ — `ride_records.lat/lon` are also empty due to the same
+  parser bug. Phase 1 now re-fetches streams from ICU instead.
 
 ---
 
@@ -184,9 +290,230 @@ Response shape is unchanged — still `list[RideSummary]`. Rides without
 
 ---
 
-### PHASE 1 — Free-text search
+### PHASE 1 — Fix `latlng` parser + backfill `start_lat`/`start_lon`
 
-#### Step 1.A — Characterise current `/api/rides` behaviour (Safety Harness)
+> **Why this is Phase 1 now.** The `latlng` parser in
+> `server/services/sync.py` only handles the nested-pair format (`[[lat,lon],
+> …]`) but intervals.icu returns a flat array of alternating floats
+> (`[lat, lon, lat, lon, …]`). This silently drops every GPS point — so
+> `ride_records.lat/lon` are NULL for every ICU ride AND `rides.start_lat/lon`
+> are never populated. The Ride Details city/state label is therefore missing
+> for every outdoor ICU-synced ride.
+>
+> The fix has two parts:
+> 1. **Code fix** — teach the parser to handle the flat format so new syncs
+>    work going forward.
+> 2. **Backfill** — for existing rides, re-fetch the `latlng` stream from ICU
+>    and populate `rides.start_lat/lon`. (A pure-DB backfill from
+>    `ride_records` is **not possible** because `ride_records.lat/lon` are also
+>    empty due to the same parser bug.)
+
+#### Step 1.A — Audit the gap (read-only)
+*Goal:* Quantify how many rides need backfilling.
+*Action:* Run against the Neon dev DB (read-only):
+
+```sql
+-- Total rides missing start_lat
+SELECT count(*) AS missing FROM rides WHERE start_lat IS NULL;
+
+-- Of those, how many are ICU-sourced outdoor rides (likely have GPS)?
+SELECT count(*) AS icu_missing
+FROM rides WHERE start_lat IS NULL AND filename LIKE 'icu_%';
+
+-- Of those, how many have ride_records at all (streams were fetched)?
+SELECT count(DISTINCT r.id) AS has_records
+FROM rides r
+JOIN ride_records rr ON rr.ride_id = r.id
+WHERE r.start_lat IS NULL AND r.filename LIKE 'icu_%';
+
+-- How many rides already have start_lat (FIT-ingested)?
+SELECT count(*) AS populated FROM rides WHERE start_lat IS NOT NULL;
+```
+
+Record the numbers in the PR description so the blast radius is clear.
+
+#### Step 1.B — Fix the `latlng` parser
+*Target file:* `server/services/sync.py`.
+*Change:* Extract a shared helper that normalises the `latlng` stream:
+
+```python
+def _normalize_latlng(raw: list) -> list[tuple[float, float]]:
+    """Convert ICU latlng data to [(lat, lon), ...].
+
+    ICU returns EITHER nested pairs [[lat,lon], ...] OR a flat array
+    [lat, lon, lat, lon, ...]. Handle both.
+    """
+    if not raw:
+        return []
+    if isinstance(raw[0], (list, tuple)):
+        return [(p[0], p[1]) for p in raw if p and len(p) >= 2]
+    # Flat alternating floats
+    return [(raw[i], raw[i + 1]) for i in range(0, len(raw) - 1, 2)]
+```
+
+Update both consumers:
+1. `_store_streams` (line ~269-275): replace the inline pair-detection with
+   `latlng_pairs = _normalize_latlng(latlng_raw)`.
+2. `_backfill_start_location` (line ~314-322): same — iterate
+   `_normalize_latlng(latlng_raw)` instead of the raw list.
+
+*Why fix `_store_streams` too?* Without it, future ride-records are still
+written with `lat=None, lon=None`. This matters for route geometry,
+heatmaps, and the existing `/api/analysis/route-matches` endpoint.
+
+*Empty/missing latlng (indoor rides) must remain a no-op:* If `latlng` is
+absent, empty, or `None`, both consumers must do nothing — `_store_streams`
+must continue to write `lat=None, lon=None` per record (current behaviour),
+and `_backfill_start_location` must leave `start_lat`/`start_lon` untouched.
+The unit tests in Step 1.C explicitly cover this regression case.
+
+*Verification:* Existing unit/integration tests must still pass — no
+behavioural change for rides that already had correct data (FIT-ingested)
+nor for indoor rides without GPS streams.
+
+#### Step 1.C — Unit tests for the parser fix
+*Target file:* `tests/unit/test_sync_latlng.py` (new).
+*Test cases:*
+
+**`_normalize_latlng`:**
+- `[]` → `[]`.
+- `[[42.29, -71.35], [42.30, -71.36]]` → `[(42.29, -71.35), (42.30, -71.36)]`.
+- `[42.29, -71.35, 42.30, -71.36]` → `[(42.29, -71.35), (42.30, -71.36)]`.
+- `[42.29, -71.35, 42.30]` (odd length) → truncates to `[(42.29, -71.35)]`.
+- `[None, None]` → depends on design — either skip or include; document.
+
+**`_store_streams` with flat latlng:**
+- Build a minimal streams dict with `time: [0,1,2]` and
+  `latlng: [42.29, -71.35, 42.30, -71.36, 42.31, -71.37]`.
+- Mock the DB connection and assert the `INSERT INTO ride_records` rows
+  contain `lat=42.29, lon=-71.35` for the first record (not `None`).
+
+**`_backfill_start_location` with flat latlng:**
+- Same streams as above. Assert the `UPDATE rides SET start_lat=42.29,
+  start_lon=-71.35 WHERE id=? AND start_lat IS NULL` is called.
+- With `latlng: [0.0, 0.0, 42.29, -71.35]` — assert the `(0, 0)` point is
+  skipped and `42.29, -71.35` is used (fix the falsy-zero bug: replace
+  `if lat and lon:` with `if lat is not None and lon is not None and
+  (lat != 0.0 or lon != 0.0):`).
+
+*Verification:*
+```bash
+source venv/bin/activate && pytest tests/unit/test_sync_latlng.py -v
+```
+
+#### Step 1.D — Write the backfill script
+*Target file:* `scripts/backfill_ride_start_geo.py` (new).
+*Required behaviour:*
+1. Print the resolved `DATABASE_URL` and the host. **Parse the URL with
+   `urllib.parse.urlparse`** and check `parsed.hostname`. Refuse to run
+   unless `parsed.hostname` is one of `{"localhost", "127.0.0.1", "::1"}`
+   OR `--allow-remote` is passed. Do **not** substring-match — that gives
+   false positives like `localhost.example.com` and false negatives like a
+   valid `127.0.0.1` URL with credentials in the userinfo.
+2. Support `--dry-run`: read everything, print what would be updated, write
+   nothing.
+3. Query: `SELECT id, filename FROM rides WHERE start_lat IS NULL AND
+   filename LIKE 'icu_%' ORDER BY start_time DESC`.
+4. For each ride:
+   a. Extract the ICU activity id from the filename. Filenames in the wild
+      look like `icu_i137210941` (note the `i` prefix on the ICU id itself,
+      so the full string starts with `icu_i`). Use
+      `icu_id = filename.removeprefix('icu_')` — the resulting `icu_id`
+      (e.g. `i137210941`) is what `fetch_activity_streams()` expects.
+      Verify against the same call site already used by
+      `scripts/backfill_icu_streams.py` to confirm the prefix convention
+      before relying on it.
+   b. Call `fetch_activity_streams(icu_id)`.
+   c. Call the (now-fixed) `_backfill_start_location(ride_id, streams, conn)`.
+   d. Log the result per-ride.
+5. Rate-limit: `time.sleep(0.5)` between ICU API calls (courtesy, not a hard
+   limit — ICU is more permissive than Nominatim but we have many rides).
+6. Print final counts: `total`, `backfilled`, `no_streams`, `no_gps_in_streams`,
+   `already_populated` (should be 0 given the WHERE, but good for idempotency
+   on re-runs).
+7. Idempotent: `_backfill_start_location` already has the `start_lat IS NULL`
+   guard, so a second run finds zero candidates.
+8. Exit non-zero on any DB error.
+
+#### Step 1.E — Tests for the backfill script
+*Target file:* `tests/unit/test_backfill_ride_start_geo.py` (new).
+- Assert the localhost guard rejects a non-localhost `DATABASE_URL` without
+  `--allow-remote`.
+- Monkeypatch `fetch_activity_streams` to return a synthetic flat-array
+  `latlng` response. Assert `_backfill_start_location` is called with the
+  correct args.
+- Monkeypatch to return `{}` (no streams). Assert the ride is counted as
+  `no_streams` and not updated.
+
+*Target file:* `tests/integration/test_backfill_ride_start_geo.py` (new).
+- Seed three rides directly in the test DB:
+  1. `filename='icu_test1'`, `start_lat IS NULL` → monkeypatch
+     `fetch_activity_streams('test1')` to return flat-array latlng
+     `[42.29, -71.35, 42.30, -71.36]`. Expect `start_lat=42.29`,
+     `start_lon=-71.35` after backfill.
+  2. `filename='icu_test2'`, `start_lat IS NULL` → monkeypatch returns `{}`
+     (indoor ride, no streams). Expect untouched.
+  3. `filename='icu_test3'`, `start_lat=35.69` already populated → expect
+     untouched (not even selected by the query).
+- Run the script's main function in-process. Assert results.
+- Re-run; assert `backfilled == 0`.
+
+*Verification:*
+```bash
+source venv/bin/activate
+pytest tests/unit/test_backfill_ride_start_geo.py -v
+./scripts/run_integration_tests.sh tests/integration/test_backfill_ride_start_geo.py -v
+```
+
+#### Step 1.F — Manual smoke test
+1. Run existing tests to confirm the parser fix didn't break anything:
+   ```bash
+   pytest tests/unit -v
+   ./scripts/run_integration_tests.sh -v
+   ```
+2. Trigger a single-ride re-sync for the Natick ride (filename
+   `icu_i137210941`) via the UI or `POST /api/sync/ride/{icu_id}` — note the
+   path param is the icu_id *after* the `icu_` prefix is stripped, i.e.
+   `POST /api/sync/ride/i137210941` (the `i` belongs to the icu_id, not the
+   filename prefix). See `server/routers/sync.py:80`. Confirm the Ride
+   Details page now shows the city/state label (Natick, MA or similar).
+3. Run the backfill against local dev DB:
+   ```bash
+   python scripts/backfill_ride_start_geo.py --dry-run
+   python scripts/backfill_ride_start_geo.py
+   ```
+   Re-run → `backfilled=0`.
+
+#### Step 1.G — Production run (gated on user approval)
+- Show the user the `--dry-run` output from local.
+- Confirm the user wants the script run against the Neon dev DB.
+- `python scripts/backfill_ride_start_geo.py --allow-remote` against Neon.
+- Re-run to verify idempotency.
+- Run the Step 1.A audit query again to confirm remaining `start_lat IS NULL`
+  rides are indoor/no-GPS only.
+
+#### Phase 1 Definition of Done
+- `_normalize_latlng()` helper exists in `server/services/sync.py`, handles
+  both flat-float and nested-pair formats.
+- `_store_streams` writes correct `lat`/`lon` into `ride_records` for new
+  ICU syncs going forward.
+- `_backfill_start_location` correctly populates `rides.start_lat/lon` for
+  new ICU syncs going forward.
+- `scripts/backfill_ride_start_geo.py` exists, has unit + integration tests,
+  is idempotent, refuses non-localhost without `--allow-remote`, and supports
+  `--dry-run`.
+- After running against the Neon dev DB: every outdoor ICU ride that previously had
+  `start_lat IS NULL` now has `start_lat`/`start_lon` populated.
+- The Ride Details page city/state label renders for all affected rides
+  without any frontend changes.
+- A post-run audit confirms remaining `start_lat IS NULL` rides are
+  indoor/virtual only.
+
+---
+
+### PHASE 2 — Free-text search
+
+#### Step 2.A — Characterise current `/api/rides` behaviour (Safety Harness)
 *Target file:* `tests/integration/test_api.py` (existing).
 *Action:* Before changing any code, add **golden tests** that lock in current
 behaviour:
@@ -202,7 +529,7 @@ behaviour:
 ```
 All assertions must pass before touching `rides.py`.
 
-#### Step 1.B — Extract a pure query-builder helper (Refactor under harness)
+#### Step 2.B — Extract a pure query-builder helper (Refactor under harness)
 *Target file:* `server/routers/rides.py`.
 *Change:* Refactor the body of `list_rides()` (lines 35-50) so the
 SQL/params construction lives in a private pure function:
@@ -217,11 +544,19 @@ def _build_rides_query(
     """Return (sql, params). Pure — no DB access, no FastAPI deps."""
 ```
 The function returns the same SQL the endpoint produces today (with `q=None`
-yielding *exactly* the current SQL — verified by tests in 1.A).
+yielding *exactly* the current SQL — verified by tests in 2.A).
 
-*Verification:* Re-run the harness from 1.A. No behaviour change yet.
+**Placeholder convention (mandatory):** All bind parameters must use `?`
+placeholders, **never** `%s`. The project's psycopg2 wrapper at
+`server/database.py:47` translates `?` → `%s` at execute time. Mixing the two,
+or worse — using f-strings to inline values — will silently break parameter
+binding and re-introduce SQL-injection risk on the new free-text path. The
+unit tests in Step 2.C must assert the returned SQL contains `?` and not
+`%s`.
 
-#### Step 1.C — Unit tests for the helper
+*Verification:* Re-run the harness from 2.A. No behaviour change yet.
+
+#### Step 2.C — Unit tests for the helper
 *Target file:* `tests/unit/test_rides_search.py` (new).
 *Test cases:*
 - `q=None` produces SQL with no `q`-related clause and no extra params.
@@ -236,7 +571,7 @@ yielding *exactly* the current SQL — verified by tests in 1.A).
 source venv/bin/activate && pytest tests/unit/test_rides_search.py -v
 ```
 
-#### Step 1.D — Wire `q` into the endpoint
+#### Step 2.D — Wire `q` into the endpoint
 *Target file:* `server/routers/rides.py`.
 *Change:*
 - Add `q: Optional[str] = Query(None)` to `list_rides()`.
@@ -244,13 +579,37 @@ source venv/bin/activate && pytest tests/unit/test_rides_search.py -v
 - Trim/lowercase `q` once at the top of the helper so the SQL is always
   case-insensitive.
 
+**Multi-word semantics — exact SQL fragment:** Split the trimmed `q` on
+whitespace into N words. Each word becomes its own parenthesised OR-group
+across the three searched columns; the N groups are then ANDed together.
+For `q="hard climb"` (two words) the appended WHERE fragment must be
+literally:
+
+```
+AND (LOWER(title) LIKE ? OR LOWER(post_ride_comments) LIKE ? OR LOWER(coach_comments) LIKE ?)
+AND (LOWER(title) LIKE ? OR LOWER(post_ride_comments) LIKE ? OR LOWER(coach_comments) LIKE ?)
+```
+
+with params `['%hard%', '%hard%', '%hard%', '%climb%', '%climb%', '%climb%']`
+(in that exact order — three copies per word, words appended in input order).
+This must NOT be `LIKE '%hard climb%'` (substring of the joined phrase) nor
+a single OR-group with both words. The Step 2.C unit tests must lock this
+exact shape, including param order.
+
+`coach_comments` IS included in the searched columns (resolution of Open
+Question #2 below). Rationale: users browsing their ride history routinely
+remember a phrase the coach used (e.g. "tempo block") more vividly than
+their own title — excluding it would mask the most distinctive text on most
+rides. The Rides UI search placeholder text in Step 2.G should make this
+behaviour discoverable ("Search by name or notes…").
+
 *Verification:*
 ```bash
 ./scripts/run_integration_tests.sh tests/integration/test_api.py -v
 ```
 Existing tests must still pass.
 
-#### Step 1.E — Integration tests for `?q=`
+#### Step 2.E — Integration tests for `?q=`
 *Target file:* `tests/integration/test_api.py`.
 *Test cases (against the seeded test DB):*
 - `GET /api/rides?q=<seeded title substring>` returns at least one ride and
@@ -266,12 +625,12 @@ Existing tests must still pass.
 ./scripts/run_integration_tests.sh tests/integration/test_api.py -v -k rides
 ```
 
-#### Step 1.F — Frontend API client
+#### Step 2.F — Frontend API client
 *Target file:* `frontend/src/lib/api.ts`.
 *Change:* Add `q?: string` to the `fetchRides` params type and append it to
 the `URLSearchParams` if non-empty (mirror existing pattern lines 73-80).
 
-#### Step 1.G — Frontend search input
+#### Step 2.G — Frontend search input
 *Target file:* `frontend/src/pages/Rides.tsx`.
 *Change:*
 1. Add `const [searchText, setSearchText] = useState('')` next to the
@@ -294,7 +653,7 @@ the `URLSearchParams` if non-empty (mirror existing pattern lines 73-80).
 - Manual smoke: `./scripts/dev.sh`, navigate to Rides, type a known title
   substring, press Enter, see filtered list.
 
-#### Step 1.H — E2E test
+#### Step 2.H — E2E test
 *Target file:* `tests/e2e/03-rides.spec.ts`.
 *Test case:*
 ```
@@ -305,7 +664,7 @@ decreased OR "No rides match" appears.
 
 *Verification:* `./scripts/run_e2e_tests.sh -g "search"`.
 
-#### Phase 1 Definition of Done
+#### Phase 2 Definition of Done
 - All unit + integration + E2E tests green.
 - `GET /api/rides?q=foo` returns case-insensitive substring matches across
   `title`, `post_ride_comments`, `coach_comments`.
@@ -315,61 +674,19 @@ decreased OR "No rides match" appears.
 
 ---
 
-### PHASE 2 — Location radius
+### PHASE 3 — Location radius
 
-> **Blocking discovery — read first.** A subset of `rides` rows have
-> `start_lat IS NULL` because intervals.icu sync does not populate the ride-
-> level coordinates (`server/services/intervals_icu.py:356-357`). Per-second
-> coords *do* exist in `ride_records` for those same rides. Phase 2 therefore
-> requires an ingest fix **and** a one-time backfill before the UX is honest.
-> Without these, the new radius filter will silently drop most of the user's
-> ICU-synced history.
+> **Prerequisite check.** Phase 1 (data backfill) must have been run against
+> the target environment first. After Phase 1, the only `rides` rows with
+> `start_lat IS NULL` should be those that genuinely have no GPS data
+> (indoor / virtual rides). The radius filter will silently exclude those,
+> which is the correct behaviour. The old plan's "Step 2.A: Fix forward in
+> `intervals_icu.py`" has been **dropped** — investigation 2026-04-20 confirmed
+> the orchestrator (`server/services/sync.py:515` and
+> `server/services/single_sync.py:93`) already calls `_backfill_start_location`
+> after `_store_streams`, so new ICU syncs already populate the columns.
 
-#### Step 2.A — Fix forward: populate `start_lat/lon` on ICU sync
-*Target file:* `server/services/intervals_icu.py`.
-*Change:*
-- Inspect the activity payload returned by intervals.icu — the activity
-  resource exposes `start_latlng` (a 2-element list) on activities that have
-  GPS. Replace the hard-coded `None`s on lines 356-357 with:
-  ```python
-  latlng = activity.get("start_latlng") or []
-  "start_lat": latlng[0] if len(latlng) >= 2 else None,
-  "start_lon": latlng[1] if len(latlng) >= 2 else None,
-  ```
-- Confirm the field name by looking at `tests/integration/test_sync.py` and
-  any intervals.icu fixture JSON in the repo before committing — if the field
-  is named differently in our actual payload (e.g. `latlng` or
-  `start_latitude/start_longitude`), use the real one. Do **not** guess.
-
-*Verification:*
-- Add unit test in `tests/unit/test_intervals_icu_metrics.py`: build a fake
-  activity dict with `start_latlng=[35.69, -105.94]`, call the ride-builder,
-  assert `start_lat == 35.69` and `start_lon == -105.94`.
-- Add unit test for missing/empty `start_latlng` → both `None`.
-
-#### Step 2.B — Backfill historical ICU rides
-*Target file:* `scripts/backfill_ride_start_geo.py` (new).
-*Logic:*
-```python
-# For each ride where start_lat IS NULL:
-#   SELECT lat, lon FROM ride_records
-#     WHERE ride_id = ? AND lat IS NOT NULL AND lon IS NOT NULL
-#     ORDER BY id LIMIT 1
-#   if found: UPDATE rides SET start_lat=?, start_lon=? WHERE id=?
-# Print counts: scanned, backfilled, no_records.
-```
-- Idempotent: re-running is a no-op.
-- Per project mandate: the script must `print` the resolved `DATABASE_URL`
-  and refuse to run unless it points to localhost OR the user passes
-  `--allow-remote`.
-
-*Verification:*
-- Unit test in `tests/unit/test_backfill_geo.py` with a mocked DB connection
-  asserting the SQL is correct and that rides with no lat/lon records are
-  left untouched.
-- Manual run against local Podman DB; rerun should report `backfilled=0`.
-
-#### Step 2.C — Add the spatial-ish index
+#### Step 3.A — Add the spatial-ish index
 *Target file:* `migrations/0008_rides_start_lat_lon_index.sql` (new).
 *Contents:*
 ```sql
@@ -389,8 +706,16 @@ CREATE INDEX IF NOT EXISTS idx_rides_start_lat_lon
 - `python -m server.migrate` applies cleanly against local DB.
 - `\d+ rides` shows the new index.
 - Re-run does not error (idempotent).
+- After Step 3.D is wired, run `EXPLAIN (ANALYZE, BUFFERS) SELECT ... FROM
+  rides WHERE start_lat BETWEEN ... AND start_lon BETWEEN ...` against the
+  local DB and confirm the planner uses `idx_rides_start_lat_lon` (Index
+  Scan or Bitmap Index Scan, not Seq Scan). Postgres may choose to use the
+  index on the leading `start_lat` column only and post-filter on
+  `start_lon`; that is acceptable. If the planner refuses the index entirely
+  (e.g. on a near-empty test DB), document it and move on — the production
+  data set has enough rows for the planner to prefer the index.
 
-#### Step 2.D — Geocoding service module
+#### Step 3.B — Geocoding service module
 *Target file:* `server/services/geocoding.py` (new).
 *Design:*
 - Single function: `def geocode_place(query: str) -> tuple[float, float] | None`.
@@ -404,6 +729,12 @@ CREATE INDEX IF NOT EXISTS idx_rides_start_lat_lon
   test assertions.
 - **Tests:** never hit the real Nominatim. Inject the HTTP client via a
   module-level `_http_get` callable that tests can monkeypatch.
+- **Concurrency:** `geocode_place()` is a synchronous blocking call (network
+  + sleep for rate limit). It is invoked from the sync `list_rides()`
+  handler. FastAPI runs sync endpoint functions on its threadpool, so the
+  call does not block the event loop — no explicit `asyncio.to_thread`
+  wrapper is required. Document this in the module docstring so a future
+  refactor to an `async def` handler remembers to add the wrapper.
 
 *Tradeoff note (decision recorded):*
 - **Server-side Nominatim** chosen over **client-side Browser Geolocation
@@ -423,10 +754,10 @@ CREATE INDEX IF NOT EXISTS idx_rides_start_lat_lon
 - **Future option:** if the user requests heavier geo features, swap in a
   paid geocoder (Mapbox, Google) behind the same `geocode_place()` interface.
 
-#### Step 2.E — Haversine helper + query-builder extension
+#### Step 3.C — Haversine helper + query-builder extension
 *Target file:* `server/routers/rides.py`.
 *Change:*
-- Extend `_build_rides_query()` from Phase 1 to optionally accept
+- Extend `_build_rides_query()` from Phase 2 to optionally accept
   `near: tuple[float, float] | None` and `radius_km: float | None`.
 - When supplied, add a **bounding-box prefilter** to the SQL (uses the new
   index): `start_lat BETWEEN ? AND ? AND start_lon BETWEEN ? AND ?`. The
@@ -446,7 +777,7 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     return 2 * R * asin(sqrt(a))
 ```
 
-#### Step 2.F — Wire `near` / `near_lat` / `near_lon` / `radius_km` into the endpoint
+#### Step 3.D — Wire `near` / `near_lat` / `near_lon` / `radius_km` into the endpoint
 *Target file:* `server/routers/rides.py`.
 *Change:*
 - Add the four query params to the `list_rides()` signature.
@@ -458,7 +789,7 @@ def _haversine_km(lat1, lon1, lat2, lon2):
 - Pass the resolved tuple + radius into `_build_rides_query()`.
 - After SQL fetch, run the Haversine post-filter.
 
-#### Step 2.G — Unit tests
+#### Step 3.E — Unit tests
 *Target file:* `tests/unit/test_haversine.py` (new).
 - Known city-pair distances within 1% (e.g. Santa Fe NM → Albuquerque NM
   ≈ 88 km).
@@ -481,30 +812,60 @@ def _haversine_km(lat1, lon1, lat2, lon2):
 source venv/bin/activate && pytest tests/unit -v
 ```
 
-#### Step 2.H — Integration tests
+#### Step 3.F — Integration tests
 *Target file:* `tests/integration/test_api.py`.
-*Test cases (the seed generator already places rides in a small lat/lon box
-near 44.16, 0.0; tests should anchor to whatever the seed actually uses):*
-- `GET /api/rides?near_lat=44.166&near_lon=0.0&radius_km=10` returns at
-  least one seeded ride.
+
+**Anchor to the actual seed coordinates, not assumptions.** The seed
+generator at `tests/integration/seed/generate_recent.py:137` places
+synthetic rides at approximately `(44.166893, -71.164314)` (White
+Mountains, NH). However, the committed `seed_data.json.gz` may or may
+not include rides with non-NULL `start_lat`/`start_lon` (depending on
+when the seed was last regenerated). **Before asserting any radius
+behaviour, run a preflight query inside the test:**
+
+```python
+def _seed_anchor(db_conn):
+    """Return (lat, lon) of any seeded ride with non-NULL GPS, or fail
+    the test loudly if none exists."""
+    row = db_conn.execute(
+        "SELECT start_lat, start_lon FROM rides "
+        "WHERE start_lat IS NOT NULL AND start_lon IS NOT NULL LIMIT 1"
+    ).fetchone()
+    assert row is not None, (
+        "Test seed has no rides with start_lat/start_lon populated. "
+        "Regenerate seed_data.json.gz from generate_recent.py and re-run."
+    )
+    return row[0], row[1]
+```
+
+Use the returned anchor as the centre of the radius queries — do **not**
+hard-code `(44.166, 0.0)` (which is ~5,500 km from the actual seed
+location and would silently return zero results).
+
+*Test cases:*
+- `anchor_lat, anchor_lon = _seed_anchor(db_conn)`. `GET
+  /api/rides?near_lat={anchor_lat}&near_lon={anchor_lon}&radius_km=10`
+  returns at least one seeded ride.
 - `GET /api/rides?near_lat=0.0&near_lon=0.0&radius_km=1` returns `[]`
-  (nothing in the seed near (0,0)).
+  (nothing in the seed near the Null Island point — verified safe because
+  the seed anchor is in NH, not at (0,0)).
 - `GET /api/rides?radius_km=10` (no `near*`) → 400.
-- `GET /api/rides?near_lat=44.166&near_lon=0.0&radius_km=10000` returns
-  every seeded ride that has GPS (sanity).
-- `GET /api/rides?near_lat=44.166&near_lon=0.0&radius_km=10&q=<seeded
-  word>&start_date=2026-01-01&end_date=2026-12-31` composes all three
-  filters.
+- `GET /api/rides?near_lat={anchor_lat}&near_lon={anchor_lon}&radius_km=20000`
+  returns every seeded ride that has GPS (sanity — 20000 km > half Earth
+  circumference).
+- `GET /api/rides?near_lat={anchor_lat}&near_lon={anchor_lon}&radius_km=10
+  &q=<seeded word>&start_date=2026-01-01&end_date=2026-12-31` composes all
+  three filters.
 
 *Verification:* `./scripts/run_integration_tests.sh tests/integration/test_api.py -v`.
 
-#### Step 2.I — Frontend API client
+#### Step 3.G — Frontend API client
 *Target file:* `frontend/src/lib/api.ts`.
 *Change:* Extend `fetchRides` params type with `near?: string`, `near_lat?:
 number`, `near_lon?: number`, `radius_km?: number` and append them to the
 query string.
 
-#### Step 2.J — Frontend "Advanced" UI
+#### Step 3.H — Frontend "Advanced" UI
 *Target file:* `frontend/src/pages/Rides.tsx`.
 *Change:*
 1. Add an "Advanced" toggle button (chevron) at the right end of the
@@ -525,7 +886,7 @@ query string.
    surface the error inline (use the existing toast/error pattern if one
    exists, otherwise render below the input in red).
 
-#### Step 2.K — E2E test
+#### Step 3.I — E2E test
 *Target file:* `tests/e2e/03-rides.spec.ts`.
 - Open Advanced panel.
 - Fill place + radius (use a known seed lat/lon expressed as a place — or use
@@ -535,11 +896,9 @@ query string.
 
 *Verification:* `./scripts/run_e2e_tests.sh -g "near"`.
 
-#### Phase 2 Definition of Done
-- ICU rides ingested **after** Step 2.A have `start_lat`/`start_lon`
-  populated.
-- Backfill script has been run once against the local DB and reports a
-  no-op on second run.
+#### Phase 3 Definition of Done
+- Phase 1 backfill has been run against the target DB; remaining
+  `start_lat IS NULL` rides are confirmed indoor/no-GPS only.
 - Migration `0008` applied, index visible.
 - `GET /api/rides?near=Santa+Fe%2C+NM&radius_km=50` works end-to-end.
 - The Advanced panel on the Rides screen returns sensible results for at
@@ -551,15 +910,19 @@ query string.
 
 | Layer | What we test | Where |
 | --- | --- | --- |
+| Unit | `_normalize_latlng` — flat array, nested pairs, empty, odd-length | `tests/unit/test_sync_latlng.py` |
+| Unit | `_store_streams` writes correct lat/lon from flat latlng | `tests/unit/test_sync_latlng.py` |
+| Unit | `_backfill_start_location` uses normalised latlng, skips (0,0) | `tests/unit/test_sync_latlng.py` |
+| Unit | Backfill script localhost guard + stream dispatch (mocked) | `tests/unit/test_backfill_ride_start_geo.py` |
+| Integration | Backfill populates only NULL-start_lat ICU rides | `tests/integration/test_backfill_ride_start_geo.py` |
 | Unit | Pure query-builder (`_build_rides_query`) — every param combination | `tests/unit/test_rides_search.py` |
 | Unit | Haversine distance helper | `tests/unit/test_haversine.py` |
 | Unit | Geocoding cache + rate limiter (mocked HTTP) | `tests/unit/test_geocoding_cache.py` |
-| Unit | ICU ride builder populates `start_lat`/`start_lon` | `tests/unit/test_intervals_icu_metrics.py` |
-| Unit | Backfill script SQL (mocked DB) | `tests/unit/test_backfill_geo.py` |
 | Integration | `/api/rides?q=` composes with date and sport filters | `tests/integration/test_api.py` |
 | Integration | `/api/rides?near_lat=&near_lon=&radius_km=` | `tests/integration/test_api.py` |
 | E2E | Search box filters list | `tests/e2e/03-rides.spec.ts` |
 | E2E | Advanced panel filters list | `tests/e2e/03-rides.spec.ts` |
+| Manual | Re-sync Natick ride → city/state label appears | browser |
 | Manual | Re-run backfill is a no-op | local Podman |
 
 ---
@@ -579,41 +942,70 @@ query string.
   start point. v1 only filters by start point. Some commuters' "out and back"
   rides will be correctly captured; long point-to-point rides ending far
   away will *not* be excluded.
-- Pagination of the rides list. The current 500-row cap stays.
+- Pagination of the rides list. The current 500-row cap (`limit=500`
+  default in `list_rides()`) stays. **Implication for users:** a search
+  whose date+`q`+`near` filters still match more than 500 rides will
+  silently truncate to the 500 most recent (`ORDER BY start_time DESC`).
+  No UI affordance is added in v1 to surface this. If/when the corpus or
+  user complaints warrant it, add either a "showing N of many" indicator
+  or proper cursor pagination.
 
 ---
 
 ## Open Questions (need user input before Phase 1 starts)
 
-1. **Should free-text search also match `coach_comments`?** It contains AI-
-   generated coaching markdown; matches there may surprise users who think
-   they're searching their own text. Plan currently includes it — confirm or
-   exclude.
-2. **Should free-text search match `filename`?** Useful for power users
+1. **Phase 1 Neon run:** Confirm the user wants
+   `scripts/backfill_ride_start_geo.py --allow-remote` run against the Neon
+   dev DB. The script will call `fetch_activity_streams` once per affected ICU
+   ride (those with `start_lat IS NULL`), re-parse the latlng stream with the
+   fixed parser, and write `start_lat`/`start_lon` on the parent ride. This
+   is read-only against ICU (streams endpoint) and a targeted UPDATE against
+   Neon. The expected blast radius is every outdoor ICU ride — indoor rides
+   will be skipped (no latlng in streams).
+2. ~~**Should free-text search also match `coach_comments`?**~~ **Resolved
+   2026-04-20: YES, include `coach_comments` in v1.** Rationale: users
+   browsing their ride history routinely remember a phrase the coach used
+   (e.g. "tempo block") more vividly than their own title. Excluding it
+   would mask the most distinctive text on most rides. Discoverability
+   handled by the placeholder text "Search by name or notes…".
+3. **Should free-text search match `filename`?** Useful for power users
    ("icu_12345"), noisy for everyone else. Plan currently excludes it.
-3. **Default unit for radius (km vs mi)?** Plan defers to the existing
-   `useUnits()` hook. Confirm that hook covers this.
-4. **Acceptable to send Nominatim queries from our Cloud Run backend?**
+   *(Phase 2.)*
+4. ~~**Default unit for radius (km vs mi)?**~~ **Resolved 2026-04-20:**
+   read from the existing `useUnits()` hook. If `useUnits()` returns
+   `'imperial'`, display the radius input in miles and convert to km
+   client-side before sending to the API (the API contract is `radius_km`
+   only — the server stays unit-agnostic). If `useUnits()` returns
+   `'metric'` or is unavailable, default to km. The numeric default of
+   `25` is in *whatever unit is being displayed* (so 25 mi for imperial
+   users, 25 km for metric users) — round numbers feel native.
+5. **Acceptable to send Nominatim queries from our Cloud Run backend?**
    Nominatim's policy requires a contact email in the User-Agent and ≤1
    req/sec. We will comply; just confirming the user is OK with this rather
-   than provisioning a paid geocoder.
-5. **Backfill blast radius:** running `scripts/backfill_ride_start_geo.py`
-   against production will UPDATE potentially many rows. Confirm the user
-   wants this run, and whether they want a dry-run mode first
-   (`--dry-run` is easy to add).
-6. **What does the user expect when a ride has no GPS?** Currently the plan
-   silently excludes it from radius results. Alternative: include with a
-   visual marker. Confirm.
+   than provisioning a paid geocoder. *(Phase 3.)*
+6. **What does the user expect when a ride has no GPS?** After Phase 1 the
+   only `start_lat IS NULL` rides should be indoor/virtual. Currently the plan
+   silently excludes them from radius results. Alternative: include with a
+   visual marker. Confirm. *(Phase 3.)*
 
 ---
 
 ## Branch Name Suggestion
 
-`feat/rides-search`
+**Default: two worktrees, not three.** The house style in this repo
+(see e.g. `plans/feat-calendar-ride-names.md`) is one branch per plan, and
+three PRs for one feature is heavier than necessary here.
 
-(Phase 2 can land on the same branch with a second PR — or split into
-`feat/rides-search-text` and `feat/rides-search-near` if the user prefers
-two PRs.)
+- Phase 1: `worktrees/rides-geo-backfill` → branch `data/rides-geo-backfill`
+  *(must ship and run against Neon before Phase 3 can start, so it really
+  is a separate branch)*
+- Phases 2 + 3: `worktrees/rides-search` → branch `feat/rides-search`
+  *(both touch the same `list_rides()` helper and the same Rides.tsx
+  toolbar — splitting them produces a guaranteed merge-conflict diff)*
+
+Only split Phases 2 and 3 into separate branches if review feedback on the
+Phase 2 PR suggests landing it in isolation, or if a user-visible release
+needs to gate Phase 3 separately.
 
 ---
 
@@ -621,8 +1013,11 @@ two PRs.)
 
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |
-| ICU-synced rides have no ride-level GPS → empty results | High | Step 2.A fixes ingest going forward; Step 2.B backfills history. |
+| Parser fix breaks FIT-ingested rides (different latlng format) | Low | FIT-ingested rides don't go through `_store_streams`/`_backfill_start_location` — they use `server/ingest.py` which reads `start_position_lat/long` from the FIT session directly. No regression path. Unit tests cover both formats. |
+| Backfill hits ICU rate limits | Medium | 0.5s sleep between calls. ICU is more permissive than Nominatim, but we're polite. Script can be stopped and re-run (idempotent). |
+| Backfill mis-runs against wrong DB | Medium | Script prints `DATABASE_URL`, refuses without localhost or `--allow-remote`; supports `--dry-run`; idempotent via `start_lat IS NULL` guard. |
+| First GPS point is a bad fix (transient (0,0) or null) | Low | `_backfill_start_location` fix will skip `(0,0)` points (replacing the `if lat and lon:` falsy check with an explicit `(0,0)` guard). First *valid* point is used — matches what Garmin head units report as `start_position_lat/long`. |
+| ICU-synced rides have no GPS after Phase 1 → empty radius results | Low (only true indoor rides remain) | Confirmed by Step 1.A audit; remaining NULL rows are expected (indoor/virtual). |
 | Nominatim rate-limits or blocks our IP | Medium | In-process cache + 1 req/sec limiter + proper User-Agent + `near_lat`/`near_lon` client-bypass param. |
 | Substring `LIKE` is slow on large `post_ride_comments`/`coach_comments` | Low (single-athlete dataset) | Defer FTS until measured. The query already has a `start_time DESC LIMIT 500` ceiling. |
-| Refactor of `list_rides()` regresses the existing date filter | Low | Step 1.A locks behaviour with golden tests *before* refactoring (Step 1.B). |
-| Backfill mis-runs against prod | Medium | Script refuses to run without localhost or `--allow-remote`; AGENTS.md mandate enforced in code. |
+| Refactor of `list_rides()` regresses the existing date filter | Low | Step 2.A locks behaviour with golden tests *before* refactoring (Step 2.B). |
