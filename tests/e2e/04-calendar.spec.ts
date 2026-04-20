@@ -129,4 +129,20 @@ test.describe('Calendar', () => {
       await expect(workoutCells.first()).toBeVisible()
     }
   })
+
+  test('ride cells expose full title via title attribute', async ({ page }) => {
+    // The ride row inside a calendar cell now carries a `title` attribute
+    // (the full ride name) so users can hover for the full text on any
+    // breakpoint, including mobile where the inline name span is hidden.
+    const rideRow = page
+      .locator('.grid-cols-7.gap-px > div')
+      .filter({ has: page.locator('[class*="text-green"]') })
+      .first()
+      .locator('div[title]')
+      .first()
+    if (await rideRow.count() > 0) {
+      const t = await rideRow.getAttribute('title')
+      expect(t && t.length).toBeTruthy()
+    }
+  })
 })

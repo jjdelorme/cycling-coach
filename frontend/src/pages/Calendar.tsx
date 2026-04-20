@@ -186,8 +186,13 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
 
                 <div className="space-y-1 overflow-hidden">
                   {dayRides.map((r) => (
-                    <div key={r.id} className="flex items-center gap-1 text-[9px] font-bold text-green uppercase tracking-tighter truncate leading-none">
+                    <div key={r.id} title={r.title} className="flex items-center gap-1 text-[9px] font-bold text-green uppercase tracking-tighter truncate leading-none">
                       <SportIcon sport={r.sport} size={8} /> {Math.round(r.tss ?? 0)}
+                      {r.title && (
+                        <span className="hidden md:inline normal-case font-semibold text-text-muted truncate">
+                          {r.title}
+                        </span>
+                      )}
                     </div>
                   ))}
                   {dayWOs.map((w, i) => (
