@@ -8,6 +8,9 @@ planned_workouts/
 # Node
 node_modules/
 
+# Local-only Claude agent symlink (points at .gemini/agents on this machine)
+.claude/agents
+
 # Database
 *.db
 

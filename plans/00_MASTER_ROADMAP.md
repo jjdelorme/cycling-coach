@@ -10,13 +10,13 @@ This document serves as the top-level view of all active, planned, and completed
   - *Status:* Planned
   - *Goal:* Refactor `_DbConnection` to use independent cursors, eliminating the shared cursor anti-pattern and enabling nested query execution.
 
-- [ ] **Campaign 14: Bug Fix — Ride Detail Lap Zoom** (`plans/bug-ride-detail-zoom-lap.md`)
-  - *Status:* Planned
-  - *Goal:* Resolve UX issue where lap selection breaks while the ride detail chart is zoomed. Implement "Option B" (zoom to lap) for better UX.
-
 ---
 
 ## Archived Campaigns
+
+### Campaign 14: Bug Fix — Ride Detail Lap Zoom (Completed)
+**Tracking Plan:** `plans/archive/bug-ride-detail-zoom-lap.md`
+- *Completed and moved to archive.*
 
 ### Campaign 15: Timezone Awareness & Schema Hardening (Completed)
 **Tracking Plan:** `plans/archive/timezone-awareness.md`
