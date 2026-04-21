@@ -254,3 +254,63 @@ def test_nominatim_provider_returns_none_for_empty_results(monkeypatch):
 def test_nominatim_provider_returns_none_for_malformed_json(monkeypatch):
     monkeypatch.setattr(geocoding, "_HTTP_GET", lambda *a, **kw: "{not json")
     assert geocoding.NominatimProvider().geocode("Nowhere") is None
+
+
+# ---------------------------------------------------------------------------
+# MockProvider — used by the E2E radius test and as a deterministic
+# integration seam for any future test that needs a stable place table.
+# ---------------------------------------------------------------------------
+
+
+def test_mock_provider_returns_known_fixture():
+    p = geocoding.MockProvider()
+    result = p.geocode("white mountains")
+    assert result == (pytest.approx(44.166893), pytest.approx(-71.164314))
+
+
+def test_mock_provider_lookup_is_case_and_whitespace_insensitive():
+    p = geocoding.MockProvider()
+    a = p.geocode("Santa Fe")
+    b = p.geocode("  SANTA FE  ")
+    c = p.geocode("santa fe")
+    assert a == b == c
+    assert a == (pytest.approx(35.6870), pytest.approx(-105.9378))
+
+
+def test_mock_provider_unknown_query_returns_none():
+    p = geocoding.MockProvider()
+    assert p.geocode("ZzzNotARealPlace") is None
+    # Empty/whitespace also returns None — same contract as Nominatim.
+    assert p.geocode("") is None
+    assert p.geocode("   ") is None
+
+
+def test_mock_provider_unreachable_sentinel_raises():
+    p = geocoding.MockProvider()
+    with pytest.raises(RuntimeError) as exc_info:
+        p.geocode("__unreachable__")
+    assert "MockProvider" in str(exc_info.value)
+    # Case-insensitive sentinel.
+    with pytest.raises(RuntimeError):
+        p.geocode("__UNREACHABLE__")
+
+
+def test_geocoder_env_mock_selects_mock_provider(monkeypatch):
+    monkeypatch.setenv("GEOCODER", "mock")
+    geocoding.set_provider(None)  # force re-resolve
+
+    result = geocoding.geocode_place("White Mountains")
+    assert result == (pytest.approx(44.166893), pytest.approx(-71.164314))
+
+    # Cache key is namespaced with the provider name.
+    cache_keys = list(geocoding._cache.keys())
+    assert cache_keys and cache_keys[0].startswith("mock:")
+
+
+def test_geocoder_env_mock_propagates_unreachable_via_geocode_place(monkeypatch):
+    """Ensures the 503-path can be exercised end-to-end via the env-selected provider."""
+    monkeypatch.setenv("GEOCODER", "mock")
+    geocoding.set_provider(None)
+
+    with pytest.raises(RuntimeError):
+        geocoding.geocode_place("__unreachable__")

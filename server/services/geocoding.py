@@ -156,10 +156,59 @@ class NominatimProvider:
             return None
 
 
+class MockProvider:
+    """In-memory geocoder for E2E and integration tests.
+
+    Selected via ``GEOCODER=mock``. Holds a small fixed table of place
+    names so the radius-search pipeline can be exercised end-to-end
+    without hitting Nominatim. No network, no sleep, no rate limit —
+    pure dict lookup.
+
+    Fixtures are chosen to line up with data that exists in our seed /
+    test corpora:
+
+    * ``"white mountains"`` → centre of the synthetic-ride cluster the
+      integration seed builds around (Twin Mountain area, NH). Matches
+      the dominant ride cluster in the seed fixture and any real Neon
+      ride data the E2E suite runs against.
+    * ``"santa fe"`` → matches the Santa Fe-centred fixture rides created
+      by ``tests/integration/test_api.py`` for the radius integration
+      tests, so the same place name is meaningful in both layers.
+    * ``"north pole"`` → guaranteed to be far from any real ride; lets
+      E2E assert the "no rides match" UI path deterministically.
+
+    Special sentinel: the query ``"__unreachable__"`` raises a transport
+    exception so callers/tests can cover the 503 path without
+    monkeypatching ``_HTTP_GET``.
+    """
+
+    name = "mock"
+
+    # Lookups are case- and whitespace-insensitive; keys are stored
+    # already-normalised.
+    _FIXTURES: dict[str, tuple[float, float]] = {
+        "white mountains": (44.166893, -71.164314),
+        "santa fe": (35.6870, -105.9378),
+        "santa fe, nm": (35.6870, -105.9378),
+        "denver": (39.7392, -104.9903),
+        "denver, co": (39.7392, -104.9903),
+        "north pole": (89.9, 0.0),
+    }
+
+    UNREACHABLE_SENTINEL = "__unreachable__"
+
+    def geocode(self, query: str) -> Optional[tuple[float, float]]:
+        normalised = (query or "").strip().lower()
+        if normalised == self.UNREACHABLE_SENTINEL:
+            raise RuntimeError("MockProvider: simulated geocoder transport failure")
+        return self._FIXTURES.get(normalised)
+
+
 # Registry of built-in providers. Intentionally small — adding a new
 # provider is two lines: implement the Protocol, then add an entry here.
 _BUILTIN_PROVIDERS: dict[str, Callable[[], GeocodingProvider]] = {
     "nominatim": NominatimProvider,
+    "mock": MockProvider,
 }
 
 
