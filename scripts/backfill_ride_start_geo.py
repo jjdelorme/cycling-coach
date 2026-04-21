@@ -34,7 +34,11 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 from urllib.parse import urlparse
+
+# Make `server` importable when this script is run directly (not via `python -m`).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 logger = logging.getLogger("backfill_ride_start_geo")
 
@@ -176,9 +180,18 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    database_url = os.environ.get("DATABASE_URL", "")
+    # Load .env so the script honours the same config the app uses.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    # Match the app's convention: server.database/config read CYCLING_COACH_DATABASE_URL.
+    # Fall back to DATABASE_URL for legacy callers.
+    database_url = os.environ.get("CYCLING_COACH_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
     if not database_url:
-        logger.error("DATABASE_URL is not set; refusing to run.")
+        logger.error("CYCLING_COACH_DATABASE_URL is not set; refusing to run.")
         return 2
 
     is_local = _is_localhost_database_url(database_url)

@@ -699,6 +699,18 @@ const syncSingleRide = useSyncSingleRide()
               aria-label="Search rides by name or notes"
               className="bg-surface-low border-none rounded px-2 py-1 text-xs font-medium text-text focus:ring-0 placeholder:text-text-muted/50 w-44 sm:w-56"
             />
+            {searchText && (
+              <button
+                onClick={() => {
+                  setSearchText('')
+                  setFilterParams(prev => { const { q, ...rest } = prev; return rest })
+                }}
+                aria-label="Clear search"
+                className="text-text-muted hover:text-text"
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
           <div className="w-px bg-border/50 mx-1 self-stretch hidden sm:block" />
           <div className="px-2 flex items-center gap-2">
