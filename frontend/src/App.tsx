@@ -9,6 +9,7 @@ import WorkoutDetail from './pages/WorkoutDetail'
 import Calendar from './pages/Calendar'
 import Analysis from './pages/Analysis'
 import Nutrition from './pages/Nutrition'
+import MealDetail from './pages/MealDetail'
 import Settings from './pages/Settings'
 import Admin from './pages/Admin'
 import NotFound from './pages/NotFound'
@@ -16,6 +17,11 @@ import NotFound from './pages/NotFound'
 function NutritionRoute() {
   const handoff = useNutritionistHandoff()
   return <Nutrition onOpenNutritionist={handoff.open} />
+}
+
+function MealDetailRoute() {
+  const handoff = useNutritionistHandoff()
+  return <MealDetail onOpenNutritionist={handoff.open} />
 }
 
 function AdminRoute() {
@@ -53,6 +59,10 @@ export default function App() {
           <Route path="calendar" element={<Calendar />} />
           <Route path="analysis" element={<Analysis />} />
           <Route path="nutrition" element={<NutritionRoute />} />
+          <Route path="nutrition/week" element={<NutritionRoute />} />
+          <Route path="nutrition/plan" element={<NutritionRoute />} />
+          <Route path="nutrition/plan/:date" element={<NutritionRoute />} />
+          <Route path="nutrition/meals/:id" element={<MealDetailRoute />} />
           <Route path="settings" element={<Settings />} />
           <Route path="admin" element={<AdminRoute />} />
           <Route path="*" element={<NotFound />} />

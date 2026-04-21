@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useMealPlan } from '../hooks/useApi'
 import MealPlanDayDetail from './MealPlanDayDetail'
 import { localDateStr } from '../lib/format'
@@ -26,9 +27,25 @@ interface Props {
   onOpenNutritionist?: (context?: string) => void
 }
 
+/**
+ * Meal-plan calendar.
+ *
+ * The selected day is encoded in the URL: `/nutrition/plan/:date`
+ * (no `:date` segment = no day selected, show the week grid).
+ *
+ * Week navigation (prev/next) is local UI state because changing the
+ * visible week without picking a day shouldn't change the URL.
+ */
 export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
-  const [weekStart, setWeekStart] = useState(() => getMonday(localDateStr()))
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const { date: routeDate } = useParams<{ date?: string }>()
+  const selectedDate = routeDate ?? null
+
+  // The visible week defaults to the week containing the selected date,
+  // or this week if no date is selected.
+  const [weekStart, setWeekStart] = useState(() =>
+    getMonday(selectedDate ?? localDateStr())
+  )
   const touchRef = useRef<{ x: number } | null>(null)
 
   const { data, isLoading } = useMealPlan({ date: weekStart, days: 7 })
@@ -38,16 +55,19 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
     ? data.days.find(d => d.date === selectedDate) ?? null
     : null
 
+  const selectDate = (d: string) => navigate(`/nutrition/plan/${d}`)
+  const clearDate = () => navigate('/nutrition/plan')
+
   const shiftWeek = (delta: number) => {
     const d = new Date(weekStart + 'T12:00:00')
     d.setDate(d.getDate() + delta * 7)
     setWeekStart(localDateStr(d))
-    setSelectedDate(null)
+    if (selectedDate) clearDate()
   }
 
   const goToThisWeek = () => {
     setWeekStart(getMonday(localDateStr()))
-    setSelectedDate(null)
+    if (selectedDate) clearDate()
   }
 
   const today = localDateStr()
@@ -72,7 +92,7 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
         <div className="flex flex-col items-center justify-center py-12 gap-3">
           <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
           <button
-            onClick={() => setSelectedDate(null)}
+            onClick={clearDate}
             className="text-[10px] font-bold text-accent uppercase tracking-widest hover:opacity-70 transition-opacity"
           >
             Back to Calendar
@@ -87,32 +107,32 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
 
     const goToPrevDay = () => {
       if (prevDay) {
-        setSelectedDate(prevDay.date)
+        selectDate(prevDay.date)
       } else {
         // Navigate to the last day of the previous week
         const d = new Date(weekStart + 'T12:00:00')
         d.setDate(d.getDate() - 1)
         setWeekStart(getMonday(localDateStr(d)))
-        setSelectedDate(localDateStr(d))
+        selectDate(localDateStr(d))
       }
     }
 
     const goToNextDay = () => {
       if (nextDay) {
-        setSelectedDate(nextDay.date)
+        selectDate(nextDay.date)
       } else {
         // Navigate to the first day of the next week
         const d = new Date(weekStart + 'T12:00:00')
         d.setDate(d.getDate() + 7)
         setWeekStart(localDateStr(d))
-        setSelectedDate(localDateStr(d))
+        selectDate(localDateStr(d))
       }
     }
 
     return (
       <MealPlanDayDetail
         day={selectedDay}
-        onBack={() => setSelectedDate(null)}
+        onBack={clearDate}
         onPrev={goToPrevDay}
         onNext={goToNextDay}
         onOpenNutritionist={onOpenNutritionist}
@@ -175,7 +195,7 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
                 return (
                   <button
                     key={day.date}
-                    onClick={() => setSelectedDate(day.date)}
+                    onClick={() => selectDate(day.date)}
                     className={`text-center py-2 rounded-t-lg transition-colors ${
                       isToday ? 'bg-accent/10 text-accent' : 'text-text-muted hover:text-text hover:bg-surface'
                     }`}
@@ -199,7 +219,7 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
                   return (
                     <button
                       key={`${day.date}-${slot.key}`}
-                      onClick={() => setSelectedDate(day.date)}
+                      onClick={() => selectDate(day.date)}
                       className={`min-h-[48px] p-1.5 rounded transition-colors text-left ${
                         isToday ? 'bg-accent/5' : 'bg-surface/50'
                       } hover:bg-surface border border-transparent hover:border-border`}
@@ -243,7 +263,7 @@ export default function MealPlanCalendar({ onOpenNutritionist }: Props) {
               return (
                 <button
                   key={day.date}
-                  onClick={() => setSelectedDate(day.date)}
+                  onClick={() => selectDate(day.date)}
                   className={`w-full text-left bg-surface rounded-xl border p-4 transition-colors ${
                     isToday ? 'border-accent/30' : 'border-border'
                   } hover:border-accent/50`}
