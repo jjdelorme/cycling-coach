@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.12.4-beta] - 2026-04-21
+
+### Features
+- **feat(rides): free-text search** — `?q=` filter searches across ride title, user comments, coach comments, and filename via ILIKE; search input added to the Rides toolbar with an inline clear (×) button that removes the active filter without requiring Enter
+- **feat(rides): location-radius search** — `?near=&radius_km=` filter resolves a place name to coordinates via a pluggable `GeocodingProvider` and applies a bounding-box prefilter + Haversine post-filter in SQL; "Advanced" disclosure panel with place input, km/mi radius selector, "Use My Location" button, active-filter chip, and inline error surfacing
+- **refactor(geocoding): pluggable provider model** — `GeocodingProvider` Protocol with `NominatimProvider` as the sole implementation; provider selected via `GEOCODER` env var (default `nominatim`); cache keys namespaced by provider name so a swap doesn't return stale coords; `MockProvider` (`GEOCODER=mock`) exposes deterministic fixtures for E2E tests plus an `__unreachable__` sentinel for the 503 path
+
+### Fixes
+- **fix(rides): search clear button** — × button appears in the search input when text is present; clears query and removes `?q=` from active filter params immediately
+- **fix(backfill script portability)** — `scripts/backfill_ride_start_geo.py` now reads `CYCLING_COACH_DATABASE_URL` (matching app convention), calls `load_dotenv()` automatically, and adds repo root to `sys.path` so it runs correctly as `python3 scripts/backfill_ride_start_geo.py` without `python -m`
+- **fix(migrate.py)** — `python -m server.migrate` now calls `load_dotenv()` before reading `CYCLING_COACH_DATABASE_URL`, eliminating silent fallback to localhost when `.env` exists but env var is not manually exported
+- **fix(sync): `_normalize_latlng` parser** — intervals.icu returns a flat `[lat, lon, lat, lon, ...]` array, not nested pairs; parser rewritten to handle both shapes; `(0, 0)` sentinel skipped as invalid GPS fix
+
+### Database
+- Migration `0008_rides_start_lat_lon_index.sql`: partial index on `rides(start_lat, start_lon) WHERE start_lat IS NOT NULL` to support bounding-box prefilter
+
+### Tests
+- 13/13 Playwright E2E tests pass (radius search via `MockProvider`)
+- 387 unit tests pass (9 haversine, 8 geocoding cache, 15 latlng parser, 11 backfill, + more)
+- 219 integration tests pass
+
+### Operator action required after deploy
+Run the one-time geo backfill against the production database:
+```bash
+python scripts/backfill_ride_start_geo.py --allow-remote --dry-run  # preview first
+python scripts/backfill_ride_start_geo.py --allow-remote
+```
+
 ## [v1.12.3] - 2026-04-20
 
 ### Features
