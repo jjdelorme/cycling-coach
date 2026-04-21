@@ -226,6 +226,28 @@ def _enrich_laps_with_np(laps: list[dict], stream_map: dict[str, list]) -> None:
         offset = lap_end
 
 
+def _normalize_latlng(raw) -> list[tuple[float, float]]:
+    """Convert intervals.icu ``latlng`` data to ``[(lat, lon), ...]``.
+
+    intervals.icu returns the ``latlng`` stream in one of two shapes:
+      * Nested pairs:   ``[[lat, lon], [lat, lon], ...]``
+      * Flat alternating floats: ``[lat, lon, lat, lon, ...]``
+
+    Older code only handled the nested-pair case, so the flat format
+    silently produced empty coordinates. This helper accepts either
+    form and always returns a list of ``(lat, lon)`` tuples. Empty
+    or ``None`` input is returned as ``[]``.
+    """
+    if not raw:
+        return []
+    first = raw[0]
+    if isinstance(first, (list, tuple)):
+        # Already nested pairs — keep entries with at least two values.
+        return [(p[0], p[1]) for p in raw if p and len(p) >= 2]
+    # Flat alternating floats — discard a trailing odd element if present.
+    return [(raw[i], raw[i + 1]) for i in range(0, len(raw) - 1, 2)]
+
+
 def _extract_streams(streams: dict | list) -> dict[str, list]:
     """Normalize intervals.icu stream data into a dict of lists.
     Handles both list-of-dicts and dict-of-lists formats.
@@ -269,17 +291,15 @@ def _store_streams(ride_id: int, streams: dict | list, conn=None):
     latlng_raw = stream_map.get("latlng", [])
 
     # Parse latlng — intervals.icu may return [lat, lng] pairs or flat values
-    latlng_pairs = []
-    if latlng_raw:
-        if latlng_raw and isinstance(latlng_raw[0], (list, tuple)):
-            latlng_pairs = latlng_raw  # already [lat, lng] pairs
+    # (see _normalize_latlng for both shapes).
+    latlng_pairs = _normalize_latlng(latlng_raw)
 
     n = len(time_data)
     rows = []
     for i in range(n):
         lat, lon = None, None
-        if latlng_pairs and i < len(latlng_pairs) and latlng_pairs[i]:
-            lat, lon = latlng_pairs[i][0], latlng_pairs[i][1]
+        if i < len(latlng_pairs):
+            lat, lon = latlng_pairs[i]
         rows.append((
             ride_id,
             None,  # timestamp_utc
@@ -315,22 +335,29 @@ def _backfill_start_location(ride_id: int, streams, conn=None):
     if not latlng_raw:
         return
 
-    # Find first valid GPS point
-    for point in latlng_raw:
-        if point and isinstance(point, (list, tuple)) and len(point) >= 2:
-            lat, lon = point[0], point[1]
-            if lat and lon:
-                def _update(c):
-                    c.execute(
-                        "UPDATE rides SET start_lat = ?, start_lon = ? WHERE id = ? AND start_lat IS NULL",
-                        (lat, lon, ride_id),
-                    )
-                if conn:
-                    _update(conn)
-                else:
-                    with get_db() as c:
-                        _update(c)
-                break
+    # Normalise once and find the first valid GPS point. We deliberately
+    # treat (0, 0) as "no fix" — Garmin head units occasionally emit it
+    # as a transient before the GPS locks. Note we use explicit None checks
+    # and an explicit (0, 0) guard rather than truthiness, otherwise valid
+    # coordinates that legitimately equal 0 (the equator / prime meridian)
+    # would be rejected.
+    for lat, lon in _normalize_latlng(latlng_raw):
+        if lat is None or lon is None:
+            continue
+        if lat == 0.0 and lon == 0.0:
+            continue
+
+        def _update(c):
+            c.execute(
+                "UPDATE rides SET start_lat = ?, start_lon = ? WHERE id = ? AND start_lat IS NULL",
+                (lat, lon, ride_id),
+            )
+        if conn:
+            _update(conn)
+        else:
+            with get_db() as c:
+                _update(c)
+        break
 
 
 def _store_laps(ride_id: int, laps: list[dict], conn=None):

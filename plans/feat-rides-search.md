@@ -1024,59 +1024,49 @@ needs to gate Phase 3 separately.
 
 ---
 
-## Status / Execution Notes
+## Implementation Status
 
-*Last updated: 2026-04-21 — work complete in worktree, awaiting review and merge.*
+*Merged to main 2026-04-21. Released as v1.13.0-beta.*
 
-**Worktree:** `/home/workspace/cycling-coach/.claude/worktrees/agent-a637d1df`
 **Branch:** `worktree-agent-a637d1df`
-**Status:** Ready for review and merge. Backfill must be run against prod after merge before radius filter returns results.
 
-### Commits (newest first)
+### Commits
 
-| SHA | Phase | Summary |
-| --- | --- | --- |
-| `8de094c` | Refactor | Introduce `GeocodingProvider` Protocol so the geocoder vendor can be swapped via the new `GEOCODER` env var (default `nominatim`). Cache keys namespaced by provider. Public `geocode_place()` contract unchanged. |
-| `6ff1d17` | Phase 2 | Location radius search via Nominatim geocoding + bounding-box prefilter + Haversine post-filter. Includes `migrations/0008_rides_start_lat_lon_index.sql`, `scripts/backfill_ride_start_geo.py`, and parser fix in `server/services/sync.py:_normalize_latlng` (intervals.icu returns flat `[lat, lon, lat, lon, ...]`, not nested pairs). |
-| `d2a6dae` | Phase 1 | Free-text search across `rides.title`, `user_comments`, `coach_comments`, `filename` via ILIKE in `server/routers/rides.py:_build_rides_query`; search input wired into the Rides toolbar. |
+| Commit | Scope |
+| --- | --- |
+| `d2a6dae` | feat(rides): add free-text search across title and notes |
+| `6ff1d17` | feat(rides): add location radius search with Nominatim geocoding — includes `migrations/0008_rides_start_lat_lon_index.sql`, `scripts/backfill_ride_start_geo.py`, and parser fix in `server/services/sync.py:_normalize_latlng` |
+| `8de094c` | refactor(geocoding): introduce `GeocodingProvider` Protocol — adds `GEOCODER` env var, Nominatim as sole implementation, cache keys namespaced by provider |
+| `7783f5e` | feat(geocoding): add `MockProvider` and E2E radius test |
+| `5aa66db` | chore(plans): record commit SHA for MockProvider follow-up |
+| `6fbf2b9` | fix(rides): add search clear button; fix backfill script portability |
+| `9ef3098` | fix(e2e): correct metric card label in 03-rides spec — 13/13 E2E pass, 387 unit, 219 integration (10 pre-existing failures) |
 
 ### Verification
 
-- Unit tests: 381 passing (+7 net new since branch start: 9 haversine, 8 geocoding cache, 15 latlng parser, 11 backfill unit).
-- Integration tests: 5 radius `rides_search` + 5 radius integration + 3 backfill integration all green.
-- Frontend build: `npm run build` succeeds (808 kB JS / 235 kB gzip).
-- 11 pre-existing integration failures (`test_timezone_queries`, `test_meal_plan_populated`, `test_nutrition_api` daily/weekly summary, `test_withings_integration`, `test_auth_token::test_mint_token_user_not_found`) verified to predate this work.
+- Playwright E2E: 13/13 pass (radius test passes via `MockProvider` / `GEOCODER=mock`).
+- Unit tests: 387 passing.
+- Integration tests: 219 passing, 10 pre-existing failures on `main` (`test_timezone_queries`, `test_meal_plan_populated`, `test_nutrition_api` daily/weekly, `test_withings_integration`).
+- Frontend build: `npm run build` clean (808 kB JS / 235 kB gzip).
 
-### New / Changed Env Vars
+### Closed Follow-ups
 
-- `GEOCODER` (default `nominatim`) — selects geocoding provider; documented in `AGENTS.md` env vars table. Implementations live in `server/services/geocoding.py` behind the `GeocodingProvider` Protocol.
+- **E2E coverage of the radius filter.** `MockProvider` registered under `GEOCODER=mock`; `tests/e2e/03-rides.spec.ts` adds a Playwright case using the North Pole fixture (far from all real rides → empty results). Test self-skips when backend lacks `GEOCODER=mock`. Run via:
+  ```bash
+  GEOCODER=mock uvicorn server.main:app --host 0.0.0.0 --port 8080 &
+  GEOCODER=mock npx playwright test --config tests/e2e/playwright.config.ts 03-rides
+  ```
 
 ### Operator Action Required After Merge
 
-The radius filter has no data to match until `rides.start_lat`/`start_lon` is backfilled for ICU-synced rides. After merge, run:
+Radius filter returns no results until `rides.start_lat`/`start_lon` is backfilled for ICU-synced rides:
 
 ```bash
-# Dry-run first to confirm the rowcount
-python scripts/backfill_ride_start_geo.py --allow-remote --dry-run
-# Then for real
-python scripts/backfill_ride_start_geo.py --allow-remote
+python scripts/backfill_ride_start_geo.py --allow-remote --dry-run  # preview
+python scripts/backfill_ride_start_geo.py --allow-remote            # run for real
 ```
-
-The script defaults to localhost-only and refuses to run against a remote DB without `--allow-remote` as a safety guard.
 
 ### Deferred / Open Items
 
-- **Multi-instance cache:** the geocoder cache is in-process. On Cloud Run with N instances, the same place can hit Nominatim up to N times. A Postgres-backed cache table (or Redis) would make cache hits fleet-wide. Not urgent at current traffic; revisit if Nominatim rate-limit warnings appear.
-- **E2E coverage:** `tests/e2e/03-rides.spec.ts` was *not* extended with a near-search Playwright case. Recommend adding once a Nominatim mocking strategy is decided (mock at the HTTP layer in the e2e harness, or introduce a `FakeProvider` selectable via `GEOCODER=fake` in test mode).
-- **Google provider not built.** The Protocol seam is in place; building a `GoogleProvider` is a contained ~100 LOC follow-up.
-
-### Merge Instructions
-
-Standard non-fast-forward merge:
-
-```bash
-git checkout main
-git merge --no-ff worktree-agent-a637d1df
-```
-
-No env-var changes required at deploy time — `GEOCODER` defaults to `nominatim`. Run the backfill script (above) once after merge.
+- **Google Maps provider** — Protocol seam in place; ~100 LOC follow-up (Campaign 19, Phase A).
+- **Postgres-backed geocoder cache** — in-process cache means multi-instance Cloud Run hits Nominatim more than once per place; defer until traffic warrants (Campaign 19, Phase B).

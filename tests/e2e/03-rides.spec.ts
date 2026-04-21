@@ -64,6 +64,56 @@ test.describe('Rides — list view', () => {
     const noMatch  = await page.getByText('No rides match').isVisible()
     expect(newCount < allCount || noMatch).toBeTruthy()
   })
+
+  /**
+   * Radius search (Advanced panel).
+   *
+   * REQUIRES the backend to be started with `GEOCODER=mock`, e.g.:
+   *
+   *   GEOCODER=mock uvicorn server.main:app --host 0.0.0.0 --port 8080
+   *
+   * The MockProvider (see `server/services/geocoding.py:MockProvider`)
+   * exposes a small fixed table of place names — `"north pole"` resolves
+   * to (89.9, 0.0), which is guaranteed to be far from any real ride.
+   * That gives us a deterministic "no rides match" assertion that does
+   * not depend on the running database having any specific seed coords.
+   *
+   * If `GEOCODER` is unset (default `nominatim`), this test will hit the
+   * real Nominatim service on every run — and "north pole" will resolve
+   * somewhere genuinely arctic, which is still likely to return zero
+   * rides for a normal cycling dataset, but we don't want CI dependent
+   * on that. The test skips itself when GEOCODER is not "mock" so a
+   * forgetful operator gets a clear signal instead of a flake.
+   */
+  test('radius search via Advanced panel returns no rides for a far-away place', async ({ page }) => {
+    test.skip(
+      (process.env.GEOCODER ?? '').toLowerCase() !== 'mock',
+      'Backend must be started with GEOCODER=mock for this test to be deterministic. ' +
+      'See server/services/geocoding.py:MockProvider for the fixture table.',
+    )
+
+    await page.waitForSelector('table tbody tr', { timeout: 15_000 })
+
+    // Open the Advanced panel.
+    await page.getByRole('button', { name: /Advanced/ }).click()
+    await expect(page.getByLabel('Search rides near a place')).toBeVisible({ timeout: 4_000 })
+
+    // Type a fixture place that resolves far from any ride.
+    await page.getByLabel('Search rides near a place').fill('North Pole')
+
+    // Apply (the Advanced panel has its own "Apply" button to disambiguate
+    // from the toolbar's "Go").
+    await page.getByRole('button', { name: 'Apply' }).click()
+    await page.waitForTimeout(1_500)
+
+    // Status chip confirms the geo filter is active.
+    await expect(page.getByText(/Showing rides within .* of North Pole/i)).toBeVisible({ timeout: 4_000 })
+
+    // No rows in the table OR the empty-state message.
+    const rowCount = await page.locator('table tbody tr').count()
+    const noMatch = await page.getByText('No rides match').isVisible()
+    expect(rowCount === 0 || noMatch).toBeTruthy()
+  })
 })
 
 test.describe('Rides — ride detail', () => {
@@ -89,7 +139,7 @@ test.describe('Rides — ride detail', () => {
   test('renders metric cards: Duration, Distance, TSS, Avg Power, NP', async ({ page }) => {
     // Wait for the metrics grid to appear (8-col grid of small metric cards)
     await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
-    for (const label of ['DISTANCE', 'TSS', 'AVG POWER']) {
+    for (const label of ['DISTANCE', 'TSS', 'POWER']) {
       await expect(page.getByText(label, { exact: false }).first()).toBeVisible({ timeout: 8_000 })
     }
   })

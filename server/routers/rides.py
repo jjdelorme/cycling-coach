@@ -1,5 +1,6 @@
 """Ride data endpoints."""
 
+from math import asin, cos, radians, sin, sqrt
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -10,6 +11,7 @@ from server.dependencies import get_client_tz
 from server.database import get_db
 from server.models.schemas import RideSummary, RideDetail, RideRecord, RideLap, WeeklySummary, MonthlySummary, DailySummary
 from server.ingest import compute_daily_pmc
+from server.services import geocoding
 
 
 class RideCommentsUpdate(BaseModel):
@@ -22,16 +24,70 @@ class RideTitleUpdate(BaseModel):
 router = APIRouter(prefix="/api/rides", tags=["rides"])
 
 
-@router.get("", response_model=list[RideSummary])
-def list_rides(
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    sport: Optional[str] = Query(None),
-    limit: int = Query(500),
-    user: CurrentUser = Depends(require_read),
-    tz: ZoneInfo = Depends(get_client_tz),
-):
-    tz_name = str(tz)
+# Columns searched by the free-text `q=` filter. Order is significant for the
+# generated SQL and the unit tests that assert it.
+_RIDE_TEXT_SEARCH_COLUMNS = ("title", "post_ride_comments", "coach_comments")
+
+# 1° of latitude is roughly 111.32 km everywhere on Earth. Used to convert
+# the requested radius into a bounding box for the SQL prefilter.
+_KM_PER_DEGREE_LAT = 111.32
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in kilometres between two ``(lat, lon)`` points."""
+    R = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * R * asin(sqrt(a))
+
+
+def _bounding_box(lat: float, lon: float, radius_km: float) -> tuple[float, float, float, float]:
+    """Return ``(min_lat, max_lat, min_lon, max_lon)`` for a radius around a point.
+
+    Latitude span is constant (``radius_km / 111.32``); longitude span depends
+    on latitude (gets wider near the equator, collapses at the poles). At
+    very high latitudes ``cos(lat)`` approaches 0, so we clamp the longitude
+    span at ±180° to keep the SQL bounds well-formed.
+    """
+    lat_delta = radius_km / _KM_PER_DEGREE_LAT
+    cos_lat = max(cos(radians(lat)), 1e-6)  # guard against /0 at the poles
+    lon_delta = min(radius_km / (_KM_PER_DEGREE_LAT * cos_lat), 180.0)
+    return (lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta)
+
+
+def _build_rides_query(
+    *,
+    tz_name: str,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    sport: Optional[str],
+    q: Optional[str],
+    limit: int,
+    near: Optional[tuple[float, float]] = None,
+    radius_km: Optional[float] = None,
+) -> tuple[str, list]:
+    """Build the SQL + params for ``GET /api/rides``.
+
+    Pure function — no DB access, no FastAPI deps. All bind params use the
+    project's ``?`` placeholder convention (translated to ``%s`` by
+    ``_DbConnection._adapt_sql``). The returned SQL must NEVER inline values.
+
+    Free-text semantics for ``q``:
+    - Whitespace-trimmed; empty / whitespace-only is treated as ``None``.
+    - Lowercased once, then split on whitespace into N words.
+    - Each word becomes a parenthesised OR-group across the searched columns
+      (currently ``title``, ``post_ride_comments``, ``coach_comments``); the N
+      groups are ANDed together. So ``q="hard climb"`` requires that BOTH
+      ``hard`` and ``climb`` each appear somewhere across the three columns.
+
+    Radius semantics for ``near`` + ``radius_km``:
+    - Both must be provided together. The SQL adds a bounding-box prefilter
+      using the ``idx_rides_start_lat_lon`` partial index. The exact circle
+      check (Haversine) is applied in Python on the returned rows so the
+      SQL stays portable (no PostGIS dependency).
+    - Rides with NULL ``start_lat``/``start_lon`` are silently excluded.
+    """
     query = (
         "SELECT *, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date"
         " FROM rides WHERE start_time IS NOT NULL"
@@ -46,12 +102,113 @@ def list_rides(
     if sport:
         query += " AND (sport = ? OR sub_sport = ?)"
         params.extend([sport, sport])
+
+    if q is not None:
+        words = q.strip().lower().split()
+        if words:
+            cols = _RIDE_TEXT_SEARCH_COLUMNS
+            group = " OR ".join(f"LOWER({c}) LIKE ?" for c in cols)
+            for word in words:
+                like = f"%{word}%"
+                query += f" AND ({group})"
+                params.extend([like] * len(cols))
+
+    if near is not None and radius_km is not None:
+        lat, lon = near
+        min_lat, max_lat, min_lon, max_lon = _bounding_box(lat, lon, radius_km)
+        query += (
+            " AND start_lat IS NOT NULL AND start_lon IS NOT NULL"
+            " AND start_lat BETWEEN ? AND ?"
+            " AND start_lon BETWEEN ? AND ?"
+        )
+        params.extend([min_lat, max_lat, min_lon, max_lon])
+
     query += " ORDER BY start_time DESC LIMIT ?"
     params.append(limit)
+    return query, params
 
+
+@router.get("", response_model=list[RideSummary])
+def list_rides(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    sport: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, description="Free-text search across title, post_ride_comments, coach_comments. Multiple words are AND-ed."),
+    near: Optional[str] = Query(None, description="Place name to geocode and search around. Pair with radius_km."),
+    near_lat: Optional[float] = Query(None, description="Latitude for radius search. Pair with near_lon and radius_km. Takes precedence over `near`."),
+    near_lon: Optional[float] = Query(None, description="Longitude for radius search. Pair with near_lat and radius_km."),
+    radius_km: Optional[float] = Query(None, ge=0.1, le=500, description="Radius in km for near/near_lat/near_lon search. Defaults to 25 if a near* param is supplied."),
+    limit: int = Query(500),
+    user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
+):
+    tz_name = str(tz)
+
+    # ------------------------------------------------------------------
+    # Resolve the radius filter inputs. The contract is:
+    # - radius_km alone (no near*) is invalid (400).
+    # - (near_lat AND near_lon) takes precedence over `near` so the frontend
+    #   can cache geocoder results client-side and bypass the server lookup.
+    # - `near` alone triggers a server-side Nominatim call, which may fail
+    #   (None → 400 unresolved, exception → 503 service unavailable).
+    # - radius_km defaults to 25 when any near* is present but it was omitted.
+    # ------------------------------------------------------------------
+    near_point: Optional[tuple[float, float]] = None
+    has_explicit_coords = near_lat is not None and near_lon is not None
+    has_near_query = bool(near and near.strip())
+
+    if has_explicit_coords:
+        near_point = (float(near_lat), float(near_lon))
+    elif has_near_query:
+        try:
+            resolved = geocoding.geocode_place(near)
+        except Exception as exc:  # noqa: BLE001 — translate to a 503
+            raise HTTPException(
+                status_code=503,
+                detail="geocoding service unavailable, please try again",
+            ) from exc
+        if resolved is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"could not resolve location '{near}'",
+            )
+        near_point = resolved
+
+    if radius_km is not None and near_point is None:
+        raise HTTPException(
+            status_code=400,
+            detail="radius_km requires near or near_lat/near_lon",
+        )
+    if near_point is not None and radius_km is None:
+        radius_km = 25.0
+
+    query, params = _build_rides_query(
+        tz_name=tz_name,
+        start_date=start_date,
+        end_date=end_date,
+        sport=sport,
+        q=q,
+        limit=limit,
+        near=near_point,
+        radius_km=radius_km,
+    )
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
-    return [RideSummary(**dict(r)) for r in rows]
+
+    summaries = [RideSummary(**dict(r)) for r in rows]
+
+    # Bounding-box prefilter overshoots the true circle by up to ~30% on
+    # the corners — apply the exact Haversine check in Python so users
+    # don't see rides that are technically outside the radius.
+    if near_point is not None and radius_km is not None:
+        center_lat, center_lon = near_point
+        summaries = [
+            s for s in summaries
+            if s.start_lat is not None and s.start_lon is not None
+            and _haversine_km(center_lat, center_lon, s.start_lat, s.start_lon) <= radius_km
+        ]
+
+    return summaries
 
 
 def aggregate_daily_rides(rows: list[dict], days: int = 7) -> list[DailySummary]:
