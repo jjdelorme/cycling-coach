@@ -13,6 +13,7 @@ A powerful, AI-integrated coaching platform for cyclists. This application inges
 - **AI Coaching**: An integrated AI coach that analyzes your training history to provide insights, recommendations, and structured workouts.
 - **Structured Workouts**: Generate and sync workouts directly to Intervals.icu and Garmin.
 - **Automated Sync**: Seamlessly pull data from Intervals.icu.
+- **Rides Search**: Free-text search across ride titles and notes, plus location-radius search ("near White Mountains, NH within 50 km") powered by a pluggable geocoding provider.
 
 ## How it Works
 
@@ -162,6 +163,16 @@ gcloud secrets add-iam-policy-binding CYCLING_COACH_DATABASE_URL \
 - **Backend**: `uvicorn server.main:app --reload`
 - **Frontend**: `cd frontend && npm run dev`
 - **Testing**: `pytest`
+
+### Key environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CYCLING_COACH_DATABASE_URL` | local Postgres | PostgreSQL connection string |
+| `GOOGLE_AUTH_ENABLED` | `true` | Set `false` to skip auth in local dev |
+| `GEOCODER` | `nominatim` | Geocoding provider for the `?near=` rides search. `nominatim` = OpenStreetMap (free, 1 req/s). `mock` = deterministic fixtures for E2E tests. `google` = Google Maps API (once Campaign 19 ships). |
+
+See `AGENTS.md` for the full environment variable reference.
 
 ## Releases
 

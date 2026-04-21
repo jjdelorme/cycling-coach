@@ -9,7 +9,7 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 - **GIT MERGES:** NEVER merge to `main` unless explicitly instructed to do so by the user. You can ask for permission to do it, but the user MUST approve.
 - **DATABASE PROTECTION:** NEVER write sample, test, or dummy data to the production database.
 - **LOCAL DEVELOPMENT:** Always use the local Podman-managed PostgreSQL container (`podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine`) for development and testing.
-- **ENVIRONMENT VERIFICATION:** Before running any script or command that modifies the database, verify that `DATABASE_URL` is pointing to `localhost` or the intended local development instance.
+- **ENVIRONMENT VERIFICATION:** Before running any script or command that modifies the database, verify that `CYCLING_COACH_DATABASE_URL` is pointing to `localhost` or the intended local development instance.
 
 ## AI Coaching Architecture Principles
 
@@ -22,6 +22,10 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 - **ADAPTIVE BY DEFAULT:** The coach must prescribe workouts based on the athlete's CURRENT state, not a fixed weekly rotation. The same calendar week should produce different prescriptions depending on whether the athlete is fresh (high TSB), fatigued (low TSB), coming off illness, or peaking for an event. Tools must expose rich athlete state so the LLM can make these decisions.
 
 - **DB IS THE SOURCE OF TRUTH FOR TRAINING CONFIG:** Zone definitions, TSS targets, hour targets, phase focus types, cycle structures — all training configuration belongs in the database, not hard-coded in Python constants or function bodies.
+
+## External Service Integration
+
+- **PROVIDER ABSTRACTION FOR SWAPPABLE THIRD-PARTY SERVICES:** When integrating a third-party service that has viable alternatives (geocoding, weather, mapping, SMS, email, etc.), structure the code so the provider can be swapped without changing callers. Define a small `Protocol`/interface, implement the current vendor against it, and select the implementation via env var. This is a *pragmatic* abstraction — apply it when there's a real chance of switching providers (rate limits, pricing, regional availability, vendor risk, or a free-tier service like Nominatim where you may eventually outgrow the policy). Do NOT preemptively abstract single-source dependencies where there is no realistic alternative — GCS, Postgres, Vertex AI, intervals.icu (which is the data source itself, not an interchangeable provider) all stay direct. The test: can you name a plausible second vendor today? If yes, abstract. If no, don't.
 
 ## Tech Stack
 - **Backend**: Python 3.11+ / FastAPI / PostgreSQL (psycopg2)
@@ -53,7 +57,7 @@ Scalable cycling coaching platform designed for multi-athlete support. Web app t
 - `podman run -d --name coach-db -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust docker.io/library/postgres:16-alpine` — start local Postgres
 - `pip install -r requirements.txt` — install backend deps
 - `cd frontend && npm install` — install frontend deps
-- `python -m server.migrate` — apply pending database migrations
+- `python -m server.migrate` — apply pending database migrations (reads `CYCLING_COACH_DATABASE_URL` from `.env` automatically)
 - `python -m server.ingest` — ingest data from JSON files into Postgres
 - `./scripts/dev.sh` — start both backend and frontend dev servers (generates VERSION from git tags)
 - `uvicorn server.main:app --reload` — run backend dev server only
@@ -174,6 +178,7 @@ Uses GCP Application Default Credentials. Run `gcloud auth application-default l
 | `CORS_ALLOWED_ORIGIN` | Cloud Run env var (prod) | Production frontend URL for CORS |
 | `JWT_SECRET` | `.env` (local), Secret Manager (prod) | Signs app session JWTs. **Required** when auth enabled. Must be stable across restarts and replicas. |
 | `JWT_EXPIRY_HOURS` | `.env` (local), Cloud Run env var (prod) | Session duration in hours (default: 24) |
+| `GEOCODER` | `.env` (local), Cloud Run env var (prod) | Geocoding provider for `?near=` rides search. Default: `nominatim`. Set to `google` once `GoogleMapsProvider` is built (Campaign 19); set to `mock` in E2E tests for deterministic offline geocoding. Implementations live in `server/services/geocoding.py` behind the `GeocodingProvider` Protocol. |
 
 - The Client ID is not a secret — it's public in the JS bundle. Stored in GitHub Secrets for convenience.
 - `VITE_*` vars are inlined by Vite at build time, not read at runtime.
