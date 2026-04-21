@@ -40,7 +40,10 @@ import {
   Search,
   Target,
   Trash2,
-  Flame
+  Flame,
+  ChevronDown,
+  ChevronUp,
+  X
 } from 'lucide-react'
 import SportIcon from '../components/SportIcon'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
@@ -80,7 +83,25 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [searchText, setSearchText] = useState('')
-  const [filterParams, setFilterParams] = useState<{ start_date?: string; end_date?: string; q?: string }>({})
+  // Geo / radius filter state
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [searchPlace, setSearchPlace] = useState('')
+  const [radiusValue, setRadiusValue] = useState<string>('25')
+  const [radiusUnit, setRadiusUnit] = useState<'km' | 'mi'>(units === 'imperial' ? 'mi' : 'km')
+  const [nearLat, setNearLat] = useState<number | null>(null)
+  const [nearLon, setNearLon] = useState<number | null>(null)
+  const [geoError, setGeoError] = useState<string | null>(null)
+  const [resolvedPlace, setResolvedPlace] = useState<string | null>(null)
+  const [resolvedRadiusKm, setResolvedRadiusKm] = useState<number | null>(null)
+  const [filterParams, setFilterParams] = useState<{
+    start_date?: string
+    end_date?: string
+    q?: string
+    near?: string
+    near_lat?: number
+    near_lon?: number
+    radius_km?: number
+  }>({})
   const [postRideNotes, setPostRideNotes] = useState('')
   const [notesDirty, setNotesDirty] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -92,7 +113,7 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   const [selectedLap, setSelectedLap] = useState<number | null>(null)
 
   const queryClient = useQueryClient()
-  const { data: rides, isLoading: ridesLoading } = useRides(filterParams)
+  const { data: rides, isLoading: ridesLoading, error: ridesError } = useRides(filterParams)
   const { data: ride, isLoading: rideLoading } = useRide(selectedRideId)
   const updateComments = useUpdateRideComments()
   const deleteRideMutation = useDeleteRide()
@@ -135,13 +156,98 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
     }
   }, [initialDate])
 
+  // Surface backend errors that originate from the geo filter (400/503 from /api/rides).
+  useEffect(() => {
+    if (ridesError && (filterParams.near || filterParams.near_lat !== undefined)) {
+      setGeoError((ridesError as Error).message || 'Could not resolve location')
+    }
+  }, [ridesError, filterParams.near, filterParams.near_lat])
+
   function handleFilter() {
-    const params: { start_date?: string; end_date?: string; q?: string } = {}
+    const params: {
+      start_date?: string
+      end_date?: string
+      q?: string
+      near?: string
+      near_lat?: number
+      near_lon?: number
+      radius_km?: number
+    } = {}
     if (startDate) params.start_date = startDate
     if (endDate) params.end_date = endDate
     const trimmed = searchText.trim()
     if (trimmed) params.q = trimmed
+
+    // Geo / radius
+    setGeoError(null)
+    const placeTrim = searchPlace.trim()
+    const hasCoords = nearLat !== null && nearLon !== null
+    const radiusNum = Number(radiusValue)
+    const radiusKm = Number.isFinite(radiusNum) && radiusNum > 0
+      ? (radiusUnit === 'mi' ? radiusNum * 1.609344 : radiusNum)
+      : null
+
+    if (placeTrim || hasCoords) {
+      if (radiusKm === null) {
+        setGeoError('Radius must be a positive number')
+        return
+      }
+      if (radiusKm > 500) {
+        setGeoError('Radius must be 500 km or less')
+        return
+      }
+      params.radius_km = Math.round(radiusKm * 100) / 100
+      if (hasCoords) {
+        params.near_lat = nearLat as number
+        params.near_lon = nearLon as number
+        setResolvedPlace(placeTrim || `${(nearLat as number).toFixed(3)}, ${(nearLon as number).toFixed(3)}`)
+      } else {
+        params.near = placeTrim
+        setResolvedPlace(placeTrim)
+      }
+      setResolvedRadiusKm(params.radius_km)
+    } else {
+      setResolvedPlace(null)
+      setResolvedRadiusKm(null)
+    }
+
     setFilterParams(params)
+  }
+
+  function clearGeoFilter() {
+    setSearchPlace('')
+    setNearLat(null)
+    setNearLon(null)
+    setGeoError(null)
+    setResolvedPlace(null)
+    setResolvedRadiusKm(null)
+    setFilterParams(prev => {
+      const next = { ...prev }
+      delete next.near
+      delete next.near_lat
+      delete next.near_lon
+      delete next.radius_km
+      return next
+    })
+  }
+
+  function useMyLocation() {
+    if (!('geolocation' in navigator)) {
+      setGeoError('Geolocation is not supported by this browser')
+      return
+    }
+    setGeoError(null)
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setNearLat(pos.coords.latitude)
+        setNearLon(pos.coords.longitude)
+        setSearchPlace('')
+      },
+      err => {
+        setGeoError(`Could not get current location: ${err.message}`)
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+    )
   }
 
   function handleSaveNotes() {
@@ -620,8 +726,121 @@ const syncSingleRide = useSyncSingleRide()
           >
             Go
           </button>
+          <button
+            onClick={() => setShowAdvanced(v => !v)}
+            aria-expanded={showAdvanced}
+            aria-controls="rides-advanced-panel"
+            className="ml-1 flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-text-muted hover:text-accent transition-colors"
+            title="Advanced filters"
+          >
+            Advanced {showAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
         </div>
       </div>
+
+      {showAdvanced && (
+        <div
+          id="rides-advanced-panel"
+          className="bg-surface rounded-lg border border-border shadow-sm p-4 animate-in fade-in slide-in-from-top-1 duration-200"
+        >
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest" htmlFor="rides-place-input">
+                Place
+              </label>
+              <input
+                id="rides-place-input"
+                type="text"
+                value={searchPlace}
+                onChange={e => { setSearchPlace(e.target.value); setNearLat(null); setNearLon(null) }}
+                onKeyDown={e => { if (e.key === 'Enter') handleFilter() }}
+                placeholder="e.g. Santa Fe, NM"
+                aria-label="Search rides near a place"
+                className="bg-surface-low border border-border rounded px-3 py-1.5 text-xs font-medium text-text focus:outline-none focus:border-accent placeholder:text-text-muted/50 w-56"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest" htmlFor="rides-radius-input">
+                Radius
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  id="rides-radius-input"
+                  type="number"
+                  min={1}
+                  max={radiusUnit === 'mi' ? 310 : 500}
+                  step={1}
+                  value={radiusValue}
+                  onChange={e => setRadiusValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleFilter() }}
+                  className="bg-surface-low border border-border rounded px-2 py-1.5 text-xs font-bold text-text focus:outline-none focus:border-accent w-20"
+                />
+                <select
+                  value={radiusUnit}
+                  onChange={e => setRadiusUnit(e.target.value as 'km' | 'mi')}
+                  className="bg-surface-low border border-border rounded px-2 py-1.5 text-xs font-bold text-text focus:outline-none focus:border-accent"
+                  aria-label="Radius unit"
+                >
+                  <option value="km">km</option>
+                  <option value="mi">mi</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-end gap-2">
+              <button
+                onClick={useMyLocation}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-low border border-border rounded text-[10px] font-bold uppercase tracking-widest text-text-muted hover:text-accent hover:border-accent transition-all"
+                title="Use my current location"
+              >
+                <MapPin size={12} /> Use My Location
+              </button>
+              <button
+                onClick={handleFilter}
+                className="px-3 py-1.5 bg-accent text-white text-[10px] font-bold uppercase tracking-widest rounded hover:opacity-90 transition-all shadow-sm"
+              >
+                Apply
+              </button>
+              {(resolvedPlace || nearLat !== null || searchPlace) && (
+                <button
+                  onClick={clearGeoFilter}
+                  className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-text-muted hover:text-red transition-colors"
+                  title="Clear location filter"
+                >
+                  <X size={12} /> Clear
+                </button>
+              )}
+            </div>
+          </div>
+          {nearLat !== null && nearLon !== null && (
+            <p className="mt-2 text-[10px] text-text-muted font-medium">
+              Using current location: {nearLat.toFixed(4)}, {nearLon.toFixed(4)}
+            </p>
+          )}
+          {geoError && (
+            <p className="mt-2 text-[11px] text-red font-bold">{geoError}</p>
+          )}
+        </div>
+      )}
+
+      {resolvedPlace && resolvedRadiusKm !== null && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-accent/5 border border-accent/20 rounded-lg w-fit">
+          <MapPin size={12} className="text-accent" />
+          <span className="text-[11px] font-bold text-text">
+            Showing rides within{' '}
+            {radiusUnit === 'mi'
+              ? `${(resolvedRadiusKm / 1.609344).toFixed(0)} mi`
+              : `${resolvedRadiusKm.toFixed(0)} km`}{' '}
+            of {resolvedPlace}
+          </span>
+          <button
+            onClick={clearGeoFilter}
+            className="ml-1 text-text-muted hover:text-red transition-colors"
+            aria-label="Clear location filter"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-border bg-surface-low flex items-center gap-2">

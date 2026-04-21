@@ -9,6 +9,8 @@ search semantics described in plans/feat-rides-search.md.
 
 from __future__ import annotations
 
+import pytest
+
 from server.routers.rides import _build_rides_query
 
 
@@ -21,6 +23,8 @@ def _params_for(**kwargs):
         sport=None,
         q=None,
         limit=500,
+        near=None,
+        radius_km=None,
     )
     base.update(kwargs)
     return _build_rides_query(**base)
@@ -166,3 +170,60 @@ def test_limit_appears_once_at_end():
     sql, params = _params_for(q="threshold", limit=42)
     assert sql.rstrip().endswith("LIMIT ?")
     assert params[-1] == 42
+
+
+# ---------------------------------------------------------------------------
+# Location radius — bounding-box prefilter SQL
+# ---------------------------------------------------------------------------
+
+
+def test_near_without_radius_adds_no_clause():
+    sql, params = _params_for(near=(35.69, -105.94), radius_km=None)
+    assert "BETWEEN" not in sql
+    assert params == ["UTC", 500]
+
+
+def test_radius_without_near_adds_no_clause():
+    """Caller-side validation enforces the contract; the helper itself is permissive."""
+    sql, params = _params_for(near=None, radius_km=25)
+    assert "BETWEEN" not in sql
+
+
+def test_near_plus_radius_adds_bounding_box_and_not_null_clauses():
+    sql, params = _params_for(near=(35.69, -105.94), radius_km=25)
+    assert "start_lat IS NOT NULL AND start_lon IS NOT NULL" in sql
+    assert "start_lat BETWEEN ? AND ?" in sql
+    assert "start_lon BETWEEN ? AND ?" in sql
+    # tz_name + 4 bounding-box binds + limit
+    assert len(params) == 6
+    assert params[0] == "UTC"
+    assert params[-1] == 500
+
+
+def test_bounding_box_params_match_documented_formula():
+    sql, params = _params_for(near=(0.0, 0.0), radius_km=25)
+    # Near the equator the latitude and longitude spans both equal radius/111.32.
+    delta = 25 / 111.32
+    _, min_lat, max_lat, min_lon, max_lon, _ = params
+    assert min_lat == pytest.approx(-delta, rel=1e-6)
+    assert max_lat == pytest.approx(delta, rel=1e-6)
+    assert min_lon == pytest.approx(-delta, rel=1e-3)
+    assert max_lon == pytest.approx(delta, rel=1e-3)
+
+
+def test_radius_composes_with_q_and_dates():
+    sql, params = _params_for(
+        q="climb",
+        start_date="2026-01-01",
+        end_date="2026-12-31",
+        near=(35.69, -105.94),
+        radius_km=25,
+    )
+    pos_dates = sql.find(">= ?::DATE")
+    pos_q = sql.find("LOWER(title)")
+    pos_geo = sql.find("BETWEEN")
+    pos_limit = sql.find("LIMIT ?")
+    assert 0 < pos_dates < pos_q < pos_geo < pos_limit
+    # Param order: tz, tz, start, tz, end, like x3, min_lat, max_lat, min_lon, max_lon, limit
+    assert len(params) == 5 + 3 + 4 + 1
+    assert params[-1] == 500

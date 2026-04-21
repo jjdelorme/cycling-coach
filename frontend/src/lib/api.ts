@@ -76,6 +76,10 @@ export const fetchRides = (params?: {
   sport?: string
   limit?: number
   q?: string
+  near?: string
+  near_lat?: number
+  near_lon?: number
+  radius_km?: number
 }) => {
   const qs = new URLSearchParams()
   if (params?.start_date) qs.set('start_date', params.start_date)
@@ -83,6 +87,10 @@ export const fetchRides = (params?: {
   if (params?.sport) qs.set('sport', params.sport)
   if (params?.limit) qs.set('limit', String(params.limit))
   if (params?.q && params.q.trim()) qs.set('q', params.q.trim())
+  if (params?.near && params.near.trim()) qs.set('near', params.near.trim())
+  if (params?.near_lat !== undefined && Number.isFinite(params.near_lat)) qs.set('near_lat', String(params.near_lat))
+  if (params?.near_lon !== undefined && Number.isFinite(params.near_lon)) qs.set('near_lon', String(params.near_lon))
+  if (params?.radius_km !== undefined && Number.isFinite(params.radius_km)) qs.set('radius_km', String(params.radius_km))
   return get<RideSummary[]>(`/api/rides?${qs}`)
 }
 export const fetchRide = (id: number) => get<RideDetail>(`/api/rides/${id}`)
