@@ -22,16 +22,34 @@ class RideTitleUpdate(BaseModel):
 router = APIRouter(prefix="/api/rides", tags=["rides"])
 
 
-@router.get("", response_model=list[RideSummary])
-def list_rides(
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    sport: Optional[str] = Query(None),
-    limit: int = Query(500),
-    user: CurrentUser = Depends(require_read),
-    tz: ZoneInfo = Depends(get_client_tz),
-):
-    tz_name = str(tz)
+# Columns searched by the free-text `q=` filter. Order is significant for the
+# generated SQL and the unit tests that assert it.
+_RIDE_TEXT_SEARCH_COLUMNS = ("title", "post_ride_comments", "coach_comments")
+
+
+def _build_rides_query(
+    *,
+    tz_name: str,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    sport: Optional[str],
+    q: Optional[str],
+    limit: int,
+) -> tuple[str, list]:
+    """Build the SQL + params for ``GET /api/rides``.
+
+    Pure function — no DB access, no FastAPI deps. All bind params use the
+    project's ``?`` placeholder convention (translated to ``%s`` by
+    ``_DbConnection._adapt_sql``). The returned SQL must NEVER inline values.
+
+    Free-text semantics for ``q``:
+    - Whitespace-trimmed; empty / whitespace-only is treated as ``None``.
+    - Lowercased once, then split on whitespace into N words.
+    - Each word becomes a parenthesised OR-group across the searched columns
+      (currently ``title``, ``post_ride_comments``, ``coach_comments``); the N
+      groups are ANDed together. So ``q="hard climb"`` requires that BOTH
+      ``hard`` and ``climb`` each appear somewhere across the three columns.
+    """
     query = (
         "SELECT *, (start_time::TIMESTAMPTZ AT TIME ZONE ?)::DATE::TEXT AS date"
         " FROM rides WHERE start_time IS NOT NULL"
@@ -46,9 +64,41 @@ def list_rides(
     if sport:
         query += " AND (sport = ? OR sub_sport = ?)"
         params.extend([sport, sport])
+
+    if q is not None:
+        words = q.strip().lower().split()
+        if words:
+            cols = _RIDE_TEXT_SEARCH_COLUMNS
+            group = " OR ".join(f"LOWER({c}) LIKE ?" for c in cols)
+            for word in words:
+                like = f"%{word}%"
+                query += f" AND ({group})"
+                params.extend([like] * len(cols))
+
     query += " ORDER BY start_time DESC LIMIT ?"
     params.append(limit)
+    return query, params
 
+
+@router.get("", response_model=list[RideSummary])
+def list_rides(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    sport: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, description="Free-text search across title, post_ride_comments, coach_comments. Multiple words are AND-ed."),
+    limit: int = Query(500),
+    user: CurrentUser = Depends(require_read),
+    tz: ZoneInfo = Depends(get_client_tz),
+):
+    tz_name = str(tz)
+    query, params = _build_rides_query(
+        tz_name=tz_name,
+        start_date=start_date,
+        end_date=end_date,
+        sport=sport,
+        q=q,
+        limit=limit,
+    )
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
     return [RideSummary(**dict(r)) for r in rows]

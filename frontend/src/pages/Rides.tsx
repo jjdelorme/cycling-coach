@@ -16,18 +16,18 @@ import {
 import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, fmtSport, fmtTimestamp, fmtDateStr } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useQueryClient } from '@tanstack/react-query'
-import { 
-  Calendar, 
-  Clock, 
-  Zap, 
-  Activity, 
-  TrendingUp, 
-  Heart, 
-  ChevronLeft, 
-  ChevronRight, 
-  Edit3, 
-  Save, 
-  MessageSquare, 
+import {
+  Calendar,
+  Clock,
+  Zap,
+  Activity,
+  TrendingUp,
+  Heart,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  Save,
+  MessageSquare,
   Download,
   MapPin,
   Filter,
@@ -37,6 +37,7 @@ import {
   Layers,
   List,
   RefreshCw,
+  Search,
   Target,
   Trash2,
   Flame
@@ -78,7 +79,8 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   }
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [filterParams, setFilterParams] = useState<{ start_date?: string; end_date?: string }>({})
+  const [searchText, setSearchText] = useState('')
+  const [filterParams, setFilterParams] = useState<{ start_date?: string; end_date?: string; q?: string }>({})
   const [postRideNotes, setPostRideNotes] = useState('')
   const [notesDirty, setNotesDirty] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -134,9 +136,11 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   }, [initialDate])
 
   function handleFilter() {
-    const params: { start_date?: string; end_date?: string } = {}
+    const params: { start_date?: string; end_date?: string; q?: string } = {}
     if (startDate) params.start_date = startDate
     if (endDate) params.end_date = endDate
+    const trimmed = searchText.trim()
+    if (trimmed) params.q = trimmed
     setFilterParams(params)
   }
 
@@ -575,17 +579,31 @@ const syncSingleRide = useSyncSingleRide()
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold text-text">Rides</h1>
-        <div className="flex bg-surface rounded-lg p-1 border border-border shadow-sm">
-          <div className="px-3 flex items-center gap-2">
+        <div className="flex flex-wrap bg-surface rounded-lg p-1 border border-border shadow-sm gap-1">
+          <div className="px-2 flex items-center gap-2">
+            <Search size={14} className="text-text-muted" />
+            <input
+              type="text"
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleFilter() }}
+              placeholder="Search by name or notes..."
+              aria-label="Search rides by name or notes"
+              className="bg-surface-low border-none rounded px-2 py-1 text-xs font-medium text-text focus:ring-0 placeholder:text-text-muted/50 w-44 sm:w-56"
+            />
+          </div>
+          <div className="w-px bg-border/50 mx-1 self-stretch hidden sm:block" />
+          <div className="px-2 flex items-center gap-2">
             <Filter size={14} className="text-text-muted" />
-            <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest hidden sm:inline">Filter</span>
+            <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest hidden sm:inline">Date</span>
           </div>
           <input
             type="date"
             value={startDate}
             onChange={e => setStartDate(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleFilter() }}
             className="bg-surface-low border-none rounded px-2 py-1 text-xs font-bold text-text focus:ring-0 cursor-pointer"
           />
           <span className="px-1 text-text-muted opacity-30 text-xs self-center">to</span>
@@ -593,6 +611,7 @@ const syncSingleRide = useSyncSingleRide()
             type="date"
             value={endDate}
             onChange={e => setEndDate(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleFilter() }}
             className="bg-surface-low border-none rounded px-2 py-1 text-xs font-bold text-text focus:ring-0 cursor-pointer mr-1"
           />
           <button

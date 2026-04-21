@@ -29,6 +29,137 @@ def test_filter_rides_by_date(client):
     assert all("2025-08" in r["date"] for r in rides)
 
 
+# ---------------------------------------------------------------------------
+# Free-text search (?q=)
+# ---------------------------------------------------------------------------
+
+def _ride_text_blob(ride: dict) -> str:
+    """All free-text columns concatenated, lowercased — used to verify hits."""
+    parts = [
+        ride.get("title") or "",
+        ride.get("post_ride_comments") or "",
+        ride.get("coach_comments") or "",
+    ]
+    return " ".join(parts).lower()
+
+
+# A magic phrase chosen to be vanishingly unlikely to collide with seed data.
+# Each fixture row exercises one of the three searched columns.
+_TEXT_FIXTURE_ROWS = [
+    # (filename, title, post_ride_comments, coach_comments)
+    ("textq_fixture_a.json", "Tuesday qsearchneedle1 Threshold", None, None),
+    ("textq_fixture_b.json", "Sunday Long Ride", "felt strong, qsearchneedle2 in legs", None),
+    ("textq_fixture_c.json", "Recovery Spin", None, "great qsearchneedle3 — well executed"),
+    ("textq_fixture_d.json", "Wednesday Endurance qsearchneedle1 base", "easy qsearchneedle2 day", None),
+    ("textq_fixture_e.json", "Saturday Group Ride", None, None),
+]
+
+
+def _install_text_search_fixtures(conn) -> set[int]:
+    """Insert (or reuse) deterministic rides for free-text search tests.
+
+    Returns the set of inserted ride ids so tests can clean up if needed.
+    The fixtures use a fixed start_time in 2099 so they sort to the top of
+    DESC ordering and never collide with real seed dates. All numeric columns
+    that other endpoints aggregate (e.g. /summary/monthly) are populated with
+    safe non-null values to avoid contaminating other tests in the session.
+    """
+    ids: set[int] = set()
+    for i, (filename, title, post, coach) in enumerate(_TEXT_FIXTURE_ROWS):
+        # Idempotent: skip if already present from a previous test run in the
+        # same session (the test DB is disposable but session-scoped).
+        existing = conn.execute(
+            "SELECT id FROM rides WHERE filename = %s", (filename,)
+        ).fetchone()
+        if existing:
+            ids.add(existing["id"])
+            continue
+        row = conn.execute(
+            "INSERT INTO rides (start_time, filename, sport, duration_s, distance_m,"
+            " tss, total_ascent, title, post_ride_comments, coach_comments)"
+            f" VALUES ('2099-06-{i+1:02d}T10:00:00+00:00', %s, 'ride', 3600, 30000,"
+            " 50, 100, %s, %s, %s) RETURNING id",
+            (filename, title, post, coach),
+        ).fetchone()
+        ids.add(row["id"])
+    conn.commit()
+    return ids
+
+
+def test_filter_rides_by_q_returns_matches(client, db_conn):
+    _install_text_search_fixtures(db_conn)
+    resp = client.get("/api/rides?q=qsearchneedle1")
+    assert resp.status_code == 200
+    rides = resp.json()
+    titles = {r.get("title") for r in rides}
+    assert "Tuesday qsearchneedle1 Threshold" in titles
+    assert "Wednesday Endurance qsearchneedle1 base" in titles
+    # Every returned ride must contain the needle in at least one searched column.
+    for r in rides:
+        assert "qsearchneedle1" in _ride_text_blob(r)
+
+
+def test_filter_rides_by_q_searches_post_ride_comments(client, db_conn):
+    _install_text_search_fixtures(db_conn)
+    resp = client.get("/api/rides?q=qsearchneedle2")
+    assert resp.status_code == 200
+    titles = {r.get("title") for r in resp.json()}
+    assert "Sunday Long Ride" in titles
+    assert "Wednesday Endurance qsearchneedle1 base" in titles
+
+
+def test_filter_rides_by_q_searches_coach_comments(client, db_conn):
+    _install_text_search_fixtures(db_conn)
+    resp = client.get("/api/rides?q=qsearchneedle3")
+    assert resp.status_code == 200
+    titles = {r.get("title") for r in resp.json()}
+    assert titles == {"Recovery Spin"}
+
+
+def test_filter_rides_by_q_no_matches_returns_empty(client):
+    resp = client.get("/api/rides?q=zzznotatitleanywhereinseed")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_filter_rides_by_q_is_case_insensitive(client, db_conn):
+    _install_text_search_fixtures(db_conn)
+    lower = client.get("/api/rides?q=qsearchneedle1").json()
+    upper = client.get("/api/rides?q=QSEARCHNEEDLE1").json()
+    mixed = client.get("/api/rides?q=QsEaRcHnEeDlE1").json()
+    assert len(lower) == len(upper) == len(mixed) >= 2
+    assert {r["id"] for r in lower} == {r["id"] for r in upper} == {r["id"] for r in mixed}
+
+
+def test_filter_rides_by_q_multi_word_ands_terms(client, db_conn):
+    """Multi-word search ANDs each word with OR-across-columns per word."""
+    _install_text_search_fixtures(db_conn)
+    # 'qsearchneedle1 qsearchneedle2' should match only fixture_d (the only
+    # row where both needles appear, even though they are in different columns).
+    both = client.get("/api/rides?q=qsearchneedle1+qsearchneedle2").json()
+    titles = {r.get("title") for r in both}
+    assert titles == {"Wednesday Endurance qsearchneedle1 base"}
+
+    # Pairing one real needle with a non-existent word must yield zero results.
+    none = client.get("/api/rides?q=qsearchneedle1+xyznoexistword").json()
+    assert none == []
+
+
+def test_filter_rides_by_q_composes_with_date_range(client, db_conn):
+    _install_text_search_fixtures(db_conn)
+    # The fixtures all start in 2099-06; the date filter excludes them.
+    pre = client.get(
+        "/api/rides?q=qsearchneedle1&start_date=2025-01-01&end_date=2025-12-31"
+    ).json()
+    assert pre == []
+
+    # And includes them when the range covers 2099-06.
+    inside = client.get(
+        "/api/rides?q=qsearchneedle1&start_date=2099-01-01&end_date=2099-12-31"
+    ).json()
+    assert len(inside) == 2
+
+
 def test_get_single_ride(client):
     # Find a ride that has records
     with get_db() as conn:

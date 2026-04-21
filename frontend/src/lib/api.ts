@@ -70,13 +70,20 @@ import type {
 } from '../types/api'
 
 // Rides
-export const fetchRides = (params?: { start_date?: string; end_date?: string; sport?: string; limit?: number }) => {
-  const q = new URLSearchParams()
-  if (params?.start_date) q.set('start_date', params.start_date)
-  if (params?.end_date) q.set('end_date', params.end_date)
-  if (params?.sport) q.set('sport', params.sport)
-  if (params?.limit) q.set('limit', String(params.limit))
-  return get<RideSummary[]>(`/api/rides?${q}`)
+export const fetchRides = (params?: {
+  start_date?: string
+  end_date?: string
+  sport?: string
+  limit?: number
+  q?: string
+}) => {
+  const qs = new URLSearchParams()
+  if (params?.start_date) qs.set('start_date', params.start_date)
+  if (params?.end_date) qs.set('end_date', params.end_date)
+  if (params?.sport) qs.set('sport', params.sport)
+  if (params?.limit) qs.set('limit', String(params.limit))
+  if (params?.q && params.q.trim()) qs.set('q', params.q.trim())
+  return get<RideSummary[]>(`/api/rides?${qs}`)
 }
 export const fetchRide = (id: number) => get<RideDetail>(`/api/rides/${id}`)
 export const fetchWeeklySummary = (params?: { start_date?: string; end_date?: string }) => {
