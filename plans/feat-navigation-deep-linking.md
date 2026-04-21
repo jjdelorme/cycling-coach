@@ -408,3 +408,51 @@ Each branch ships independently as its own PR, and each leaves the app in a work
 *   404s render the friendly NotFound page, not a blank screen.
 *   All existing E2E tests pass; new deep-link tests pass.
 *   `App.tsx` no longer holds page/tab state — URL is the single source of truth.
+
+---
+
+## Status / Execution Notes
+
+*Last updated: 2026-04-21 — Phases 1–3 complete in worktree, Phases 4–6 explicitly deferred.*
+
+**Worktree:** `/home/workspace/cycling-coach/.claude/worktrees/agent-af461ff5`
+**Branch:** `worktree-agent-af461ff5`
+**Status:** Phases 1–3 ready for review and merge. Together they form a complete, shippable deep-linking story (top-level routes + ride/workout deep links + nutrition deep links). Phases 4–6 are independent enhancements queued for follow-up work.
+
+### Commits (newest first)
+
+| SHA | Phase | Summary |
+| --- | --- | --- |
+| `8f717f0` | Phase 3 | Nutrition deep links: `/nutrition/week`, `/nutrition/plan`, `/nutrition/plan/:date`, `/nutrition/meals/:id`. New `MealDetail.tsx` page; `MealPlanCalendar` selected day driven by `useParams`; Day/Week/Plan toggles became `<NavLink>`. |
+| `4663b0a` | Phase 2 | Ride and workout deep links (`/rides/:id`, `/workouts/:id`). |
+| `9632bd2` | Phase 1 | Install `react-router-dom`; replace tab state with top-level `<Routes>`; mobile + desktop nav driven by URL. |
+
+### Verification
+
+- `npm run build`: clean (tsc + vite, 0 errors).
+- Vitest unit suite: 22/22 pass.
+- E2E test file `tests/e2e/08-meal-plan.spec.ts` updated to use `link` role queries and asserts URL changes; **Playwright not run in worktree** (requires a live backend at `:8080`).
+- Backend `pytest` skipped in this worktree (no `venv`); no backend changes were made so no regressions expected.
+
+### Deferred (queued as separate follow-ups)
+
+| Phase | Scope | Notes |
+| --- | --- | --- |
+| Phase 4 | Route guards (`RequireRole`), Calendar `?date=` query param, Settings/Admin per-route gating | Scaffolding partly in place: `roleSatisfies` helper and `ROUTES` table already exist in `frontend/src/lib/routes.ts`; `AdminRoute` does an inline role check today. |
+| Phase 5 | Breadcrumb component on every non-root view | Not started. |
+| Phase 6 | `/login` route, `RequireAuth` wrapper, refactor `LoginPage` early-return, lift coach-panel context out of `Layout` | Not started. |
+
+Each deferred phase is independently shippable per the original branch convention (`feat/nav-phase4-*`, etc.), and can be picked up by a fresh team or follow-up worktree.
+
+### Minor Open Item
+
+- The `MealCapture` FAB still calls `setDate(today)` after meal save. Works correctly because the Day view is now URL-bound, but could be tightened to only fire on the day route. Cosmetic — does not block merge.
+
+### Merge Instructions
+
+Pure frontend + e2e test changes. No DB migrations, no env-var changes, no backend changes. SPA fallback at `server/main.py:299-304` already serves arbitrary paths to `index.html`, so all new deep links work in prod without server changes.
+
+```bash
+git checkout main
+git merge --no-ff worktree-agent-af461ff5
+```

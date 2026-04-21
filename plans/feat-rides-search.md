@@ -1021,3 +1021,62 @@ needs to gate Phase 3 separately.
 | Nominatim rate-limits or blocks our IP | Medium | In-process cache + 1 req/sec limiter + proper User-Agent + `near_lat`/`near_lon` client-bypass param. |
 | Substring `LIKE` is slow on large `post_ride_comments`/`coach_comments` | Low (single-athlete dataset) | Defer FTS until measured. The query already has a `start_time DESC LIMIT 500` ceiling. |
 | Refactor of `list_rides()` regresses the existing date filter | Low | Step 2.A locks behaviour with golden tests *before* refactoring (Step 2.B). |
+
+---
+
+## Status / Execution Notes
+
+*Last updated: 2026-04-21 — work complete in worktree, awaiting review and merge.*
+
+**Worktree:** `/home/workspace/cycling-coach/.claude/worktrees/agent-a637d1df`
+**Branch:** `worktree-agent-a637d1df`
+**Status:** Ready for review and merge. Backfill must be run against prod after merge before radius filter returns results.
+
+### Commits (newest first)
+
+| SHA | Phase | Summary |
+| --- | --- | --- |
+| `8de094c` | Refactor | Introduce `GeocodingProvider` Protocol so the geocoder vendor can be swapped via the new `GEOCODER` env var (default `nominatim`). Cache keys namespaced by provider. Public `geocode_place()` contract unchanged. |
+| `6ff1d17` | Phase 2 | Location radius search via Nominatim geocoding + bounding-box prefilter + Haversine post-filter. Includes `migrations/0008_rides_start_lat_lon_index.sql`, `scripts/backfill_ride_start_geo.py`, and parser fix in `server/services/sync.py:_normalize_latlng` (intervals.icu returns flat `[lat, lon, lat, lon, ...]`, not nested pairs). |
+| `d2a6dae` | Phase 1 | Free-text search across `rides.title`, `user_comments`, `coach_comments`, `filename` via ILIKE in `server/routers/rides.py:_build_rides_query`; search input wired into the Rides toolbar. |
+
+### Verification
+
+- Unit tests: 381 passing (+7 net new since branch start: 9 haversine, 8 geocoding cache, 15 latlng parser, 11 backfill unit).
+- Integration tests: 5 radius `rides_search` + 5 radius integration + 3 backfill integration all green.
+- Frontend build: `npm run build` succeeds (808 kB JS / 235 kB gzip).
+- 11 pre-existing integration failures (`test_timezone_queries`, `test_meal_plan_populated`, `test_nutrition_api` daily/weekly summary, `test_withings_integration`, `test_auth_token::test_mint_token_user_not_found`) verified to predate this work.
+
+### New / Changed Env Vars
+
+- `GEOCODER` (default `nominatim`) — selects geocoding provider; documented in `AGENTS.md` env vars table. Implementations live in `server/services/geocoding.py` behind the `GeocodingProvider` Protocol.
+
+### Operator Action Required After Merge
+
+The radius filter has no data to match until `rides.start_lat`/`start_lon` is backfilled for ICU-synced rides. After merge, run:
+
+```bash
+# Dry-run first to confirm the rowcount
+python scripts/backfill_ride_start_geo.py --allow-remote --dry-run
+# Then for real
+python scripts/backfill_ride_start_geo.py --allow-remote
+```
+
+The script defaults to localhost-only and refuses to run against a remote DB without `--allow-remote` as a safety guard.
+
+### Deferred / Open Items
+
+- **Multi-instance cache:** the geocoder cache is in-process. On Cloud Run with N instances, the same place can hit Nominatim up to N times. A Postgres-backed cache table (or Redis) would make cache hits fleet-wide. Not urgent at current traffic; revisit if Nominatim rate-limit warnings appear.
+- **E2E coverage:** `tests/e2e/03-rides.spec.ts` was *not* extended with a near-search Playwright case. Recommend adding once a Nominatim mocking strategy is decided (mock at the HTTP layer in the e2e harness, or introduce a `FakeProvider` selectable via `GEOCODER=fake` in test mode).
+- **Google provider not built.** The Protocol seam is in place; building a `GoogleProvider` is a contained ~100 LOC follow-up.
+
+### Merge Instructions
+
+Standard non-fast-forward merge:
+
+```bash
+git checkout main
+git merge --no-ff worktree-agent-a637d1df
+```
+
+No env-var changes required at deploy time — `GEOCODER` defaults to `nominatim`. Run the backfill script (above) once after merge.
