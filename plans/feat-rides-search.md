@@ -1038,7 +1038,7 @@ Implemented on branch `worktree-agent-a637d1df`.
 | `7783f5e` | feat(geocoding): add `MockProvider` and E2E radius test — closes the deferred E2E coverage item below. |
 | `5aa66db` | chore(plans): record commit SHA for MockProvider follow-up. |
 | `6fbf2b9` | fix(rides): add search clear button; fix backfill script portability. |
-| `(final)` | fix(e2e): correct metric card label in 03-rides spec; update plan status — 13/13 E2E pass, 387 unit, 219 integration (10 pre-existing failures). |
+| `9ef3098` | fix(e2e): correct metric card label in 03-rides spec; update plan status — 13/13 E2E pass, 387 unit, 219 integration (10 pre-existing failures). |
 
 ### Closed Follow-ups
 
