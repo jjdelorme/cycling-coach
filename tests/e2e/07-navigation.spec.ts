@@ -1,5 +1,8 @@
 /**
- * Navigation — desktop header, tab switching, active state, page title.
+ * Navigation — desktop header, tab switching, active state, URL routing.
+ *
+ * After the React Router migration (Phase 1), header nav items are anchor
+ * elements (role `link`) and the URL reflects the active page.
  *
  * Run:
  *   npx playwright test --config tests/e2e/playwright.config.ts 07-navigation
@@ -18,37 +21,75 @@ test.describe('Desktop navigation', () => {
     await expect(page.locator('header').getByText('COACH')).toBeVisible()
   })
 
-  test('all nav tabs are visible: Dashboard, Rides, Calendar, Analysis', async ({ page }) => {
-    for (const label of ['Dashboard', 'Rides', 'Calendar', 'Analysis']) {
-      await expect(page.locator('header').getByRole('button', { name: label })).toBeVisible()
+  test('all nav tabs are visible: Dashboard, Rides, Calendar, Analysis, Nutrition', async ({ page }) => {
+    for (const label of ['Dashboard', 'Rides', 'Calendar', 'Analysis', 'Nutrition']) {
+      await expect(page.locator('header').getByRole('link', { name: label })).toBeVisible()
     }
   })
 
-  test('Dashboard is the active tab on load', async ({ page }) => {
-    const dashBtn = page.locator('header').getByRole('button', { name: 'Dashboard' })
-    const cls = await dashBtn.getAttribute('class')
-    // Active tab has accent/surface2 styling
+  test('Dashboard is the active tab on load (URL is /)', async ({ page }) => {
+    await expect(page).toHaveURL(/\/$/)
+    const dashLink = page.locator('header').getByRole('link', { name: 'Dashboard' })
+    const cls = await dashLink.getAttribute('class')
     expect(cls).toMatch(/bg-surface2|border-accent/)
   })
 
-  test('clicking Rides makes it the active tab', async ({ page }) => {
-    await page.locator('header').getByRole('button', { name: 'Rides' }).click()
-    await page.waitForTimeout(300)
-    const ridesBtn = page.locator('header').getByRole('button', { name: 'Rides' })
-    const cls = await ridesBtn.getAttribute('class')
+  test('clicking Rides updates URL to /rides and marks the link active', async ({ page }) => {
+    await page.locator('header').getByRole('link', { name: 'Rides' }).click()
+    await expect(page).toHaveURL(/\/rides$/)
+    const ridesLink = page.locator('header').getByRole('link', { name: 'Rides' })
+    const cls = await ridesLink.getAttribute('class')
     expect(cls).toMatch(/bg-surface2|border-accent/)
   })
 
-  test('clicking Calendar makes it the active tab', async ({ page }) => {
-    await page.locator('header').getByRole('button', { name: 'Calendar' }).click()
-    await page.waitForTimeout(300)
-    const calBtn = page.locator('header').getByRole('button', { name: 'Calendar' })
-    const cls = await calBtn.getAttribute('class')
+  test('clicking Calendar updates URL to /calendar', async ({ page }) => {
+    await page.locator('header').getByRole('link', { name: 'Calendar' }).click()
+    await expect(page).toHaveURL(/\/calendar$/)
+    const calLink = page.locator('header').getByRole('link', { name: 'Calendar' })
+    const cls = await calLink.getAttribute('class')
     expect(cls).toMatch(/bg-surface2|border-accent/)
+  })
+
+  test('clicking Analysis updates URL to /analysis', async ({ page }) => {
+    await page.locator('header').getByRole('link', { name: 'Analysis' }).click()
+    await expect(page).toHaveURL(/\/analysis$/)
+  })
+
+  test('clicking Nutrition updates URL to /nutrition', async ({ page }) => {
+    await page.locator('header').getByRole('link', { name: 'Nutrition' }).click()
+    await expect(page).toHaveURL(/\/nutrition$/)
+  })
+
+  test('deep-link to /rides directly loads the rides page', async ({ page }) => {
+    await page.goto(`${BASE}/rides`)
+    await expect(page.getByText('ACTIVITY HISTORY', { exact: false })).toBeVisible({ timeout: 12_000 })
+    await expect(page).toHaveURL(/\/rides$/)
+  })
+
+  test('deep-link to /calendar directly loads the calendar page', async ({ page }) => {
+    await page.goto(`${BASE}/calendar`)
+    await expect(page).toHaveURL(/\/calendar$/)
+  })
+
+  test('browser back navigates between pages', async ({ page }) => {
+    await page.locator('header').getByRole('link', { name: 'Rides' }).click()
+    await expect(page).toHaveURL(/\/rides$/)
+    await page.locator('header').getByRole('link', { name: 'Calendar' }).click()
+    await expect(page).toHaveURL(/\/calendar$/)
+    await page.goBack()
+    await expect(page).toHaveURL(/\/rides$/)
+    await page.goForward()
+    await expect(page).toHaveURL(/\/calendar$/)
+  })
+
+  test('unknown path renders the NotFound page', async ({ page }) => {
+    await page.goto(`${BASE}/this-route-does-not-exist`)
+    await expect(page.getByText('Page not found')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByRole('link', { name: 'Go to Dashboard' })).toBeVisible()
   })
 
   test('Settings gear icon is visible in header', async ({ page }) => {
-    await expect(page.locator('header button[title="Settings"]')).toBeVisible()
+    await expect(page.locator('header [title="Settings"]').first()).toBeVisible()
   })
 
   test('Coach (chat) icon is visible in header', async ({ page }) => {
@@ -57,18 +98,11 @@ test.describe('Desktop navigation', () => {
 
   test('Coach panel opens when chat button is clicked', async ({ page }) => {
     await page.locator('header button[title="Coach"]').click()
-    // The CoachPanel slides in
     await page.waitForTimeout(500)
-    // Coach panel typically has a close button and chat interface
-    const coachPanel = page.locator('[class*="CoachPanel"], [class*="coach"], div').filter({
-      hasText: /coach|chat/i
-    })
-    // Just verify no JS error was thrown and the layout adjusted
     await expect(page.locator('body')).toBeVisible()
   })
 
   test('theme toggle button is visible', async ({ page }) => {
-    // Dark/Light toggle in the header
     const themeBtn = page.locator('header button[title*="mode"], header button[title*="theme"]').or(
       page.locator('header button').filter({ has: page.locator('svg') }).nth(1)
     )
@@ -76,7 +110,6 @@ test.describe('Desktop navigation', () => {
   })
 
   test('version string appears in the corner', async ({ page }) => {
-    // Version is shown as a small fixed label bottom-right on desktop
     const versionEl = page.locator('span').filter({ hasText: /^v\d/ })
     await expect(versionEl).toBeVisible()
     const text = await versionEl.innerText()
@@ -84,7 +117,6 @@ test.describe('Desktop navigation', () => {
   })
 
   test('page does not redirect away from / when auth is disabled', async ({ page }) => {
-    // Confirm we are not on a login page
     await expect(page.getByText('Sign in with Google')).not.toBeVisible()
     await expect(page.getByText('FITNESS (CTL)', { exact: false })).toBeVisible()
   })
