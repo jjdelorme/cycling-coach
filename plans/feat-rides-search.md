@@ -1035,7 +1035,7 @@ Implemented on branch `worktree-agent-a637d1df`.
 | `d2a6dae` | feat(rides): add free-text search across title and notes — Phase 2 of the plan (`?q=`). |
 | `6ff1d17` | feat(rides): add location radius search with Nominatim geocoding — Phases 1 (parser fix + backfill) and 3 (`?near=&radius_km=`). |
 | `8de094c` | refactor(geocoding): introduce `GeocodingProvider` Protocol for pluggable providers — adds the `GEOCODER` env var, keeps Nominatim as the only real implementation, no caller changes. |
-| `<follow-up>` | feat(geocoding): add `MockProvider` and E2E radius test — closes the deferred E2E coverage item below. |
+| `7783f5e` | feat(geocoding): add `MockProvider` and E2E radius test — closes the deferred E2E coverage item below. |
 
 ### Closed Follow-ups
 
