@@ -174,6 +174,7 @@ Uses GCP Application Default Credentials. Run `gcloud auth application-default l
 | `CORS_ALLOWED_ORIGIN` | Cloud Run env var (prod) | Production frontend URL for CORS |
 | `JWT_SECRET` | `.env` (local), Secret Manager (prod) | Signs app session JWTs. **Required** when auth enabled. Must be stable across restarts and replicas. |
 | `JWT_EXPIRY_HOURS` | `.env` (local), Cloud Run env var (prod) | Session duration in hours (default: 24) |
+| `GEOCODER` | `.env` (local), Cloud Run env var (prod) | Selects geocoding provider used by `?near=` ride search. Default: `nominatim`. Implementations live in `server/services/geocoding.py` behind the `GeocodingProvider` Protocol — set this to swap vendors without code changes elsewhere. |
 
 - The Client ID is not a secret — it's public in the JS bundle. Stored in GitHub Secrets for convenience.
 - `VITE_*` vars are inlined by Vite at build time, not read at runtime.
