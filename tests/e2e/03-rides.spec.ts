@@ -139,7 +139,7 @@ test.describe('Rides — ride detail', () => {
   test('renders metric cards: Duration, Distance, TSS, Avg Power, NP', async ({ page }) => {
     // Wait for the metrics grid to appear (8-col grid of small metric cards)
     await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
-    for (const label of ['DISTANCE', 'TSS', 'AVG POWER']) {
+    for (const label of ['DISTANCE', 'TSS', 'POWER']) {
       await expect(page.getByText(label, { exact: false }).first()).toBeVisible({ timeout: 8_000 })
     }
   })

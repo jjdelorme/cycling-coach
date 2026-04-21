@@ -1036,6 +1036,9 @@ Implemented on branch `worktree-agent-a637d1df`.
 | `6ff1d17` | feat(rides): add location radius search with Nominatim geocoding — Phases 1 (parser fix + backfill) and 3 (`?near=&radius_km=`). |
 | `8de094c` | refactor(geocoding): introduce `GeocodingProvider` Protocol for pluggable providers — adds the `GEOCODER` env var, keeps Nominatim as the only real implementation, no caller changes. |
 | `7783f5e` | feat(geocoding): add `MockProvider` and E2E radius test — closes the deferred E2E coverage item below. |
+| `5aa66db` | chore(plans): record commit SHA for MockProvider follow-up. |
+| `6fbf2b9` | fix(rides): add search clear button; fix backfill script portability. |
+| `(final)` | fix(e2e): correct metric card label in 03-rides spec; update plan status — 13/13 E2E pass, 387 unit, 219 integration (10 pre-existing failures). |
 
 ### Closed Follow-ups
 
