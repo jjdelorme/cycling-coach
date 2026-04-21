@@ -1,5 +1,6 @@
 import { useSyncSingleRide } from '../hooks/useSyncSingleRide'
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { 
@@ -46,35 +47,32 @@ import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import RideTimelineChart from '../components/RideTimelineChart'
 import { calculateStepActuals } from '../lib/workout-utils'
 
-interface Props {
-  initialRideId?: number
-  initialDate?: string
-  onRideSelect?: (id: number | null) => void
-  onDateSelect?: (date: string | null) => void
-}
-
-export default function Rides({ initialRideId, initialDate, onRideSelect, onDateSelect }: Props) {
+/**
+ * Rides page — list view + ride/workout-by-date detail view.
+ *
+ * Detail selection is now URL-driven:
+ *   - `/rides`            → list view
+ *   - `/rides/:id`        → detail for a specific recorded ride
+ *   - `/rides/by-date/:date` → detail for a planned workout (or "no activity")
+ *                              on the given YYYY-MM-DD
+ */
+export default function Rides() {
   const units = useUnits()
-  const [selectedRideId, setSelectedRideId] = useState<number | null>(initialRideId ?? null)
-  const [selectedDate, setSelectedDate] = useState<string | null>(initialDate ?? null)
+  const navigate = useNavigate()
+  const params = useParams<{ id?: string; date?: string }>()
 
-  // Sync internal state with external handlers
+  const selectedRideId = params.id ? Number(params.id) : null
+  const selectedDate = params.date ?? null
+
+  // URL-driven setters — navigate instead of mutating local state.
   const handleSetSelectedRideId = (id: number | null) => {
-    setSelectedRideId(id)
-    onRideSelect?.(id)
-    if (id !== null) {
-      setSelectedDate(null)
-      onDateSelect?.(null)
-    }
+    if (id == null) navigate('/rides')
+    else navigate(`/rides/${id}`)
   }
 
   const handleSetSelectedDate = (date: string | null) => {
-    setSelectedDate(date)
-    onDateSelect?.(date)
-    if (date !== null) {
-      setSelectedRideId(null)
-      onRideSelect?.(null)
-    }
+    if (date == null) navigate('/rides')
+    else navigate(`/rides/by-date/${date}`)
   }
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -118,20 +116,6 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
       setNotesDirty(false)
     }
   }, [ride])
-
-  useEffect(() => {
-    if (initialRideId != null) {
-      setSelectedRideId(initialRideId)
-      setSelectedDate(null)
-    }
-  }, [initialRideId])
-
-  useEffect(() => {
-    if (initialDate != null) {
-      setSelectedDate(initialDate)
-      setSelectedRideId(null)
-    }
-  }, [initialDate])
 
   function handleFilter() {
     const params: { start_date?: string; end_date?: string } = {}
@@ -259,8 +243,8 @@ const syncSingleRide = useSyncSingleRide()
       <div className="space-y-6 pb-12">
         {/* Navigation & Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <button 
-            onClick={() => { handleSetSelectedRideId(null); handleSetSelectedDate(null) }}
+          <button
+            onClick={() => navigate('/rides')}
             className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors text-xs font-bold uppercase tracking-widest"
           >
             <ChevronLeft size={14} /> Back to List
@@ -887,7 +871,7 @@ function WorkoutStepsTable({ steps, records, highlightedStep, selectedStep, onHo
   )
 }
 
-function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
+export function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
   const updateNotes = useUpdateWorkoutNotes(), [athleteNotes, setAthleteNotes] = useState<string | null>(null), [saveStatus, setSaveStatus] = useState('')
   const [hoveredStep, setHoveredStep] = useState<number | null>(null)
   const [selectedStep, setSelectedStep] = useState<number | null>(null)

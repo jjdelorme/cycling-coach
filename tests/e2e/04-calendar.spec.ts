@@ -101,7 +101,7 @@ test.describe('Calendar', () => {
     }
   })
 
-  test('View Analysis button in day panel navigates to ride detail', async ({ page }) => {
+  test('View Analysis link in day panel navigates to /rides/:id', async ({ page }) => {
     // Find a cell with a ride
     const rideCell = page.locator('.grid-cols-7.gap-px > div').filter({
       has: page.locator('[class*="text-green"]'),
@@ -111,10 +111,29 @@ test.describe('Calendar', () => {
     if (hasCells > 0) {
       await rideCell.click()
       await page.waitForTimeout(1_000)
-      const viewBtn = page.getByRole('button', { name: /View Analysis/i })
-      if (await viewBtn.count() > 0) {
-        await viewBtn.click()
+      const viewLink = page.getByRole('link', { name: /View Analysis/i })
+      if (await viewLink.count() > 0) {
+        await viewLink.first().click()
+        await expect(page).toHaveURL(/\/rides\/\d+$/, { timeout: 8_000 })
         await expect(page.getByText('Back to List')).toBeVisible({ timeout: 8_000 })
+      }
+    }
+  })
+
+  test('Show Details link in day panel navigates to /workouts/:id', async ({ page }) => {
+    // Find a cell with a planned workout (yellow text)
+    const workoutCell = page.locator('.grid-cols-7.gap-px > div').filter({
+      has: page.locator('[class*="text-yellow"]'),
+    }).first()
+
+    const hasCells = await workoutCell.count()
+    if (hasCells > 0) {
+      await workoutCell.click()
+      await page.waitForTimeout(1_000)
+      const showDetailsLink = page.getByRole('link', { name: /Show Details/i })
+      if (await showDetailsLink.count() > 0) {
+        await showDetailsLink.first().click()
+        await expect(page).toHaveURL(/\/workouts\/\d+$/, { timeout: 8_000 })
       }
     }
   })
