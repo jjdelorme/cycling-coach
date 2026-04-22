@@ -10,24 +10,26 @@ This document serves as the top-level view of all active, planned, and completed
   - *Status:* Planned
   - *Goal:* Refactor `_DbConnection` to use independent cursors, eliminating the shared cursor anti-pattern and enabling nested query execution.
 
-- [ ] **Campaign 16: Calendar Ride-Name Display** (`plans/feat-calendar-ride-names.md`)
-  - *Status:* Planned (awaiting approval)
-  - *Goal:* On the Calendar view, render the ride title alongside TSS when there's room (Tailwind `md:` breakpoint). Single-file frontend change; no backend work — title already flows through to the calendar.
-  - *Suggested branch:* `feat/calendar-ride-names`
-
 - [ ] **Campaign 17: Rides Search (Free-Text + Location Radius)** (`plans/feat-rides-search.md`)
-  - *Status:* Planned (awaiting approval)
-  - *Goal:* Add `?q=` free-text search on the Rides screen (Phase 1) and `?near=&radius_km=` location-radius filter via Nominatim geocoding + Haversine SQL (Phase 2). Phase 2 is gated on backfilling `rides.start_lat/start_lon` from `ride_records` for ICU-synced rides.
-  - *Suggested branches:* `feat/rides-search-text`, `feat/rides-search-radius`
+  - *Status:* Built — worktree `worktree-agent-a637d1df`, ready to merge to main. Implements `?q=` text search and `?near=&radius_km=` location-radius filter via pluggable `GeocodingProvider` (Nominatim by default, `GEOCODER` env var). Requires one-time backfill of `rides.start_lat/lon` against prod DB post-deploy.
+  - *Branch:* `worktree-agent-a637d1df`
 
 - [ ] **Campaign 18: Navigation, Routing & Deep Linking** (`plans/feat-navigation-deep-linking.md`)
-  - *Status:* Planned (awaiting approval) — multi-week, 6 phases
-  - *Goal:* Introduce `react-router-dom`, sync URLs with the address bar, support deep links to rides/meals/workouts, and add breadcrumbs. Each phase independently shippable. Requires E2E test updates to switch from `button` to `link` role queries.
-  - *Suggested branches:* `feat/nav-phase1-router`, `feat/nav-phase2-rides-deep-link`, `feat/nav-phase3-nutrition-deep-link`, `feat/nav-phase4-route-guards`, `feat/nav-phase5-breadcrumbs`, `feat/nav-phase6-auth-cleanup`
+  - *Status:* Phases 1–3 built — worktree `worktree-agent-af461ff5`, ready to merge after Campaign 17 lands. Phases 4–6 (route guards, breadcrumbs, `/login` + `RequireAuth`) deferred to follow-up campaigns.
+  - *Branch:* `worktree-agent-af461ff5`
+
+- [ ] **Campaign 19: Geocoder Hardening** (`plans/feat-geocoder-hardening.md` — to be created)
+  - *Status:* Planned — two independent phases, both follow-on to Campaign 17's `GeocodingProvider` Protocol seam.
+  - **Phase A — Google Maps Provider:** Implement `GoogleMapsProvider` (Maps Geocoding API, `GEOCODER=google`, API key via `GEOCODER_GOOGLE_API_KEY` env var). The Protocol seam is already in place; this is ~100 LOC + tests.
+  - **Phase B — Multi-Instance Cache:** Move the in-process Nominatim LRU cache to a Postgres-backed `geocoder_cache` table (TTL column, `ON CONFLICT DO UPDATE`). Eliminates per-instance cold-start hits against Nominatim when Cloud Run scales beyond one replica.
 
 ---
 
 ## Archived Campaigns
+
+### Campaign 16: Calendar Ride-Name Display (Completed)
+**Tracking Plan:** `plans/feat-calendar-ride-names.md`
+- *Merged to main (`ef2a08f`); released as v1.12.3 on 2026-04-21.*
 
 ### Campaign 14: Bug Fix — Ride Detail Lap Zoom (Completed)
 **Tracking Plan:** `plans/archive/bug-ride-detail-zoom-lap.md`

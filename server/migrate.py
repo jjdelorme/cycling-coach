@@ -63,6 +63,11 @@ def run_migrations(conn) -> int:
 
 
 if __name__ == "__main__":
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     db_url = os.environ.get("CYCLING_COACH_DATABASE_URL", _DEFAULT_URL)
     conn = psycopg2.connect(db_url)
     try:
