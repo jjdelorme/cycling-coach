@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.13.1-beta] - 2026-04-22
+
+### Features — Campaign 18: Navigation, Routing & Deep Linking (Phases 4–6, completing the campaign)
+- **feat(nav): route guards** — new `RequireAuth` and `RequireRole` components consume the existing `roleSatisfies` helper and render a `LoadingScreen` during the auth-loading window (avoids the "deep-link refresh briefly bounces to /login" flash). `/admin` and `/settings` are wrapped in `RequireRole`; the old `AdminRoute` inline check is gone.
+- **feat(nav): /login as a real route** — `LoginPage` promoted from an `App.tsx` early-return to a top-level `/login` route mounted outside `RequireAuth`. After successful auth it redirects to `location.state.from.pathname ?? '/'`, so a user who pastes a deep link while logged out lands on that page after signing in. Authenticated users hitting `/login` bounce to `/`.
+- **feat(calendar): URL-driven date selection** — `/calendar?date=YYYY-MM-DD` now seeds both the visible month and the selected day; clicking a day or paginating months keeps the URL in sync (`replace: true` to avoid history pollution).
+- **feat(nav): breadcrumbs** — new `Breadcrumbs` component walks the route table's `parent` chain via `useLocation` + `matchPath`. Renders WAI-ARIA-correct `<nav aria-label="breadcrumb">` markup with `aria-current="page"` on the leaf; hidden on `/`. Dynamic crumbs for `/rides/:id`, `/workouts/:id`, and `/nutrition/meals/:id` resolve via the existing data hooks; raw param shows during loading. Mounted in `Layout.tsx` for desktop and as a compact row for mobile.
+- **chore(app): App.tsx cleanup** — early-return removed; file shrunk from 73 → 55 lines with no `useState`, no role ladders, no `useEffect`. The route table itself is the floor.
+- **refactor(roles): consolidate role checks** — `Settings.tsx` and `Layout.tsx` `isAdmin` checks now use `roleSatisfies(user?.role, 'admin')` consistently. `Settings.tsx isReadOnly` intentionally left as strict equality (asks "only read?", not "satisfies read?").
+
+### Tests
+- 110 Playwright specs pass, 2 skipped, 0 failed (4 new in `11-breadcrumbs.spec.ts`; `/login` + redirect cases added to `07-navigation`; `?date=` deep link added to `04-calendar`).
+- 32 frontend vitest tests pass (10 new across `RequireRole` and `roleSatisfies` suites).
+- 390 backend pytest unit tests pass (no backend changes).
+
+### Notes
+- Pure frontend change. No backend, schema, env-var, or dependency changes. Backend RBAC (`require_read`/`require_write`/`require_admin`) was already complete before this work.
+
 ## [v1.13.0-beta] - 2026-04-22
 
 ### Features — Campaign 18: Navigation, Routing & Deep Linking (Phases 1–3)
