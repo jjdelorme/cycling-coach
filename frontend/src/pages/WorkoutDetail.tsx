@@ -1,8 +1,9 @@
-import { useParams, Link } from 'react-router-dom'
-import { ChevronLeft, RefreshCw } from 'lucide-react'
+import { useParams } from 'react-router-dom'
+import { RefreshCw } from 'lucide-react'
 import { useWorkoutDetail } from '../hooks/useApi'
 import { WorkoutOnlyDetail } from './Rides'
 import NotFound from './NotFound'
+import DayDetailShell from '../components/DayDetailShell'
 
 /**
  * Standalone planned-workout detail page.
@@ -15,18 +16,10 @@ export default function WorkoutDetail() {
   const params = useParams<{ id: string }>()
   const id = params.id ? Number(params.id) : null
   const { data: workout, isLoading, isError } = useWorkoutDetail(id)
+  const currentDate = workout?.date ? workout.date.slice(0, 10) : null
 
   return (
-    <div className="space-y-6 pb-12">
-      <div className="flex items-center justify-between">
-        <Link
-          to="/calendar"
-          className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors text-xs font-bold uppercase tracking-widest"
-        >
-          <ChevronLeft size={14} /> Back to Calendar
-        </Link>
-      </div>
-
+    <DayDetailShell currentDate={currentDate} backTo={{ href: '/calendar', label: 'Back to Calendar' }}>
       {isLoading && (
         <div className="flex items-center justify-center py-24">
           <RefreshCw size={32} className="animate-spin text-accent opacity-50" />
@@ -40,6 +33,6 @@ export default function WorkoutDetail() {
           <WorkoutOnlyDetail workout={workout} />
         </div>
       )}
-    </div>
+    </DayDetailShell>
   )
 }

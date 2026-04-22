@@ -200,3 +200,39 @@ test.describe('Rides — deep link', () => {
     await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 12_000 })
   })
 })
+
+/**
+ * Workout detail (`/workouts/:id`) shares the day-navigation shell with the
+ * ride detail page, so the prev/next-day chevron pill must appear there too.
+ *
+ * Regression guard: previously `/workouts/:id` rendered only the back-link
+ * and was missing the chevron pill that exists on `/rides/:id`. The shared
+ * `DayDetailShell` component now owns this nav for both routes.
+ */
+test.describe('Workout detail — day navigation', () => {
+  test('chevron date-pill is rendered on /workouts/:id', async ({ page }) => {
+    // Find a planned workout by walking activity-dates until one resolves to a workout.
+    const datesRes = await page.request.get(`${BASE}/api/plan/activity-dates`)
+    const dates: string[] = await datesRes.json()
+    if (!Array.isArray(dates) || dates.length === 0) test.skip()
+
+    let workoutId: number | null = null
+    for (const d of dates) {
+      const wRes = await page.request.get(`${BASE}/api/plan/workouts/by-date/${d}`)
+      if (!wRes.ok()) continue
+      const w = await wRes.json()
+      if (w && typeof w.id === 'number') {
+        workoutId = w.id
+        break
+      }
+    }
+    if (workoutId == null) test.skip()
+
+    await page.goto(`${BASE}/workouts/${workoutId}`)
+    await expect(page).toHaveURL(new RegExp(`/workouts/${workoutId}$`))
+    await expect(page.getByText('Back to Calendar')).toBeVisible({ timeout: 12_000 })
+
+    // The shell renders a YYYY-MM-DD date string in the chevron pill.
+    await expect(page.locator('text=/\\d{4}-\\d{2}-\\d{2}/').first()).toBeVisible({ timeout: 8_000 })
+  })
+})
