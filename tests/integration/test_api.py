@@ -513,9 +513,13 @@ def test_zones_spike_filter(client):
 
 def test_efficiency_enhanced(client):
     """Test /api/analysis/efficiency filtering and rolling average."""
+    # Scope cleanup to this test's own filenames (ef1.json … ef6.json). A
+    # broad `start_time >= '2099-01-01'` sweep would clobber any sibling
+    # test using 2099+ dates and orphan their child ride_records rows.
+    EF_FIXTURE_FILES = "('ef1.json','ef2.json','ef3.json','ef4.json','ef5.json','ef6.json')"
     with get_db() as conn:
-        # Clear any existing data on our test dates
-        conn.execute("DELETE FROM rides WHERE start_time >= '2099-01-01T00:00:00+00:00'")
+        conn.execute(f"DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename IN {EF_FIXTURE_FILES})")
+        conn.execute(f"DELETE FROM rides WHERE filename IN {EF_FIXTURE_FILES}")
 
         # Ride 1: Jan 1, 31min, IF 0.7, sport 'ride', EF = 200/100 = 2.0
         conn.execute(
@@ -578,7 +582,8 @@ def test_efficiency_enhanced(client):
 
     finally:
         with get_db() as conn:
-            conn.execute("DELETE FROM rides WHERE start_time >= '2099-01-01T00:00:00+00:00'")
+            conn.execute(f"DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename IN {EF_FIXTURE_FILES})")
+            conn.execute(f"DELETE FROM rides WHERE filename IN {EF_FIXTURE_FILES}")
             conn.commit()
 
 
