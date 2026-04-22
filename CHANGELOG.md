@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.12.5-beta] - 2026-04-22
+
+### Fixes
+- **fix(sync): ICU latlng stream GPS parsing** — intervals.icu's `latlng` stream sometimes contains only latitude values with no longitude, causing the pairing logic to store `(lat, lat)` as `(start_lat, start_lon)`. For rides starting at ~35°N this produced ~35°N, ~35°E which reverse-geocodes to Syria. Three-layer fix: (1) `_normalize_latlng` now detects the concatenated `[all_lats..., all_lons...]` format via a 1° proximity heuristic and handles `None` values; (2) new `_backfill_start_from_laps` uses the FIT device lap data (which always carries both lat+lon) as an authoritative fallback, and corrects existing lat≈lon bug via `ABS(start_lat - start_lon) < 1°` guard; (3) `single_sync.py` resets `start_lat`/`start_lon` to NULL before re-syncing so backfill runs cleanly
+
+### Tests
+- 390 unit tests pass (3 new latlng parser tests covering concatenated format, None-safety, and zero-prefix guard)
+
 ## [v1.12.4-beta] - 2026-04-21
 
 ### Features
