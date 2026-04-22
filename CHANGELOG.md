@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.13.2-beta] - 2026-04-22
+
+### Fixes — Campaign 13: Database Infrastructure & Reliability
+- **fix(db): eliminate shared cursor anti-pattern** — `_DbConnection` in `server/database.py` no longer holds a single class-level `RealDictCursor`. Each `execute()` / `executemany()` call now creates and returns an independent cursor, so nested query iteration (e.g. running a query inside a loop over the results of another query) no longer silently overwrites the parent's result set. Drop-in replacement — all existing callers use `.fetchall()` / `.fetchone()` / store the returned cursor.
+
+### Tests
+- New `test_nested_queries` in `tests/integration/test_database.py` proves the regression: two cursors from the same connection now iterate concurrently without interfering.
+- All 5 `test_database.py` integration tests pass against local Postgres.
+- 110 Playwright e2e specs pass (no behavioral regressions from the cursor refactor).
+- 32 frontend vitest pass; 390 backend pytest unit pass.
+
+### Notes
+- Bundles Campaign 13 into the v1.13.x train alongside Campaign 18. Zero file overlap between the two campaigns (Campaign 18 is pure frontend; Campaign 13 is one backend file).
+- Roadmap updated: Campaigns 13 and 18 moved to Archived.
+
 ## [v1.13.1-beta] - 2026-04-22
 
 ### Features — Campaign 18: Navigation, Routing & Deep Linking (Phases 4–6, completing the campaign)

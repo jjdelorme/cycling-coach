@@ -6,18 +6,6 @@ This document serves as the top-level view of all active, planned, and completed
 
 ## Active Campaigns
 
-- [x] **Campaign 13: Database Infrastructure & Reliability** (`plans/fix_db_shared_cursor.md`)
-  - *Status:* Built — ready to merge to main.
-  - *Goal:* Refactor `_DbConnection` to use independent cursors, eliminating the shared cursor anti-pattern and enabling nested query execution.
-
-- [ ] **Campaign 17: Rides Search (Free-Text + Location Radius)** (`plans/feat-rides-search.md`)
-  - *Status:* Built — worktree `worktree-agent-a637d1df`, ready to merge to main. Implements `?q=` text search and `?near=&radius_km=` location-radius filter via pluggable `GeocodingProvider` (Nominatim by default, `GEOCODER` env var). Requires one-time backfill of `rides.start_lat/lon` against prod DB post-deploy.
-  - *Branch:* `worktree-agent-a637d1df`
-
-- [ ] **Campaign 18: Navigation, Routing & Deep Linking** (`plans/feat-navigation-deep-linking.md`)
-  - *Status:* Phases 1–3 built — worktree `worktree-agent-af461ff5`, ready to merge after Campaign 17 lands. Phases 4–6 (route guards, breadcrumbs, `/login` + `RequireAuth`) deferred to follow-up campaigns.
-  - *Branch:* `worktree-agent-af461ff5`
-
 - [ ] **Campaign 19: Geocoder Hardening** (`plans/feat-geocoder-hardening.md` — to be created)
   - *Status:* Planned — two independent phases, both follow-on to Campaign 17's `GeocodingProvider` Protocol seam.
   - **Phase A — Google Maps Provider:** Implement `GoogleMapsProvider` (Maps Geocoding API, `GEOCODER=google`, API key via `GEOCODER_GOOGLE_API_KEY` env var). The Protocol seam is already in place; this is ~100 LOC + tests.
@@ -26,6 +14,24 @@ This document serves as the top-level view of all active, planned, and completed
 ---
 
 ## Archived Campaigns
+
+### Campaign 18: Navigation, Routing & Deep Linking (Completed)
+**Tracking Plans:** `plans/feat-navigation-deep-linking.md` (Phases 1–3), `plans/feat-nav-completion.md` (Phases 4–6)
+- *Phases 1–3 shipped as v1.13.0-beta on 2026-04-22 (top-level routing, ride/workout deep links, nutrition deep links).*
+- *Phases 4–6 shipped as v1.13.1-beta on 2026-04-22 (RequireAuth/RequireRole guards, /login route, breadcrumbs, Calendar ?date= sync).*
+- *Bundled with Campaign 13 in v1.13.2-beta (worktree `worktree-agent-af461ff5`); pending merge to main + prod promotion.*
+
+### Campaign 13: Database Infrastructure & Reliability (Completed)
+**Tracking Plan:** `plans/fix_db_shared_cursor.md`
+- *Refactored `_DbConnection` in `server/database.py` to create independent `RealDictCursor` objects per query, eliminating the shared-cursor anti-pattern and supporting nested query iteration.*
+- *Bundled with Campaign 18 in v1.13.2-beta (worktree `worktree-agent-af461ff5`); pending merge to main + prod promotion.*
+- *Audit: `plans/reports/AUDIT_fix_db_shared_cursor.md` — PASS.*
+
+### Campaign 17: Rides Search (Free-Text + Location Radius) (Completed)
+**Tracking Plan:** `plans/feat-rides-search.md`
+- *Merged to main (`7b97931`); released as v1.12.3 on 2026-04-21.*
+- *Post-ship GPS bugfixes (Syria bug — ICU latlng stream normalization + FIT lap fallback) released as v1.12.5-beta; location display granularity fix (zoom=12, state_code) released as v1.12.6-beta.*
+- *Pending operator action: run `scripts/backfill_ride_start_geo.py --allow-remote` against prod DB to populate `start_lat/lon` for pre-Campaign-17 rides.*
 
 ### Campaign 16: Calendar Ride-Name Display (Completed)
 **Tracking Plan:** `plans/feat-calendar-ride-names.md`
