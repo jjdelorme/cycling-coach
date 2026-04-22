@@ -296,6 +296,129 @@ def test_ride_not_found(client):
     assert resp.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Per-record GPS shape on /api/rides/{id} (Campaign 20: Ride Map)
+#
+# The Ride Map feature consumes records[].lat / records[].lon directly from
+# this endpoint. These tests lock in that contract:
+#   - outdoor rides surface non-null lat/lon coordinates
+#   - indoor / no-GPS rides surface null lat/lon for every record
+#
+# Both are first-class states in the frontend (the map card hides itself for
+# indoor rides), so any future change that drops the lat/lon columns from the
+# SELECT — or that returns half-coords — must fail loudly here.
+# ---------------------------------------------------------------------------
+
+# Magic filenames so fixture rides do not collide with seed data.
+_GPS_OUTDOOR_FIXTURE = "ridemap_outdoor_fixture.json"
+_GPS_INDOOR_FIXTURE = "ridemap_indoor_fixture.json"
+
+
+def _install_ridemap_gps_fixtures(conn) -> dict[str, int]:
+    """Install one outdoor (GPS-bearing) and one indoor (no-GPS) fixture ride.
+
+    Returns a mapping {"outdoor": ride_id, "indoor": ride_id}.
+    Idempotent — re-uses existing rows on rerun.
+    """
+    ids: dict[str, int] = {}
+
+    # Outdoor ride with a small synthetic polyline ---------------------------
+    # NOTE: deliberately seated in 2098 (not 2099) to avoid collision with
+    # other tests in this file that DELETE FROM rides WHERE start_time >=
+    # '2099-01-01' without cleaning up child ride_records first.
+    existing = conn.execute(
+        "SELECT id FROM rides WHERE filename = %s", (_GPS_OUTDOOR_FIXTURE,)
+    ).fetchone()
+    if existing:
+        ids["outdoor"] = existing["id"]
+    else:
+        row = conn.execute(
+            "INSERT INTO rides (start_time, filename, sport, duration_s,"
+            " distance_m, tss, total_ascent, start_lat, start_lon, title)"
+            " VALUES ('2098-09-01T10:00:00+00:00', %s, 'ride', 600, 5000,"
+            " 25, 50, %s, %s, %s) RETURNING id",
+            (_GPS_OUTDOOR_FIXTURE, 44.166893, -71.164314, "Ridemap outdoor fixture"),
+        ).fetchone()
+        ids["outdoor"] = row["id"]
+        # Synthetic 10-point polyline marching a hair north-east.
+        for i in range(10):
+            conn.execute(
+                "INSERT INTO ride_records (ride_id, timestamp_utc, power, lat, lon)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                (
+                    ids["outdoor"],
+                    f"2098-09-01T10:00:{i:02d}+00:00",
+                    150 + i,
+                    44.166893 + i * 0.0001,
+                    -71.164314 + i * 0.0001,
+                ),
+            )
+
+    # Indoor ride: records exist but lat/lon are NULL for every row ----------
+    existing = conn.execute(
+        "SELECT id FROM rides WHERE filename = %s", (_GPS_INDOOR_FIXTURE,)
+    ).fetchone()
+    if existing:
+        ids["indoor"] = existing["id"]
+    else:
+        row = conn.execute(
+            "INSERT INTO rides (start_time, filename, sport, duration_s,"
+            " distance_m, tss, total_ascent, title)"
+            " VALUES ('2098-09-02T10:00:00+00:00', %s, 'VirtualRide', 600,"
+            " 5000, 25, 0, %s) RETURNING id",
+            (_GPS_INDOOR_FIXTURE, "Ridemap indoor fixture"),
+        ).fetchone()
+        ids["indoor"] = row["id"]
+        for i in range(10):
+            conn.execute(
+                "INSERT INTO ride_records (ride_id, timestamp_utc, power, lat, lon)"
+                " VALUES (%s, %s, %s, NULL, NULL)",
+                (ids["indoor"], f"2098-09-02T10:00:{i:02d}+00:00", 150 + i),
+            )
+
+    conn.commit()
+    return ids
+
+
+def test_ride_detail_includes_per_record_gps(client, db_conn):
+    """Outdoor rides expose non-null lat/lon on every record."""
+    ids = _install_ridemap_gps_fixtures(db_conn)
+    resp = client.get(f"/api/rides/{ids['outdoor']}")
+    assert resp.status_code == 200
+    detail = resp.json()
+    records = detail["records"]
+    assert len(records) > 0
+
+    gps_records = [r for r in records if r["lat"] is not None]
+    assert len(gps_records) >= 2, "outdoor fixture must surface ≥ 2 GPS points"
+
+    for r in records:
+        # No half-coords: lat and lon must agree on null-ness.
+        if r["lat"] is None:
+            assert r["lon"] is None, f"half-coord (lon set, lat null): {r}"
+        else:
+            assert r["lon"] is not None, f"half-coord (lat set, lon null): {r}"
+            assert -90 <= r["lat"] <= 90, f"lat out of range: {r['lat']}"
+            assert -180 <= r["lon"] <= 180, f"lon out of range: {r['lon']}"
+
+
+def test_ride_detail_indoor_returns_no_gps_records(client, db_conn):
+    """Indoor / no-GPS rides surface null lat/lon for every record.
+
+    The frontend map card is hidden when no usable GPS exists; this contract
+    is what the placeholder logic depends on.
+    """
+    ids = _install_ridemap_gps_fixtures(db_conn)
+    resp = client.get(f"/api/rides/{ids['indoor']}")
+    assert resp.status_code == 200
+    detail = resp.json()
+    records = detail["records"]
+    assert len(records) > 0
+    for r in records:
+        assert r["lat"] is None, f"indoor record unexpectedly has lat: {r}"
+        assert r["lon"] is None, f"indoor record unexpectedly has lon: {r}"
+
+
 def test_weekly_summary(client):
     resp = client.get("/api/rides/summary/weekly")
     assert resp.status_code == 200

@@ -171,4 +171,79 @@ test.describe('Rides — ride detail', () => {
       await expect(canvas).toBeVisible()
     }
   })
+
+  test('route map card renders for outdoor rides, placeholder for indoor', async ({ page }) => {
+    // Wait for ride detail to settle so the lazy <RideMap> chunk has time
+    // to load and either render its canvas or its no-GPS placeholder.
+    await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
+
+    // Either of these must be true: (a) a MapLibre canvas with non-zero size,
+    // or (b) the "No GPS data" placeholder text. Both are valid first-class
+    // states per Campaign 20 — we cannot assume the seed ride has GPS.
+    const mapCanvas = page.locator('canvas.maplibregl-canvas')
+    const placeholder = page.getByText(/No GPS data — indoor or virtual ride/i)
+
+    await expect(async () => {
+      const canvasCount = await mapCanvas.count()
+      const placeholderVisible = await placeholder.isVisible().catch(() => false)
+      if (canvasCount > 0) {
+        const box = await mapCanvas.first().boundingBox()
+        expect(box?.width ?? 0).toBeGreaterThan(100)
+        expect(box?.height ?? 0).toBeGreaterThan(100)
+      } else {
+        expect(placeholderVisible).toBe(true)
+      }
+    }).toPass({ timeout: 12_000 })
+  })
+
+  test('hovering the timeline chart syncs a marker on the map (when GPS available)', async ({ page }) => {
+    await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
+
+    // Skip if this ride has no GPS — placeholder rendered, no marker possible.
+    const placeholder = page.getByText(/No GPS data — indoor or virtual ride/i)
+    if (await placeholder.isVisible().catch(() => false)) {
+      test.skip(true, 'Selected ride has no GPS data — marker sync N/A')
+    }
+
+    // Wait for both canvases (chart + map) to exist.
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 12_000 })
+    const chartCanvas = page.locator('canvas').first()
+    const box = await chartCanvas.boundingBox()
+    if (!box) throw new Error('chart canvas has no bounding box')
+
+    await chartCanvas.hover({ position: { x: box.width * 0.5, y: box.height * 0.5 } })
+    // The marker is appended as a `.maplibregl-marker` div by the Marker
+    // constructor. Existence is sufficient — position correctness is
+    // covered by unit tests on decimatePolyline + manual smoke.
+    await expect(page.locator('.maplibregl-marker').first()).toBeVisible({ timeout: 5_000 })
+  })
+
+  test('drag-selecting a time range on the chart surfaces the Reset Zoom affordance', async ({ page }) => {
+    // The drag-zoom selection on the chart (which Phase 4 also propagates to
+    // the map for highlight + auto-fit) shows a "Reset Zoom" button as soon
+    // as a selection commits. We assert the user-visible affordance rather
+    // than the map's canvas-level highlight (which is a pixel test, brittle).
+    await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
+
+    const placeholder = page.getByText(/No GPS data — indoor or virtual ride/i)
+    if (await placeholder.isVisible().catch(() => false)) {
+      test.skip(true, 'Selected ride has no GPS — drag-zoom map highlight N/A')
+    }
+
+    const chartCanvas = page.locator('canvas').first()
+    const box = await chartCanvas.boundingBox()
+    if (!box) throw new Error('chart canvas has no bounding box')
+
+    // Drag from 30% to 70% across the chart width.
+    const startX = box.x + box.width * 0.3
+    const endX = box.x + box.width * 0.7
+    const midY = box.y + box.height * 0.5
+    await page.mouse.move(startX, midY)
+    await page.mouse.down()
+    await page.mouse.move(endX, midY, { steps: 10 })
+    await page.mouse.up()
+
+    // Reset Zoom appears when a real drag-selection commits.
+    await expect(page.getByRole('button', { name: /Reset Zoom/i })).toBeVisible({ timeout: 5_000 })
+  })
 })

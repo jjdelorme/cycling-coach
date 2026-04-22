@@ -1,5 +1,5 @@
 import { useSyncSingleRide } from '../hooks/useSyncSingleRide'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { 
@@ -49,6 +49,10 @@ import SportIcon from '../components/SportIcon'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import RideTimelineChart from '../components/RideTimelineChart'
 import { calculateStepActuals } from '../lib/workout-utils'
+
+// Lazy-loaded so MapLibre GL (~220 KB gzipped) lands in its own chunk and
+// users who never open a ride detail don't pay for it on the main bundle.
+const RideMap = lazy(() => import('../components/RideMap'))
 
 interface Props {
   initialRideId?: number
@@ -111,6 +115,9 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
   const [selectedStep, setSelectedStep] = useState<number | null>(null)
   const [hoveredLap, setHoveredLap] = useState<number | null>(null)
   const [selectedLap, setSelectedLap] = useState<number | null>(null)
+  // Campaign 20: cursor sync (hover) and drag-zoom range -> RideMap.
+  const [hoveredTimeIdx, setHoveredTimeIdx] = useState<number | null>(null)
+  const [selectedTimeRange, setSelectedTimeRange] = useState<{ startIdx: number; endIdx: number } | null>(null)
 
   const queryClient = useQueryClient()
   const { data: rides, isLoading: ridesLoading, error: ridesError } = useRides(filterParams)
@@ -545,7 +552,22 @@ const syncSingleRide = useSyncSingleRide()
                 highlightedLapIndex={hoveredLap ?? selectedLap}
                 selectedStep={selectedStep}
                 selectedLapIndex={selectedLap}
+                onTimeIdxHover={setHoveredTimeIdx}
+                onTimeRangeSelect={setSelectedTimeRange}
               />
+            )}
+
+            {/* Route Map (Campaign 20) — auto-hides for indoor / no-GPS rides */}
+            {ride.records && ride.records.length > 0 && (
+              <Suspense fallback={<div className="h-64 sm:h-80 bg-surface rounded-xl border border-border animate-pulse" />}>
+                <RideMap
+                  records={ride.records}
+                  laps={ride.laps}
+                  hoveredTimeIdx={hoveredTimeIdx}
+                  selectedLap={selectedLap}
+                  selectedTimeRange={selectedTimeRange}
+                />
+              </Suspense>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

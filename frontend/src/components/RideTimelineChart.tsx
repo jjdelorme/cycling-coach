@@ -7,6 +7,9 @@ import { useChartColors } from '../lib/theme'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import { ChartJS } from '../lib/charts'
 import { calculateChartSampling } from '../lib/chart-helpers'
+// `buildLapIndexMap` lives in lib/map.ts so the chart and the map share
+// one implementation. Extracted in Campaign 20 (Phase 4.A).
+import { buildLapIndexMap } from '../lib/map'
 
 function buildStepIndexMap(sampleCount: number, downsampleStep: number, steps: WorkoutStep[]): number[] {
   const map: number[] = []
@@ -22,47 +25,6 @@ function buildStepIndexMap(sampleCount: number, downsampleStep: number, steps: W
   return map
 }
 
-function buildLapIndexMap(sampleCount: number, downsampleStep: number, records: { timestamp_utc?: string }[], laps: RideLap[]): number[] {
-  const firstRecordTs = records[0]?.timestamp_utc
-  const firstLapTs = laps[0]?.start_time
-  
-  if (firstRecordTs && firstLapTs && firstRecordTs.length > 5 && firstLapTs.length > 5) {
-    const lapTimes = laps.map(l => {
-      const start = new Date(l.start_time || '').getTime()
-      return { start, end: start + (l.total_elapsed_time || l.total_timer_time || 0) * 1000 }
-    })
-
-    const map: number[] = []
-    for (let i = 0; i < sampleCount; i++) {
-      const r = records[i * downsampleStep]
-      if (!r || !r.timestamp_utc) { map.push(-1); continue }
-      const t = new Date(r.timestamp_utc).getTime()
-      map.push(lapTimes.findIndex(lt => t >= lt.start && t <= lt.end))
-    }
-    return map
-  }
-
-  let cumulative = 0
-  const lapRanges = laps.map(l => {
-    const start = cumulative
-    const end = start + (l.total_elapsed_time || l.total_timer_time || 0)
-    cumulative = end
-    return { start, end }
-  })
-
-  const totalDuration = cumulative
-  const totalRecords = records.length
-
-  const map: number[] = []
-  for (let i = 0; i < sampleCount; i++) {
-    const recordIdx = i * downsampleStep
-    const secs = totalRecords > 1 ? (recordIdx / (totalRecords - 1)) * totalDuration : 0
-    const idx = lapRanges.findIndex(range => secs >= range.start && secs < range.end)
-    map.push(idx)
-  }
-  return map
-}
-
 const selectionDataMap = new WeakMap<ChartJS, { state: 'idle' | 'dragging' | 'locked'; startIdx: number | null; endIdx: number | null }>()
 
 interface Props {
@@ -73,15 +35,41 @@ interface Props {
   highlightedLapIndex?: number | null
   selectedStep?: number | null
   selectedLapIndex?: number | null
+  /**
+   * Fires when the mouse hovers over a chart point. Receives the
+   * full-resolution index into the original `records[]` array (i.e. the
+   * downsampled chart-axis index multiplied by `downsampleStep`).
+   * Fires `null` when the cursor leaves the chart area.
+   *
+   * Added in Campaign 20 to drive the synced marker on `<RideMap>`.
+   */
+  onTimeIdxHover?: (recordIdx: number | null) => void
+  /**
+   * Fires when the user drag-selects a time range on the chart, and again
+   * with `null` when the selection is cleared (Reset Zoom).
+   * `startIdx` and `endIdx` are full-resolution `records[]` indices.
+   *
+   * Added in Campaign 20 (Phase 4 scope addendum) to drive the
+   * highlighted-slice + auto-fit on `<RideMap>`.
+   */
+  onTimeRangeSelect?: (range: { startIdx: number; endIdx: number } | null) => void
 }
 
-export default function RideTimelineChart({ records, laps, workout, highlightedStep, highlightedLapIndex, selectedStep, selectedLapIndex }: Props) {
+export default function RideTimelineChart({ records, laps, workout, highlightedStep, highlightedLapIndex, selectedStep, selectedLapIndex, onTimeIdxHover, onTimeRangeSelect }: Props) {
   const cc = useChartColors()
   const units = useUnits()
   const elevScale = units === 'imperial' ? 3.28084 : 1
   const chartRef = useRef<ChartJS<'line'>>(null)
   const [selectionStats, setSelectionStats] = useState<{ duration: number; avgPower: number | null; avgHR: number | null; avgCadence: number | null } | null>(null)
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number } | null>(null)
+
+  // Ref-stored callbacks so the chart's mouse-event effect doesn't tear
+  // down/recreate listeners (or re-render the chart) every parent render.
+  // The chart updates imperatively; only the parent's state changes.
+  const onTimeIdxHoverRef = useRef(onTimeIdxHover)
+  const onTimeRangeSelectRef = useRef(onTimeRangeSelect)
+  useEffect(() => { onTimeIdxHoverRef.current = onTimeIdxHover }, [onTimeIdxHover])
+  useEffect(() => { onTimeRangeSelectRef.current = onTimeRangeSelect }, [onTimeRangeSelect])
 
   const { chartData, stepIndexMap, lapIndexMap, downsampleStep, altMin, altRange, hasElevation } = useMemo(() => {
     const maxPoints = 600
@@ -186,10 +174,32 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
     function getIdx(e: MouseEvent) { const r = canvas.getBoundingClientRect(), x = e.clientX - r.left; return Math.round(Math.max(0, Math.min(chart!.scales.x.getValueForPixel(x) ?? 0, (chartData.labels?.length ?? 1) - 1))) }
     function onDown(e: MouseEvent) { const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, a = chart!.chartArea; if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return; const i = getIdx(e); selectionDataMap.set(chart!, { state: 'dragging', startIdx: i, endIdx: i }); chart!.draw() }
     function onMove(e: MouseEvent) { const sel = selectionDataMap.get(chart!); if (sel?.state === 'dragging') { sel.endIdx = getIdx(e); chart!.draw() } }
-    function onUp() { const sel = selectionDataMap.get(chart!); if (sel?.state === 'dragging') { if (sel.startIdx != null && sel.endIdx != null && Math.abs(sel.endIdx - sel.startIdx) > 2) { const lo = Math.min(sel.startIdx, sel.endIdx), hi = Math.max(sel.startIdx, sel.endIdx); const pad = Math.max(2, Math.round((hi - lo) * 0.02)); setZoomRange({ min: Math.max(0, lo - pad), max: Math.min((chartData.labels?.length ?? 1) - 1, hi + pad) }); computeSelectionStats(lo, hi) }; selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null }); chart!.draw() } }
-    canvas.addEventListener('mousedown', onDown); canvas.addEventListener('mousemove', onMove); canvas.addEventListener('mouseup', onUp); canvas.addEventListener('mouseleave', onUp)
-    return () => { canvas.removeEventListener('mousedown', onDown); canvas.removeEventListener('mousemove', onMove); canvas.removeEventListener('mouseup', onUp); canvas.removeEventListener('mouseleave', onUp); selectionDataMap.delete(chart!) }
-  }, [records, workout, chartData.labels?.length, computeSelectionStats])
+    function onUp() {
+      const sel = selectionDataMap.get(chart!)
+      if (sel?.state === 'dragging') {
+        if (sel.startIdx != null && sel.endIdx != null && Math.abs(sel.endIdx - sel.startIdx) > 2) {
+          const lo = Math.min(sel.startIdx, sel.endIdx), hi = Math.max(sel.startIdx, sel.endIdx)
+          const pad = Math.max(2, Math.round((hi - lo) * 0.02))
+          setZoomRange({ min: Math.max(0, lo - pad), max: Math.min((chartData.labels?.length ?? 1) - 1, hi + pad) })
+          computeSelectionStats(lo, hi)
+          // Campaign 20: emit full-resolution range so <RideMap> can highlight
+          // the slice and auto-fit bounds to it.
+          onTimeRangeSelectRef.current?.({
+            startIdx: lo * downsampleStep,
+            endIdx: Math.min(hi * downsampleStep, records.length - 1),
+          })
+        }
+        selectionDataMap.set(chart!, { state: 'idle', startIdx: null, endIdx: null })
+        chart!.draw()
+      }
+    }
+    // Campaign 20: emit hover-leave so the map marker disappears when the
+    // cursor exits the chart area. Chart.js's onHover already fires for
+    // moves inside the chart; mouseleave is the only way to detect "gone".
+    function onLeave() { onTimeIdxHoverRef.current?.(null); onUp() }
+    canvas.addEventListener('mousedown', onDown); canvas.addEventListener('mousemove', onMove); canvas.addEventListener('mouseup', onUp); canvas.addEventListener('mouseleave', onLeave)
+    return () => { canvas.removeEventListener('mousedown', onDown); canvas.removeEventListener('mousemove', onMove); canvas.removeEventListener('mouseup', onUp); canvas.removeEventListener('mouseleave', onLeave); selectionDataMap.delete(chart!) }
+  }, [records, workout, chartData.labels?.length, computeSelectionStats, downsampleStep])
 
   const selectionPlugin = useMemo(() => ({
     id: 'selectionPlugin',
@@ -218,7 +228,7 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
         <div className="flex items-center gap-4 text-[10px] font-bold text-text-muted uppercase tracking-widest">
           {zoomRange && (
             <button
-              onClick={() => { setZoomRange(null); setSelectionStats(null) }}
+              onClick={() => { setZoomRange(null); setSelectionStats(null); onTimeRangeSelectRef.current?.(null) }}
               className="flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 rounded text-accent hover:bg-accent/20 transition-colors"
             >
               <RotateCcw size={10} /> Reset Zoom
@@ -235,8 +245,17 @@ export default function RideTimelineChart({ records, laps, workout, highlightedS
         <div className="h-64 sm:h-80">
           <Line ref={chartRef} data={chartData} plugins={[selectionPlugin]} options={{
             responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-            plugins: { 
-              legend: { display: false }, 
+            // Campaign 20: emit the full-resolution record index on hover so
+            // the parent can drive the marker on <RideMap>. Mouse-leave emits
+            // null via the canvas mouseleave listener wired in useEffect.
+            onHover: (_evt, activeEls) => {
+              const cb = onTimeIdxHoverRef.current
+              if (!cb) return
+              if (activeEls.length === 0) { cb(null); return }
+              cb(activeEls[0].index * downsampleStep)
+            },
+            plugins: {
+              legend: { display: false },
               tooltip: { backgroundColor: cc.tooltipBg, titleColor: cc.tooltipTitle, bodyColor: cc.tooltipBody },
               highlightPlugin: {
                 enabled: true,
