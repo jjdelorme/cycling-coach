@@ -291,12 +291,14 @@ const syncSingleRide = useSyncSingleRide()
       return
     }
     let cancelled = false
-    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${ride.start_lat}&lon=${ride.start_lon}&format=json&zoom=10`)
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${ride.start_lat}&lon=${ride.start_lon}&format=json&zoom=12`)
       .then(r => r.json())
       .then(data => {
         if (cancelled) return
         const addr = data.address || {}
-        const parts = [addr.city || addr.town || addr.village || addr.hamlet, addr.state].filter(Boolean)
+        const locality = addr.city || addr.town || addr.village || addr.hamlet || addr.suburb || addr.county
+        const region = addr.state_code || addr.state
+        const parts = [locality, region].filter(Boolean)
         setLocationName(parts.join(', ') || data.display_name?.split(',').slice(0, 2).join(',') || null)
       })
       .catch(() => { if (!cancelled) setLocationName(null) })
