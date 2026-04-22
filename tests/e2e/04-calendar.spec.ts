@@ -73,15 +73,16 @@ test.describe('Calendar', () => {
   })
 
   test('clicking a day cell selects it and shows detail panel', async ({ page }) => {
-    // Click a cell that is in the current month (opacity-40 cells are other months)
+    // Click a cell that is in the current month (opacity-40 cells are other months).
+    // The first in-month cell may already be the selected day (today defaults
+    // selected); clicking it toggles selection off. Click the second one to
+    // guarantee a selection change.
     const inMonthCells = page.locator('.grid-cols-7.gap-px > div:not([class*="opacity-40"])')
-    await inMonthCells.first().click()
-    // Detail panel should appear
-    await expect(page.getByText('THURSDAY', { exact: false }).or(
-      page.getByText('MONDAY', { exact: false }).or(
-        page.getByText('Recovery Day', { exact: false })
-      )
-    )).toBeVisible({ timeout: 5_000 })
+    await inMonthCells.nth(1).click()
+    // Detail panel header includes the long-form date (e.g. "Wednesday, April 1, 2026").
+    await expect(
+      page.getByText(/(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)/i).first()
+    ).toBeVisible({ timeout: 5_000 })
   })
 
   test('clicking a day with a ride shows ride metrics in the panel', async ({ page }) => {
