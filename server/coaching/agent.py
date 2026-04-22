@@ -1,3 +1,4 @@
+from server.utils.adk import json_safe_tool
 """ADK-based coaching agent setup."""
 
 import functools
@@ -246,8 +247,8 @@ def reset_runner():
 
 
 def _get_agent():
-    # Wrap write tools with permission gate
-    tools = [
+    # Regular function tools that need json wrapping
+    raw_tools = [
         get_pmc_metrics,
         get_recent_rides,
         get_upcoming_workouts,
@@ -262,13 +263,18 @@ def _get_agent():
         get_athlete_status,
         get_planned_workout_for_ride,
         get_athlete_nutrition_status,
-        AgentTool(agent=get_nutritionist_agent()),  # v2 — full agent delegation
         get_week_summary,
         list_workout_templates,
         preload_memory_tool,
     ]
+    
+    tools = [json_safe_tool(fn) for fn in raw_tools]
+    
+    # Add the AgentTool (which is a class instance, not a function, so it doesn't get wrapped)
+    tools.append(AgentTool(agent=get_nutritionist_agent()))
+    
     for fn in _WRITE_TOOLS:
-        tools.append(_permission_gate(fn))
+        tools.append(json_safe_tool(_permission_gate(fn)))
 
     return Agent(
         name="cycling_coach",

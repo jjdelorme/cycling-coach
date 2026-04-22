@@ -5,6 +5,7 @@ import time
 import threading
 
 from google.adk.agents import Agent
+from server.utils.adk import json_safe_tool
 from google.adk.runners import Runner
 from google.adk.tools import google_search
 from google.genai import types
@@ -237,7 +238,7 @@ def reset_runner():
 
 
 def _get_agent():
-    tools = [
+    raw_tools = [
         get_meal_history,
         get_daily_macros,
         get_weekly_summary,
@@ -249,8 +250,11 @@ def _get_agent():
         get_dietary_preferences,
         ask_clarification,
     ]
+    
+    tools = [json_safe_tool(fn) for fn in raw_tools]
+    
     for fn in _WRITE_TOOLS:
-        tools.append(_permission_gate(fn))
+        tools.append(json_safe_tool(_permission_gate(fn)))
 
     return Agent(
         name="nutritionist",
