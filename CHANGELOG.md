@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.13.0-beta] - 2026-04-22
+
+### Features — Campaign 18: Navigation, Routing & Deep Linking (Phases 1–3)
+- **feat(nav): top-level client-side routing** — replaced the in-memory tab switcher with `react-router-dom@7`. Every top-level view now has its own URL (`/`, `/rides`, `/calendar`, `/analysis`, `/nutrition`, `/settings`, `/admin`); the desktop header, mobile bottom nav, and "More" menu all use `<NavLink>`; browser back/forward, deep links, and unknown paths (→ `NotFound`) all work as expected. New `frontend/src/lib/routes.ts` is the canonical route table.
+- **feat(nav): ride and workout deep links** — `/rides/:id`, `/rides/by-date/:date`, and `/workouts/:id` are now real routes. Dashboard "Recent Rides" rows, Calendar "View Analysis" / "Show Details" links, and the prev/next-day chevron pill all `navigate()` to the appropriate URL instead of mutating local state. Sharing a URL like `/rides/12345` opens that ride directly. New `DayDetailShell` component shares the back-link + chevron-pill chrome between `/rides/:id` and `/workouts/:id`.
+- **feat(nav): nutrition deep links** — `/nutrition`, `/nutrition/week`, `/nutrition/plan`, `/nutrition/plan/:date`, and `/nutrition/meals/:id` are routable. Day/Week/Plan toggles became `<NavLink>`s; `MealPlanCalendar`'s selected day is driven by `useParams`; new `MealDetail.tsx` page renders a single meal via `useMeal(id)`. The day view reads `?date=YYYY-MM-DD`.
+
+### Tests
+- E2E suite updated for the new contract: `03-rides`, `04-calendar`, `07-navigation`, and `08-meal-plan` now assert URL changes (`toHaveURL`) and exercise direct deep links (`page.goto`). `02-dashboard` "Next Workout" assertion updated to expect `/workouts/:id` + "Back to Calendar". `04-calendar` day-cell test made day-of-week-agnostic.
+- 106 Playwright specs pass, 0 failed (1 skipped). 390 backend unit tests pass. 22 frontend vitest tests pass.
+
+### Notes
+- Pure frontend change. No backend, schema, or env-var changes. The SPA fallback at `server/main.py:299-304` already serves arbitrary paths to `index.html`, so all new deep links work in prod without server changes.
+- Phases 4–6 (route guards, breadcrumbs, `/login` + `RequireAuth`, dead-state cleanup) explicitly deferred to follow-up campaigns; see `plans/feat-navigation-deep-linking.md`.
+
 ## [v1.12.6-beta] - 2026-04-22
 
 ### Fixes
