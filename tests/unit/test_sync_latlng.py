@@ -2,11 +2,16 @@
 
 These tests pin the behaviour of ``server.services.sync._normalize_latlng``
 plus the two consumers that depend on it (``_store_streams`` and
-``_backfill_start_location``). The parser must accept both the nested-pair
-shape ``[[lat, lon], ...]`` and the flat alternating-floats shape
-``[lat, lon, lat, lon, ...]`` because intervals.icu has been observed to
-return either, and the legacy code only handled nested pairs (silently
-dropping every GPS point on flat-format payloads).
+``_backfill_start_location``). The parser must accept all three observed
+intervals.icu formats:
+
+  * Nested pairs:     ``[[lat, lon], [lat, lon], ...]``
+  * Flat alternating: ``[lat, lon, lat, lon, ...]``
+  * Flat concatenated:``[lat1, lat2, ..., latN, lon1, lon2, ..., lonN]``
+
+The concatenated format is the root cause of the "Syria bug" — consecutive
+latitude values being stored as (lat, lat) instead of (lat, lon), which
+reverse-geocodes to the wrong country.
 
 No database is touched — ``_store_streams`` and ``_backfill_start_location``
 are exercised against a fake connection that records the SQL it would run.
@@ -78,6 +83,24 @@ def test_normalize_latlng_flat_odd_length_truncates_trailing_orphan():
     # Trailing lat with no lon is dropped, never paired with garbage.
     raw = [42.29, -71.35, 42.30]
     assert _normalize_latlng(raw) == [(42.29, -71.35)]
+
+
+def test_normalize_latlng_concatenated_format():
+    # Reproduces the "Syria bug": ICU returns all lats then all lons.
+    # Fruita, CO: lat≈39.31, lon≈-108.73
+    raw = [39.310474, 39.31047, 39.309, 39.308, -108.730, -108.731, -108.731, -108.732]
+    result = _normalize_latlng(raw)
+    assert len(result) == 4
+    assert result[0] == (39.310474, -108.730)
+    assert result[1] == (39.31047, -108.731)
+
+
+def test_normalize_latlng_concatenated_not_triggered_for_zero_prefix():
+    # Flat alternating with (0,0) GPS-no-lock at start must NOT be detected
+    # as concatenated — the 0.0 sentinel guards against this.
+    raw = [0.0, 0.0, 42.29, -71.35]
+    result = _normalize_latlng(raw)
+    assert result == [(0.0, 0.0), (42.29, -71.35)]
 
 
 def test_normalize_latlng_skips_nested_entries_shorter_than_two():
@@ -186,3 +209,19 @@ def test_backfill_start_location_no_op_when_only_zero_points():
     _backfill_start_location(ride_id=5, streams=streams, conn=conn)
 
     assert conn.execute_calls == []
+
+
+def test_backfill_start_location_picks_first_point_from_concatenated_latlng():
+    # Santa Fe, NM: lat≈35.69, lon≈-105.94.
+    # Without the concatenated-format fix this would store (35.69, 35.69) which
+    # reverse-geocodes to Syria.
+    conn = _FakeConn()
+    streams = {
+        "latlng": [35.690, 35.691, 35.692, 35.693, -105.940, -105.941, -105.942, -105.943],
+    }
+    _backfill_start_location(ride_id=99, streams=streams, conn=conn)
+
+    assert len(conn.execute_calls) == 1
+    sql, params = conn.execute_calls[0]
+    assert "UPDATE rides" in sql and "start_lat IS NULL" in sql
+    assert params == (35.690, -105.940, 99)
