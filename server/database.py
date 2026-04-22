@@ -30,7 +30,6 @@ class _DbConnection:
 
     def __init__(self, conn):
         self._conn = conn
-        self._cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     @staticmethod
     def _adapt_sql(sql):
@@ -43,8 +42,9 @@ class _DbConnection:
 
     def execute(self, sql, params=None):
         adapted = self._adapt_sql(sql)
+        cursor = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         t0 = time.monotonic()
-        self._cursor.execute(adapted, params)
+        cursor.execute(adapted, params)
         elapsed_ms = (time.monotonic() - t0) * 1000
         if elapsed_ms >= SLOW_QUERY_MS:
             sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
@@ -54,12 +54,13 @@ class _DbConnection:
                 sql=sql_preview,
                 trace_id=get_trace_id(),
             )
-        return self._cursor
+        return cursor
 
     def executemany(self, sql, params_list, page_size=1000):
         adapted = self._adapt_sql(sql)
+        cursor = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         t0 = time.monotonic()
-        psycopg2.extras.execute_batch(self._cursor, adapted, params_list, page_size=page_size)
+        psycopg2.extras.execute_batch(cursor, adapted, params_list, page_size=page_size)
         elapsed_ms = (time.monotonic() - t0) * 1000
         if elapsed_ms >= SLOW_QUERY_MS:
             sql_preview = adapted[:200] + ("..." if len(adapted) > 200 else "")
@@ -70,7 +71,7 @@ class _DbConnection:
                 sql=sql_preview,
                 trace_id=get_trace_id(),
             )
-        return self._cursor
+        return cursor
 
     def commit(self):
         self._conn.commit()
@@ -79,7 +80,6 @@ class _DbConnection:
         self._conn.rollback()
 
     def close(self):
-        self._cursor.close()
         self._conn.close()
 
 
