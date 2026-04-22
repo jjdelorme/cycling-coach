@@ -218,6 +218,7 @@ def _semicircles_to_degrees(val):
     return val
 
 
+
 def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
     """Download the original FIT file from intervals.icu and extract device laps.
 

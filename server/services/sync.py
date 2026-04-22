@@ -229,14 +229,18 @@ def _enrich_laps_with_np(laps: list[dict], stream_map: dict[str, list]) -> None:
 def _normalize_latlng(raw) -> list[tuple[float, float]]:
     """Convert intervals.icu ``latlng`` data to ``[(lat, lon), ...]``.
 
-    intervals.icu returns the ``latlng`` stream in one of two shapes:
-      * Nested pairs:   ``[[lat, lon], [lat, lon], ...]``
-      * Flat alternating floats: ``[lat, lon, lat, lon, ...]``
+    intervals.icu returns the ``latlng`` stream in one of three shapes:
+      * Nested pairs:     ``[[lat, lon], [lat, lon], ...]``
+      * Flat alternating: ``[lat, lon, lat, lon, ...]``
+      * Concatenated:     ``[lat1, lat2, ..., latN, lon1, lon2, ..., lonN]``
 
-    Older code only handled the nested-pair case, so the flat format
-    silently produced empty coordinates. This helper accepts either
-    form and always returns a list of ``(lat, lon)`` tuples. Empty
-    or ``None`` input is returned as ``[]``.
+    The nested-pair case is detected by the type of the first element.
+    For flat arrays, we distinguish alternating from concatenated using a
+    heuristic: in alternating format raw[0] (lat) and raw[1] (lon) differ
+    substantially (e.g. 39° vs -109°). In the concatenated format raw[0]
+    and raw[1] are consecutive latitude readings that are nearly identical
+    (sub-degree difference for any realistic cycling speed). We use a 1°
+    threshold since GPS cannot move more than ~111 km in one second.
     """
     if not raw:
         return []
@@ -244,8 +248,30 @@ def _normalize_latlng(raw) -> list[tuple[float, float]]:
     if isinstance(first, (list, tuple)):
         # Already nested pairs — keep entries with at least two values.
         return [(p[0], p[1]) for p in raw if p and len(p) >= 2]
-    # Flat alternating floats — discard a trailing odd element if present.
-    return [(raw[i], raw[i + 1]) for i in range(0, len(raw) - 1, 2)]
+    n = len(raw)
+    r0 = raw[0] if n >= 1 else None
+    r1 = raw[1] if n >= 2 else None
+    # Detect concatenated [all_lats..., all_lons...] format: both raw[0] and
+    # raw[1] must be non-None, non-zero (GPS fix, not the 0.0 Garmin no-lock
+    # sentinel), in valid latitude range, and within 1° of each other
+    # (consecutive GPS points from the same ride can't jump > ~111 km/s).
+    if (n >= 4 and n % 2 == 0
+            and r0 is not None and r1 is not None
+            and r0 != 0.0 and r1 != 0.0
+            and abs(r0) <= 90 and abs(r1) <= 90
+            and abs(r0 - r1) < 1.0):
+        half = n // 2
+        return [
+            (raw[i], raw[half + i])
+            for i in range(half)
+            if raw[i] is not None and raw[half + i] is not None
+        ]
+    # Flat alternating floats — discard a trailing odd element and None pairs.
+    return [
+        (raw[i], raw[i + 1])
+        for i in range(0, n - 1, 2)
+        if raw[i] is not None and raw[i + 1] is not None
+    ]
 
 
 def _extract_streams(streams: dict | list) -> dict[str, list]:
@@ -358,6 +384,42 @@ def _backfill_start_location(ride_id: int, streams, conn=None):
             with get_db() as c:
                 _update(c)
         break
+
+
+def _backfill_start_from_laps(ride_id: int, laps: list[dict], conn=None):
+    """Set ride start_lat/lon from the first FIT lap when stream GPS is absent.
+
+    ICU's ``latlng`` stream sometimes contains only latitude values (no
+    longitude). The FIT file parsed for laps always has both, so this is a
+    reliable fallback.
+
+    This also corrects the "lat≈lon bug": when the stream backfill ran with
+    latitude-only data it stored (lat, lat) as (start_lat, start_lon). We
+    detect this via ABS(start_lat - start_lon) < 1° — two consecutive GPS
+    latitude readings are always within 1° of each other while a valid
+    (lat, lon) pair for any location outside ~0°E/W differs by far more.
+    """
+    if not laps:
+        return
+    first = laps[0]
+    lat = first.get("start_lat")
+    lon = first.get("start_lon")
+    if lat is None or lon is None:
+        return
+    if lat == 0.0 and lon == 0.0:
+        return
+
+    def _update(c):
+        c.execute(
+            """UPDATE rides SET start_lat = ?, start_lon = ?
+               WHERE id = ? AND (start_lat IS NULL OR ABS(start_lat - start_lon) < 1.0)""",
+            (lat, lon, ride_id),
+        )
+    if conn:
+        _update(conn)
+    else:
+        with get_db() as c:
+            _update(c)
 
 
 def _store_laps(ride_id: int, laps: list[dict], conn=None):
@@ -650,6 +712,9 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                         if is_cycling and stream_map:
                             _enrich_laps_with_np(laps, stream_map)
                         _store_laps(ride_db_id, laps, conn=conn)
+                        # FIT laps carry reliable lat+lon (unlike the ICU latlng
+                        # stream which sometimes omits longitude). Use as fallback.
+                        _backfill_start_from_laps(ride_db_id, laps, conn=conn)
                         log_lines.append(_tlog(f"  + stored {len(laps)} laps for {ride_date_str}"))
                 except Exception as le:
                     logger.warning("laps_fetch_failed", icu_id=icu_id, error=str(le))

@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from server.database import get_db
 from server.logging_config import get_logger
 from server.services.intervals_icu import _get_credentials, fetch_activity_fit_laps, fetch_activity_streams, is_configured, map_activity_to_ride
-from server.services.sync import _enrich_laps_with_np, _extract_streams, _store_laps, _store_streams, _backfill_start_location
+from server.services.sync import _enrich_laps_with_np, _extract_streams, _store_laps, _store_streams, _backfill_start_location, _backfill_start_from_laps
 from server.metrics import process_ride_samples
 from server.queries import get_latest_metric
 from server.ingest import get_benchmark_for_date
@@ -47,10 +47,14 @@ async def import_specific_activity(icu_id):
         if ride:
             ride_id = ride["id"]
             logger.info("single_sync_updating", icu_id=icu_id, ride_id=ride_id)
-            
-            # Clear old records
+
+            # Clear old records and reset GPS so _backfill_start_location can re-run
             conn.execute("DELETE FROM ride_records WHERE ride_id = %(id)s", {"id": ride_id})
             conn.execute("DELETE FROM power_bests WHERE ride_id = %(id)s", {"id": ride_id})
+            conn.execute(
+                "UPDATE rides SET start_lat = NULL, start_lon = NULL WHERE id = %(id)s",
+                {"id": ride_id},
+            )
         else:
             logger.info("single_sync_inserting", icu_id=icu_id, date=target_date)
             res = conn.execute(
@@ -166,6 +170,7 @@ async def import_specific_activity(icu_id):
                 if streams and is_cycling and stream_map:
                     _enrich_laps_with_np(laps, stream_map)
                 _store_laps(ride_id, laps, conn=conn)
+                _backfill_start_from_laps(ride_id, laps, conn=conn)
                 logger.info("single_sync_laps_stored", icu_id=icu_id, lap_count=len(laps))
         except Exception as e:
             logger.warning("single_sync_laps_failed", icu_id=icu_id, error=str(e))
