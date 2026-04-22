@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.12.6-beta] - 2026-04-22
+
+### Fixes
+- **fix(rides): granular reverse-geocoded location on ride detail** — zoom level raised from 10 → 12 so rural/trail ride starts resolve to township or community instead of just state; fallback chain extended with `suburb` and `county`; state displayed as abbreviation via `state_code` (e.g. "Abiquiú, NM" instead of "New Mexico")
+
 ## [v1.12.5-beta] - 2026-04-22
 
 ### Fixes
