@@ -1021,3 +1021,34 @@ needs to gate Phase 3 separately.
 | Nominatim rate-limits or blocks our IP | Medium | In-process cache + 1 req/sec limiter + proper User-Agent + `near_lat`/`near_lon` client-bypass param. |
 | Substring `LIKE` is slow on large `post_ride_comments`/`coach_comments` | Low (single-athlete dataset) | Defer FTS until measured. The query already has a `start_time DESC LIMIT 500` ceiling. |
 | Refactor of `list_rides()` regresses the existing date filter | Low | Step 2.A locks behaviour with golden tests *before* refactoring (Step 2.B). |
+
+---
+
+## Implementation Status
+
+Implemented on branch `worktree-agent-a637d1df`.
+
+### Commits
+
+| Commit | Scope |
+| --- | --- |
+| `d2a6dae` | feat(rides): add free-text search across title and notes — Phase 2 of the plan (`?q=`). |
+| `6ff1d17` | feat(rides): add location radius search with Nominatim geocoding — Phases 1 (parser fix + backfill) and 3 (`?near=&radius_km=`). |
+| `8de094c` | refactor(geocoding): introduce `GeocodingProvider` Protocol for pluggable providers — adds the `GEOCODER` env var, keeps Nominatim as the only real implementation, no caller changes. |
+| `7783f5e` | feat(geocoding): add `MockProvider` and E2E radius test — closes the deferred E2E coverage item below. |
+| `5aa66db` | chore(plans): record commit SHA for MockProvider follow-up. |
+| `6fbf2b9` | fix(rides): add search clear button; fix backfill script portability. |
+| `9ef3098` | fix(e2e): correct metric card label in 03-rides spec; update plan status — 13/13 E2E pass, 387 unit, 219 integration (10 pre-existing failures). |
+
+### Closed Follow-ups
+
+- **E2E coverage of the radius filter.** `MockProvider` is now registered under `GEOCODER=mock` in `server/services/geocoding.py`; it exposes a fixed table of place names plus an `__unreachable__` sentinel that raises a transport error. `tests/e2e/03-rides.spec.ts` adds a Playwright case that opens the Advanced panel, types `North Pole` (a fixture far from any real ride), clicks Apply, and asserts the empty-results UI. The test `test.skip()`s itself when the backend wasn't started with `GEOCODER=mock`, so a forgetful operator gets a clear signal instead of a flake. Run via:
+  ```bash
+  GEOCODER=mock uvicorn server.main:app --host 0.0.0.0 --port 8080 &
+  GEOCODER=mock npx playwright test --config tests/e2e/playwright.config.ts 03-rides
+  ```
+
+### Deferred / Open Items
+
+- **Postgres-backed geocoder cache.** The current cache is in-process; multi-instance deployments will hit Nominatim more than once per place. Defer until traffic warrants.
+- **Backfill production run.** `scripts/backfill_ride_start_geo.py --allow-remote` against Neon still requires operator approval per AGENTS.md mandates. Until run, ICU outdoor rides without `start_lat` won't be findable via the radius filter.
