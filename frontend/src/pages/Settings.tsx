@@ -13,6 +13,7 @@ import { timeAgo } from '../lib/format'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
+import { roleSatisfies } from '../lib/routes'
 import {
   User,
   Bot,
@@ -81,7 +82,7 @@ const NUTRITIONIST_CARDS: { key: string; title: string; hint: string; icon: any 
 export default function Settings() {
   const { theme, toggle: toggleTheme } = useTheme()
   const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
+  const isAdmin = roleSatisfies(user?.role, 'admin')
   const isReadOnly = user?.role === 'read'
 
   const [activeTab, setActiveTab] = useState<Tab>('athlete')

@@ -43,6 +43,17 @@ export interface RouteEntry {
   showInMoreMenu?: boolean
   /** Show as a header icon (gear, users, etc.). */
   showAsHeaderIcon?: boolean
+  /**
+   * Static crumb resolver. Receives matched route params and returns the
+   * label to render in the breadcrumb. When omitted, `label` is used.
+   */
+  crumb?: (params: Record<string, string | undefined>) => string
+  /**
+   * True when the crumb requires async data (ride title, meal description,
+   * etc.). The breadcrumb component renders the static `crumb()` output as
+   * a placeholder until the lookup resolves.
+   */
+  dynamicCrumb?: boolean
 }
 
 /**
@@ -58,6 +69,7 @@ export const ROUTES: RouteEntry[] = [
     parent: null,
     showInHeader: true,
     showInMobileNav: true,
+    crumb: () => 'Dashboard',
   },
   {
     path: '/rides',
@@ -66,6 +78,27 @@ export const ROUTES: RouteEntry[] = [
     parent: '/',
     showInHeader: true,
     showInMoreMenu: true,
+    crumb: () => 'Rides',
+  },
+  {
+    path: '/rides/:id',
+    label: 'Ride',
+    parent: '/rides',
+    crumb: ({ id }) => (id ? `#${id}` : 'Ride'),
+    dynamicCrumb: true,
+  },
+  {
+    path: '/rides/by-date/:date',
+    label: 'Ride',
+    parent: '/rides',
+    crumb: ({ date }) => date ?? 'Ride',
+  },
+  {
+    path: '/workouts/:id',
+    label: 'Workout',
+    parent: '/calendar',
+    crumb: ({ id }) => (id ? `#${id}` : 'Workout'),
+    dynamicCrumb: true,
   },
   {
     path: '/calendar',
@@ -74,6 +107,7 @@ export const ROUTES: RouteEntry[] = [
     parent: '/',
     showInHeader: true,
     showInMobileNav: true,
+    crumb: () => 'Calendar',
   },
   {
     path: '/analysis',
@@ -82,6 +116,7 @@ export const ROUTES: RouteEntry[] = [
     parent: '/',
     showInHeader: true,
     showInMoreMenu: true,
+    crumb: () => 'Analysis',
   },
   {
     path: '/nutrition',
@@ -90,6 +125,32 @@ export const ROUTES: RouteEntry[] = [
     parent: '/',
     showInHeader: true,
     showInMobileNav: true,
+    crumb: () => 'Nutrition',
+  },
+  {
+    path: '/nutrition/week',
+    label: 'Week',
+    parent: '/nutrition',
+    crumb: () => 'Week',
+  },
+  {
+    path: '/nutrition/plan',
+    label: 'Plan',
+    parent: '/nutrition',
+    crumb: () => 'Plan',
+  },
+  {
+    path: '/nutrition/plan/:date',
+    label: 'Plan Day',
+    parent: '/nutrition/plan',
+    crumb: ({ date }) => date ?? 'Day',
+  },
+  {
+    path: '/nutrition/meals/:id',
+    label: 'Meal',
+    parent: '/nutrition',
+    crumb: ({ id }) => (id ? `#${id}` : 'Meal'),
+    dynamicCrumb: true,
   },
   {
     path: '/settings',
@@ -99,6 +160,7 @@ export const ROUTES: RouteEntry[] = [
     requireRole: 'read',
     showAsHeaderIcon: true,
     showInMoreMenu: true,
+    crumb: () => 'Settings',
   },
   {
     path: '/admin',
@@ -108,6 +170,7 @@ export const ROUTES: RouteEntry[] = [
     requireRole: 'admin',
     showAsHeaderIcon: true,
     showInMoreMenu: true,
+    crumb: () => 'Users',
   },
 ]
 

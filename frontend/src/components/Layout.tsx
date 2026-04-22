@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import CoachPanel from './CoachPanel'
 import UserAvatar from './UserAvatar'
+import Breadcrumbs from './Breadcrumbs'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { useNutritionistHandoff } from '../lib/nutritionist-handoff'
@@ -59,7 +60,7 @@ export default function Layout() {
   const handoff = useNutritionistHandoff()
 
   const activeTab = pathToTab(location.pathname)
-  const isAdmin = user?.role === 'admin'
+  const isAdmin = roleSatisfies(user?.role, 'admin')
   const canSettings = roleSatisfies(user?.role, 'read')
 
   // Auto-open the coach panel when a nutritionist context or session is injected
@@ -190,6 +191,12 @@ export default function Layout() {
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden relative">
         <main className={`flex-1 overflow-y-auto p-4 md:p-6 ${coachOpen ? 'hidden md:block' : ''}`}>
+          <div className="hidden md:block mb-4">
+            <Breadcrumbs />
+          </div>
+          <div className="md:hidden mb-3">
+            <Breadcrumbs compact />
+          </div>
           <Outlet />
         </main>
         {coachOpen && (

@@ -150,6 +150,17 @@ test.describe('Calendar', () => {
     }
   })
 
+  test('?date=YYYY-MM-DD deep-link opens the correct month and selects the day', async ({ page }) => {
+    await page.goto(`${BASE}/calendar?date=2026-03-15`)
+    // Wait for the grid (re-running beforeEach steps inline since we navigated away)
+    await page.waitForSelector('[class*="grid-cols-7"]', { timeout: 10_000 })
+    const heading = page.getByRole('heading', { level: 1 })
+    await expect(heading).toContainText('March')
+    await expect(heading).toContainText('2026')
+    // Detail panel header includes the long-form date "Sunday, March 15, 2026".
+    await expect(page.getByText(/Sunday, March 15/i)).toBeVisible({ timeout: 5_000 })
+  })
+
   test('ride cells expose full title via title attribute', async ({ page }) => {
     // The ride row inside a calendar cell now carries a `title` attribute
     // (the full ride name) so users can hover for the full text on any

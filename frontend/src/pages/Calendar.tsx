@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useRides, useDeleteWorkout } from '../hooks/useApi'
 import { fetchWeekPlansBatch } from '../lib/api'
 import { fmtDuration, fmtDistance, fmtSport, fmtDateStrLong } from '../lib/format'
@@ -72,14 +72,26 @@ function getWeekMondays(calendarDays: Date[]): string[] {
 export default function Calendar() {
   const units = useUnits()
   const deleteWorkout = useDeleteWorkout()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const dateParam = searchParams.get('date')
+  const validDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : null
+
   const [currentDate, setCurrentDate] = useState(() => {
+    if (validDate) {
+      const d = new Date(validDate + 'T00:00:00')
+      return { year: d.getFullYear(), month: d.getMonth() }
+    }
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
   })
-  const [selectedDay, setSelectedDay] = useState<string | null>(() => toDateStr(new Date()))
+  const [selectedDay, setSelectedDay] = useState<string | null>(
+    () => validDate ?? toDateStr(new Date()),
+  )
 
   const handleSetSelectedDay = (date: string | null) => {
     setSelectedDay(date)
+    if (date) setSearchParams({ date }, { replace: true })
+    else setSearchParams({}, { replace: true })
   }
 
   const calendarDays = useMemo(
@@ -120,8 +132,21 @@ export default function Calendar() {
     return map
   }, [allWorkouts])
 
-  function prevMonth() { setCurrentDate(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 }); handleSetSelectedDay(null) }
-  function nextMonth() { setCurrentDate(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 }); handleSetSelectedDay(null) }
+  function shiftMonth(delta: -1 | 1) {
+    setCurrentDate(p => {
+      const next = p.month + delta
+      let year = p.year
+      let month = next
+      if (next < 0) { year = p.year - 1; month = 11 }
+      else if (next > 11) { year = p.year + 1; month = 0 }
+      const firstOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-01`
+      setSelectedDay(null)
+      setSearchParams({ date: firstOfMonth }, { replace: true })
+      return { year, month }
+    })
+  }
+  function prevMonth() { shiftMonth(-1) }
+  function nextMonth() { shiftMonth(1) }
 
   const selectedRides = selectedDay ? ridesByDate.get(selectedDay) ?? [] : []
   const selectedWorkouts = selectedDay ? workoutsByDate.get(selectedDay) ?? [] : []

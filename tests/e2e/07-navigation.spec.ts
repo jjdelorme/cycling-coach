@@ -120,4 +120,23 @@ test.describe('Desktop navigation', () => {
     await expect(page.getByText('Sign in with Google')).not.toBeVisible()
     await expect(page.getByText('FITNESS (CTL)', { exact: false })).toBeVisible()
   })
+
+  test('/login renders without crashing and (when auth is disabled) bounces back to /', async ({ page }) => {
+    // In dev mode (GOOGLE_AUTH_ENABLED=false) the user is auto-admin, so a
+    // visit to /login should immediately redirect to /. In a real auth env
+    // the LoginPage itself would be visible; this smoke check confirms the
+    // route exists and renders one of those two states.
+    await page.goto(`${BASE}/login`)
+    await page.waitForLoadState('networkidle')
+    const url = page.url()
+    const onLogin = /\/login$/.test(url)
+    if (!onLogin) {
+      // Auth disabled — landed back on dashboard.
+      await expect(page).toHaveURL(/\/$/)
+      await expect(page.getByText('FITNESS (CTL)', { exact: false })).toBeVisible({ timeout: 12_000 })
+    } else {
+      // Auth enabled — login UI is visible.
+      await expect(page.getByText(/COACH|AI PERFORMANCE ENGINE/i)).toBeVisible()
+    }
+  })
 })
