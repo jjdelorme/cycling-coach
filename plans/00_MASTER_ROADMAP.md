@@ -6,8 +6,8 @@ This document serves as the top-level view of all active, planned, and completed
 
 ## Active Campaigns
 
-- [ ] **Campaign 13: Database Infrastructure & Reliability** (`plans/fix_db_shared_cursor.md`)
-  - *Status:* Planned
+- [x] **Campaign 13: Database Infrastructure & Reliability** (`plans/fix_db_shared_cursor.md`)
+  - *Status:* Built — ready to merge to main.
   - *Goal:* Refactor `_DbConnection` to use independent cursors, eliminating the shared cursor anti-pattern and enabling nested query execution.
 
 - [ ] **Campaign 17: Rides Search (Free-Text + Location Radius)** (`plans/feat-rides-search.md`)
