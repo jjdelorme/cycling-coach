@@ -18,7 +18,7 @@
   - [ ] Step 1.B: Apply wrapper in `server/nutrition/agent.py`
   - [ ] Step 1.C: Apply wrapper in `server/coaching/agent.py`
 - [ ] Phase 2: Cleanup and Refactor
-  - [ ] Step 2.A: Remove `_serialize_dates` from `server/nutrition/tools.py`
+  - [x] Step 2.A: Remove `_serialize_dates` from `server/nutrition/tools.py` — N/A: helper was already removed prior to this branch (verified via `git show main:server/nutrition/tools.py`).
   - [ ] Step 2.B: Run Integration Tests
 
 ## 📝 Step-by-Step Implementation Details
@@ -85,11 +85,8 @@
 
 #### Phase 2: Cleanup and Refactor
 
-1.  **Step 2.A (Remove Manual Workaround):** Strip out the fragile implementation.
-    *   *Target File:* `server/nutrition/tools.py`
-    *   *Exact Change:*
-        1. Delete the `_serialize_dates` helper function at the top of the file.
-        2. Remove all `_serialize_dates(...)` calls wrapping the `return` statements across all 9 tools in the file. They should now return pure Python types (e.g., `return {"date": date, "total_calories": total_cal, ...}`).
+1.  **Step 2.A (Remove Manual Workaround):** ~~Strip out the fragile implementation.~~
+    *   **Status:** N/A — the `_serialize_dates` helper no longer exists in `server/nutrition/tools.py` on `main` (it was removed in an earlier change). No action required for this campaign.
 
 2.  **Step 2.B (Verification):** Validate no regressions.
     *   *Action:* Run unit/integration tests (`pytest tests/`) to ensure the agent instantiates correctly and queries return cleanly.
