@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.13.3-beta] - 2026-04-23
+
+### Fixes
+- **fix(nav): DayDetailShell prev/next-day arrows route correctly to ride detail when a ride exists** — the prev/next chevron buttons on `/rides/:id` and `/workouts/:id` were calling `fetch('/api/rides?...')` directly without the `Authorization: Bearer ...` header (returning 401 in prod) and without the `X-Client-Timezone` header (returning empty under UTC for users in non-UTC timezones). The empty/error response triggered the fallback path to `/rides/by-date/${date}`, which renders the planned-workout view — so users with a real recorded ride for the target date saw the planned workout instead. Switched to the project's centralized `fetchRides()` helper from `lib/api.ts`, which injects both headers via the shared `request()` wrapper.
+- **fix(nav): debounce rapid clicks on prev/next-day arrows** — added an `isLoading` state that disables the chevron buttons while a navigation is in flight, with `cursor-wait` styling. Prevents race conditions where two overlapping requests could land the user on a stale URL.
+
+### Tests
+- 110 Playwright e2e specs pass, 2 skipped, 0 failed (1 pre-existing flaky in `08-meal-plan` passed on retry — unchanged from prior runs).
+- 32 frontend vitest pass; 390 backend pytest unit pass.
+
+### Notes
+- Pure frontend change. No backend, schema, env-var, or dependency changes.
+- The fallback to `/rides/by-date/${date}` is preserved for the legitimate case of a date that has only a planned workout (no recorded ride) — `useActivityDates` unions both ride dates and workout dates, and that route correctly renders either.
+
 ## [v1.13.2] - 2026-04-22
 
 Consolidates all betas since v1.12.3: Campaign 17 follow-up GPS fixes, Campaign 18 (navigation/routing/deep linking, all six phases), and Campaign 13 (independent DB cursors).
