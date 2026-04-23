@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useActivityDates } from '../hooks/useApi'
+import { fetchRides } from '../lib/api'
 import { fmtDateStr } from '../lib/format'
 
 interface DayDetailShellProps {
@@ -13,6 +14,7 @@ interface DayDetailShellProps {
 export default function DayDetailShell({ currentDate, backTo, children }: DayDetailShellProps) {
   const navigate = useNavigate()
   const { data: activityDates } = useActivityDates()
+  const [isLoading, setIsLoading] = useState(false)
 
   const { prevDate, nextDate } = useMemo(() => {
     if (!activityDates || !currentDate) return { prevDate: null, nextDate: null }
@@ -33,17 +35,17 @@ export default function DayDetailShell({ currentDate, backTo, children }: DayDet
   }, [activityDates, currentDate])
 
   async function navigateToDate(date: string) {
+    setIsLoading(true)
     try {
-      const response = await fetch(`/api/rides?start_date=${date}&end_date=${date}`)
-      if (response.ok) {
-        const ridesOnDate = await response.json()
-        if (ridesOnDate && ridesOnDate.length > 0) {
-          navigate(`/rides/${ridesOnDate[0].id}`)
-          return
-        }
+      const ridesOnDate = await fetchRides({ start_date: date, end_date: date, limit: 1 })
+      if (ridesOnDate && ridesOnDate.length > 0) {
+        navigate(`/rides/${ridesOnDate[0].id}`)
+        return
       }
     } catch (err) {
       console.warn('Failed to fetch ride for date:', err)
+    } finally {
+      setIsLoading(false)
     }
     navigate(`/rides/by-date/${date}`)
   }
@@ -61,8 +63,8 @@ export default function DayDetailShell({ currentDate, backTo, children }: DayDet
         <div className="flex items-center bg-surface rounded-lg p-1 border border-border shadow-sm">
           <button
             onClick={() => prevDate && navigateToDate(prevDate)}
-            disabled={!prevDate}
-            className="p-2 rounded-md transition-all disabled:opacity-20 text-text-muted hover:text-text hover:bg-surface-low"
+            disabled={!prevDate || isLoading}
+            className={`p-2 rounded-md transition-all text-text-muted hover:text-text hover:bg-surface-low disabled:opacity-20 ${isLoading ? 'cursor-wait' : ''}`}
             title={prevDate ?? undefined}
           >
             <ChevronLeft size={18} />
@@ -75,8 +77,8 @@ export default function DayDetailShell({ currentDate, backTo, children }: DayDet
           </div>
           <button
             onClick={() => nextDate && navigateToDate(nextDate)}
-            disabled={!nextDate}
-            className="p-2 rounded-md transition-all disabled:opacity-20 text-text-muted hover:text-text hover:bg-surface-low"
+            disabled={!nextDate || isLoading}
+            className={`p-2 rounded-md transition-all text-text-muted hover:text-text hover:bg-surface-low disabled:opacity-20 ${isLoading ? 'cursor-wait' : ''}`}
             title={nextDate ?? undefined}
           >
             <ChevronRight size={18} />
