@@ -100,7 +100,7 @@ def test_pmc_weight_priority_withings_over_ride(db_conn):
     if row is None:
         pytest.skip("No seed daily_metrics rows with weight found — cannot test priority")
 
-    test_date = row["date"]
+    test_date = str(row["date"])
     original_weight = row["weight"]
     withings_weight = round(original_weight + 5.0, 1)  # Distinctly different value
 
