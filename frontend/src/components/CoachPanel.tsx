@@ -24,6 +24,7 @@ interface Props {
   viewContext?: ViewContext
   nutritionistContext?: string
   nutritionistSessionId?: string
+  nutritionistRequestNonce?: number
   defaultTab?: 'coach' | 'nutritionist'
 }
 
@@ -53,7 +54,7 @@ function buildViewHint(ctx?: ViewContext): string {
   return parts.length > 0 ? `[${parts.join(', ')}]\n` : ''
 }
 
-export default function CoachPanel({ onClose, viewContext, nutritionistContext, nutritionistSessionId, defaultTab = 'coach' }: Props) {
+export default function CoachPanel({ onClose, viewContext, nutritionistContext, nutritionistSessionId, nutritionistRequestNonce, defaultTab = 'coach' }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sessionId, setSessionId] = useState<string | undefined>()
@@ -339,7 +340,12 @@ export default function CoachPanel({ onClose, viewContext, nutritionistContext, 
       )}
 
       {agentTab === 'nutritionist' && (
-        <NutritionistPanel key={nutritionistKey} initialContext={nutritionistContext} initialSessionId={nutritionistSessionId} />
+        <NutritionistPanel
+          key={nutritionistKey}
+          initialContext={nutritionistContext}
+          initialSessionId={nutritionistSessionId}
+          requestNonce={nutritionistRequestNonce}
+        />
       )}
     </aside>
   )

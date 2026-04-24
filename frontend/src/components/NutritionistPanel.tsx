@@ -18,6 +18,9 @@ import {
 interface Props {
   initialContext?: string
   initialSessionId?: string
+  // Increments every time the user clicks "Ask Nutritionist" (etc.) so we
+  // can react to a follow-up open even when initialContext is unchanged.
+  requestNonce?: number
 }
 
 interface Message {
@@ -26,7 +29,7 @@ interface Message {
   display?: string // for 'rate-limited': what to show as the user bubble on retry
 }
 
-export default function NutritionistPanel({ initialContext, initialSessionId }: Props) {
+export default function NutritionistPanel({ initialContext, initialSessionId, requestNonce }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [pendingContext, setPendingContext] = useState<string | undefined>()
@@ -37,22 +40,37 @@ export default function NutritionistPanel({ initialContext, initialSessionId }: 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const chat = useNutritionistChat()
   const { data: sessions } = useNutritionSessions()
-  const sentInitialRef = useRef(false)
+  const consumedRequestRef = useRef<number | undefined>(undefined)
   const loadedSessionRef = useRef(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Surface incoming context as a read-only chip above the input so the user
-  // can type their own question without having to edit around the pre-filled text.
+  // Consume each open() request from the nutritionist-handoff provider:
+  //   - If the panel is empty (fresh chat), just swap the chip in place.
+  //   - If a conversation is already in flight, start a new session so the
+  //     new question is not tangled up with the previous thread, then show
+  //     the chip in the fresh chat.
+  // Tracks `requestNonce` rather than `initialContext` so a repeat click on
+  // the same meal still re-opens cleanly instead of being deduped to a no-op.
   useEffect(() => {
-    if (initialContext && !sentInitialRef.current) {
-      sentInitialRef.current = true
-      setPendingContext(initialContext)
-      textareaRef.current?.focus()
+    if (!initialContext) return
+    if (requestNonce === undefined || requestNonce === consumedRequestRef.current) return
+    consumedRequestRef.current = requestNonce
+
+    if (messages.length > 0) {
+      setMessages([])
+      setSessionId(undefined)
+      setInput('')
     }
-  }, [initialContext])
+    setPendingContext(initialContext)
+    textareaRef.current?.focus()
+    // Intentionally omit `messages` from deps: the messages array changes
+    // constantly during chat, but we only want to act when a new request
+    // arrives. The branch above reads the current value at request time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestNonce, initialContext])
 
   // Auto-load session if initialSessionId is provided (from quick-log "Chat about this")
   useEffect(() => {
