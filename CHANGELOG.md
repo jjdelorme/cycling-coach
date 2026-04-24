@@ -2,46 +2,63 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.12.6-beta] - 2026-04-22
+## [v1.13.4] - 2026-04-23
+
+Hotfix release for the prev/next-day navigation regression on ride/workout detail pages introduced by Campaign 18 in v1.13.0.
 
 ### Fixes
-- **fix(rides): granular reverse-geocoded location on ride detail** — zoom level raised from 10 → 12 so rural/trail ride starts resolve to township or community instead of just state; fallback chain extended with `suburb` and `county`; state displayed as abbreviation via `state_code` (e.g. "Abiquiú, NM" instead of "New Mexico")
-
-## [v1.12.5-beta] - 2026-04-22
-
-### Fixes
-- **fix(sync): ICU latlng stream GPS parsing** — intervals.icu's `latlng` stream sometimes contains only latitude values with no longitude, causing the pairing logic to store `(lat, lat)` as `(start_lat, start_lon)`. For rides starting at ~35°N this produced ~35°N, ~35°E which reverse-geocodes to Syria. Three-layer fix: (1) `_normalize_latlng` now detects the concatenated `[all_lats..., all_lons...]` format via a 1° proximity heuristic and handles `None` values; (2) new `_backfill_start_from_laps` uses the FIT device lap data (which always carries both lat+lon) as an authoritative fallback, and corrects existing lat≈lon bug via `ABS(start_lat - start_lon) < 1°` guard; (3) `single_sync.py` resets `start_lat`/`start_lon` to NULL before re-syncing so backfill runs cleanly
+- **fix(nav): DayDetailShell prev/next-day arrows route correctly to ride detail when a ride exists** — the prev/next chevron buttons on `/rides/:id` and `/workouts/:id` were calling `fetch('/api/rides?...')` directly without the `Authorization: Bearer ...` header (returning 401 in prod) and without the `X-Client-Timezone` header (returning empty under UTC for users in non-UTC timezones). The empty/error response triggered the fallback path to `/rides/by-date/${date}`, which renders the planned-workout view — so users with a real recorded ride for the target date saw the planned workout instead. Switched to the project's centralized `fetchRides()` helper from `lib/api.ts`, which injects both headers via the shared `request()` wrapper.
+- **fix(nav): debounce rapid clicks on prev/next-day arrows** — added an `isLoading` state that disables the chevron buttons while a navigation is in flight, with `cursor-wait` styling. Prevents race conditions where two overlapping requests could land the user on a stale URL.
 
 ### Tests
-- 390 unit tests pass (3 new latlng parser tests covering concatenated format, None-safety, and zero-prefix guard)
+- 110 Playwright e2e specs pass, 2 skipped, 0 failed.
+- 32 frontend vitest pass; 390 backend pytest unit pass.
 
-## [v1.12.4-beta] - 2026-04-21
+### Notes
+- Pure frontend change. No backend, schema, env-var, or dependency changes.
+- The fallback to `/rides/by-date/${date}` is preserved for the legitimate case of a date that has only a planned workout (no recorded ride) — `useActivityDates` unions both ride dates and workout dates, and that route correctly renders either.
 
-### Features
-- **feat(rides): free-text search** — `?q=` filter searches across ride title, user comments, coach comments, and filename via ILIKE; search input added to the Rides toolbar with an inline clear (×) button that removes the active filter without requiring Enter
-- **feat(rides): location-radius search** — `?near=&radius_km=` filter resolves a place name to coordinates via a pluggable `GeocodingProvider` and applies a bounding-box prefilter + Haversine post-filter in SQL; "Advanced" disclosure panel with place input, km/mi radius selector, "Use My Location" button, active-filter chip, and inline error surfacing
-- **refactor(geocoding): pluggable provider model** — `GeocodingProvider` Protocol with `NominatimProvider` as the sole implementation; provider selected via `GEOCODER` env var (default `nominatim`); cache keys namespaced by provider name so a swap doesn't return stale coords; `MockProvider` (`GEOCODER=mock`) exposes deterministic fixtures for E2E tests plus an `__unreachable__` sentinel for the 503 path
+## [v1.13.2] - 2026-04-22
+
+Consolidates all betas since v1.12.3: Campaign 17 follow-up GPS fixes, Campaign 18 (navigation/routing/deep linking, all six phases), and Campaign 13 (independent DB cursors).
+
+### Features — Campaign 18: Navigation, Routing & Deep Linking
+- **feat(nav): top-level client-side routing** — replaced the in-memory tab switcher with `react-router-dom@7`. Every top-level view has its own URL (`/`, `/rides`, `/calendar`, `/analysis`, `/nutrition`, `/settings`, `/admin`); the desktop header, mobile bottom nav, and "More" menu all use `<NavLink>`; browser back/forward, deep links, and unknown paths (→ `NotFound`) all work as expected. New `frontend/src/lib/routes.ts` is the canonical route table.
+- **feat(nav): ride and workout deep links** — `/rides/:id`, `/rides/by-date/:date`, and `/workouts/:id` are real routes. Dashboard "Recent Rides" rows, Calendar "View Analysis" / "Show Details" links, and the prev/next-day chevron pill all `navigate()` to the appropriate URL instead of mutating local state. Sharing a URL like `/rides/12345` opens that ride directly. New `DayDetailShell` component shares the back-link + chevron-pill chrome between `/rides/:id` and `/workouts/:id`.
+- **feat(nav): nutrition deep links** — `/nutrition`, `/nutrition/week`, `/nutrition/plan`, `/nutrition/plan/:date`, and `/nutrition/meals/:id` are routable. Day/Week/Plan toggles became `<NavLink>`s; `MealPlanCalendar`'s selected day is driven by `useParams`; new `MealDetail.tsx` page renders a single meal via `useMeal(id)`. The day view reads `?date=YYYY-MM-DD`.
+- **feat(nav): route guards** — new `RequireAuth` and `RequireRole` components consume the existing `roleSatisfies` helper and render a `LoadingScreen` during the auth-loading window (avoids deep-link refresh briefly bouncing to `/login`). `/admin` and `/settings` are wrapped in `RequireRole`; the old `AdminRoute` inline check is gone.
+- **feat(nav): /login as a real route** — `LoginPage` promoted from an `App.tsx` early-return to a top-level `/login` route mounted outside `RequireAuth`. After successful auth it redirects to `location.state.from.pathname ?? '/'`, so a user who pastes a deep link while logged out lands on that page after signing in. Authenticated users hitting `/login` bounce to `/`.
+- **feat(calendar): URL-driven date selection** — `/calendar?date=YYYY-MM-DD` now seeds both the visible month and the selected day; clicking a day or paginating months keeps the URL in sync (`replace: true` to avoid history pollution).
+- **feat(nav): breadcrumbs** — new `Breadcrumbs` component walks the route table's `parent` chain via `useLocation` + `matchPath`. Renders WAI-ARIA-correct `<nav aria-label="breadcrumb">` markup with `aria-current="page"` on the leaf; hidden on `/`. Dynamic crumbs for `/rides/:id`, `/workouts/:id`, and `/nutrition/meals/:id` resolve via the existing data hooks; raw param shows during loading. Mounted in `Layout.tsx` for desktop and as a compact row for mobile.
+- **chore(app): App.tsx cleanup** — early-return removed; file shrunk from 73 → 55 lines with no `useState`, no role ladders, no `useEffect`. The route table itself is the floor.
+- **refactor(roles): consolidate role checks** — `Settings.tsx` and `Layout.tsx` `isAdmin` checks now use `roleSatisfies(user?.role, 'admin')` consistently. `Settings.tsx isReadOnly` intentionally left as strict equality.
+
+### Features — Campaign 17 follow-up: Rides Search hardening
+- **feat(rides): free-text search** — `?q=` filter searches across ride title, user comments, coach comments, and filename via ILIKE; search input added to the Rides toolbar with an inline clear (×) button.
+- **feat(rides): location-radius search** — `?near=&radius_km=` filter resolves a place name to coordinates via a pluggable `GeocodingProvider` and applies a bounding-box prefilter + Haversine post-filter in SQL; "Advanced" disclosure panel with place input, km/mi radius selector, "Use My Location" button, active-filter chip, and inline error surfacing.
+- **refactor(geocoding): pluggable provider model** — `GeocodingProvider` Protocol with `NominatimProvider` as the sole implementation; provider selected via `GEOCODER` env var (default `nominatim`); cache keys namespaced by provider name so a swap doesn't return stale coords; `MockProvider` (`GEOCODER=mock`) exposes deterministic fixtures for E2E tests.
 
 ### Fixes
-- **fix(rides): search clear button** — × button appears in the search input when text is present; clears query and removes `?q=` from active filter params immediately
-- **fix(backfill script portability)** — `scripts/backfill_ride_start_geo.py` now reads `CYCLING_COACH_DATABASE_URL` (matching app convention), calls `load_dotenv()` automatically, and adds repo root to `sys.path` so it runs correctly as `python3 scripts/backfill_ride_start_geo.py` without `python -m`
-- **fix(migrate.py)** — `python -m server.migrate` now calls `load_dotenv()` before reading `CYCLING_COACH_DATABASE_URL`, eliminating silent fallback to localhost when `.env` exists but env var is not manually exported
-- **fix(sync): `_normalize_latlng` parser** — intervals.icu returns a flat `[lat, lon, lat, lon, ...]` array, not nested pairs; parser rewritten to handle both shapes; `(0, 0)` sentinel skipped as invalid GPS fix
+- **fix(db): eliminate shared cursor anti-pattern (Campaign 13)** — `_DbConnection` in `server/database.py` no longer holds a single class-level `RealDictCursor`. Each `execute()` / `executemany()` call now creates and returns an independent cursor, so nested query iteration (e.g. running a query inside a loop over the results of another query) no longer silently overwrites the parent's result set. Drop-in replacement.
+- **fix(rides): granular reverse-geocoded location on ride detail** — zoom level raised from 10 → 12 so rural/trail ride starts resolve to township or community instead of just state; fallback chain extended with `suburb` and `county`; state displayed as abbreviation via `state_code` (e.g. "Abiquiú, NM" instead of "New Mexico").
+- **fix(sync): ICU latlng stream GPS parsing (Syria bug)** — intervals.icu's `latlng` stream sometimes contains only latitude values with no longitude, causing the pairing logic to store `(lat, lat)` as `(start_lat, start_lon)`. For rides starting at ~35°N this reverse-geocoded to Syria. Three-layer fix: (1) `_normalize_latlng` detects the concatenated `[all_lats..., all_lons...]` format via a 1° proximity heuristic and handles `None` values; (2) new `_backfill_start_from_laps` uses FIT device lap data as an authoritative fallback and corrects the existing lat≈lon bug via `ABS(start_lat - start_lon) < 1°` guard; (3) `single_sync.py` resets `start_lat`/`start_lon` to NULL before re-syncing so backfill runs cleanly.
+- **fix(rides): search clear button** — × button appears in the search input when text is present; clears query and removes `?q=` from active filter params immediately.
+- **fix(backfill script portability)** — `scripts/backfill_ride_start_geo.py` now reads `CYCLING_COACH_DATABASE_URL` (matching app convention), calls `load_dotenv()` automatically, and adds repo root to `sys.path` so it runs correctly as `python3 scripts/backfill_ride_start_geo.py`.
+- **fix(migrate.py)** — `python -m server.migrate` now calls `load_dotenv()` before reading `CYCLING_COACH_DATABASE_URL`, eliminating silent fallback to localhost when `.env` exists but env var is not manually exported.
 
 ### Database
-- Migration `0008_rides_start_lat_lon_index.sql`: partial index on `rides(start_lat, start_lon) WHERE start_lat IS NOT NULL` to support bounding-box prefilter
+- Migration `0008_rides_start_lat_lon_index.sql`: partial index on `rides(start_lat, start_lon) WHERE start_lat IS NOT NULL` to support bounding-box prefilter for the location-radius search.
 
 ### Tests
-- 13/13 Playwright E2E tests pass (radius search via `MockProvider`)
-- 387 unit tests pass (9 haversine, 8 geocoding cache, 15 latlng parser, 11 backfill, + more)
-- 219 integration tests pass
+- 110 Playwright e2e specs pass (4 new in `11-breadcrumbs.spec.ts`; `/login` + redirect cases added to `07-navigation`; `?date=` deep link added to `04-calendar`; ride-deep-link cases added to `03-rides`).
+- 32 frontend vitest tests pass (10 new across `RequireRole` and `roleSatisfies` suites).
+- 390 backend pytest unit tests pass.
+- New `test_nested_queries` in `tests/integration/test_database.py` proves the cursor-refactor regression: two cursors from the same connection iterate concurrently without interfering. All 5 `test_database.py` integration tests pass against local Postgres.
 
-### Operator action required after deploy
-Run the one-time geo backfill against the production database:
-```bash
-python scripts/backfill_ride_start_geo.py --allow-remote --dry-run  # preview first
-python scripts/backfill_ride_start_geo.py --allow-remote
-```
+### Notes
+- Roadmap updated: Campaigns 13, 17 (already merged at `7b97931`), and 18 moved to Archived.
+- Pure frontend for Campaign 18; one-file backend refactor for Campaign 13. Backend RBAC (`require_read`/`require_write`/`require_admin`) was already in place before this train.
+- Operator follow-up (carried over from v1.12.3): run `scripts/backfill_ride_start_geo.py --allow-remote` against prod DB to populate `start_lat/lon` for pre-Campaign-17 rides.
 
 ## [v1.12.3] - 2026-04-20
 

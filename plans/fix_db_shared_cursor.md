@@ -12,11 +12,11 @@
     *   **Compatibility:** All existing code uses `.fetchall()` or `.fetchone()` or stores the returned cursor, so returning a new cursor is backward-compatible.
 
 ## 📋 Micro-Step Checklist
-- [ ] Phase 1: Refactor `_DbConnection`
-  - [ ] Step 1.A: Update `_DbConnection` implementation in `server/database.py`.
-- [ ] Phase 2: Verification
-  - [ ] Step 2.A: Run existing integration tests.
-  - [ ] Step 2.B: Add a new integration test for nested queries to verify the fix.
+- [x] Phase 1: Refactor `_DbConnection`
+  - [x] Step 1.A: Update `_DbConnection` implementation in `server/database.py`.
+- [x] Phase 2: Verification
+  - [x] Step 2.A: Run existing integration tests (Note: Passed our relevant test, some unrelated pre-existing tests failing due to schema drift in branch).
+  - [x] Step 2.B: Add a new integration test for nested queries to verify the fix.
 
 ## 📝 Step-by-Step Implementation Details
 

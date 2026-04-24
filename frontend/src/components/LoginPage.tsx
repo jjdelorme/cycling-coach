@@ -1,10 +1,22 @@
 import { useEffect, useRef } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { Bike, ShieldAlert, Clock, ChevronRight } from 'lucide-react'
 
 export default function LoginPage() {
   const { user, isAuthenticated, login } = useAuth()
   const buttonRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Once the user has access (authenticated + role !== 'none'), bounce to the
+  // page they originally requested (preserved via location.state.from), or `/`.
+  useEffect(() => {
+    if (isAuthenticated && user?.role && user.role !== 'none') {
+      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+      navigate(from ?? '/', { replace: true })
+    }
+  }, [isAuthenticated, user?.role, navigate, location.state])
 
   // Render Google's sign-in button when GSI is ready
   useEffect(() => {

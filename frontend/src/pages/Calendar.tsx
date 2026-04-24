@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useRides, useDeleteWorkout } from '../hooks/useApi'
 import { fetchWeekPlansBatch } from '../lib/api'
 import { fmtDuration, fmtDistance, fmtSport, fmtDateStrLong } from '../lib/format'
@@ -22,12 +23,6 @@ import {
 } from 'lucide-react'
 import type { PlannedWorkout, RideSummary } from '../types/api'
 import SportIcon from '../components/SportIcon'
-
-interface Props {
-  onRideSelect: (id: number) => void
-  onWorkoutSelect: (id: number, date: string) => void
-  onDateSelect?: (date: string | null) => void
-}
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -74,18 +69,29 @@ function getWeekMondays(calendarDays: Date[]): string[] {
   return Array.from(set).sort()
 }
 
-export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }: Props) {
+export default function Calendar() {
   const units = useUnits()
   const deleteWorkout = useDeleteWorkout()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const dateParam = searchParams.get('date')
+  const validDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : null
+
   const [currentDate, setCurrentDate] = useState(() => {
+    if (validDate) {
+      const d = new Date(validDate + 'T00:00:00')
+      return { year: d.getFullYear(), month: d.getMonth() }
+    }
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
   })
-  const [selectedDay, setSelectedDay] = useState<string | null>(() => toDateStr(new Date()))
+  const [selectedDay, setSelectedDay] = useState<string | null>(
+    () => validDate ?? toDateStr(new Date()),
+  )
 
   const handleSetSelectedDay = (date: string | null) => {
     setSelectedDay(date)
-    onDateSelect?.(date)
+    if (date) setSearchParams({ date }, { replace: true })
+    else setSearchParams({}, { replace: true })
   }
 
   const calendarDays = useMemo(
@@ -126,8 +132,21 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
     return map
   }, [allWorkouts])
 
-  function prevMonth() { setCurrentDate(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 }); handleSetSelectedDay(null) }
-  function nextMonth() { setCurrentDate(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 }); handleSetSelectedDay(null) }
+  function shiftMonth(delta: -1 | 1) {
+    setCurrentDate(p => {
+      const next = p.month + delta
+      let year = p.year
+      let month = next
+      if (next < 0) { year = p.year - 1; month = 11 }
+      else if (next > 11) { year = p.year + 1; month = 0 }
+      const firstOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-01`
+      setSelectedDay(null)
+      setSearchParams({ date: firstOfMonth }, { replace: true })
+      return { year, month }
+    })
+  }
+  function prevMonth() { shiftMonth(-1) }
+  function nextMonth() { shiftMonth(1) }
 
   const selectedRides = selectedDay ? ridesByDate.get(selectedDay) ?? [] : []
   const selectedWorkouts = selectedDay ? workoutsByDate.get(selectedDay) ?? [] : []
@@ -240,9 +259,9 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                           <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{fmtSport(r.sub_sport || r.sport)}</span>
                         </div>
                       </div>
-                      <button onClick={() => onRideSelect(r.id)} className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:opacity-90 transition-all shadow-lg shadow-accent/20">
+                      <Link to={`/rides/${r.id}`} className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:opacity-90 transition-all shadow-lg shadow-accent/20">
                         View Analysis <ExternalLink size={12} />
-                      </button>
+                      </Link>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
                       <MiniMetric label="Duration" value={fmtDuration(r.duration_s)} icon={Clock} color="text-text" />
@@ -272,9 +291,9 @@ export default function Calendar({ onRideSelect, onWorkoutSelect, onDateSelect }
                       </div>
                       <div className="flex items-center gap-3">
                         {w.id && (
-                          <button onClick={() => onWorkoutSelect(w.id, selectedDay!)} className="flex items-center gap-2 px-4 py-2 bg-surface border border-border text-[10px] font-bold uppercase tracking-widest rounded-lg hover:text-accent hover:border-accent transition-all shadow-sm">
+                          <Link to={`/workouts/${w.id}`} className="flex items-center gap-2 px-4 py-2 bg-surface border border-border text-[10px] font-bold uppercase tracking-widest rounded-lg hover:text-accent hover:border-accent transition-all shadow-sm">
                             Show Details <ExternalLink size={12} />
-                          </button>
+                          </Link>
                         )}
                         {w.id && (
                           <button onClick={() => { if (confirm(`Delete "${w.name ?? 'Workout'}"?`)) deleteWorkout.mutate(w.id) }} className="p-2 text-text-muted hover:text-red hover:bg-red/5 rounded-lg transition-all" title="Delete Workout">

@@ -91,13 +91,13 @@ test.describe('Dashboard', () => {
     await expect(page.getByText('Back to List')).toBeVisible({ timeout: 8_000 })
   })
 
-  test('clicking Next Workout navigates to Rides detail', async ({ page }) => {
+  test('clicking Next Workout navigates to Workout detail', async ({ page }) => {
     const nextPanel = page.locator('[class*="rounded-xl"]').filter({ hasText: 'NEXT WORKOUT' })
     const hasClickable = await nextPanel.locator('[class*="cursor-pointer"]').count()
     if (hasClickable > 0) {
       await nextPanel.locator('[class*="cursor-pointer"]').first().click()
-      // Should navigate to Rides tab showing workout detail
-      await expect(page.getByText('Back to List')).toBeVisible({ timeout: 8_000 })
+      await expect(page).toHaveURL(/\/workouts\/\d+$/, { timeout: 8_000 })
+      await expect(page.getByText('Back to Calendar')).toBeVisible({ timeout: 8_000 })
     }
     // If no upcoming workout, the test passes trivially
   })

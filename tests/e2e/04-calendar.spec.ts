@@ -73,15 +73,16 @@ test.describe('Calendar', () => {
   })
 
   test('clicking a day cell selects it and shows detail panel', async ({ page }) => {
-    // Click a cell that is in the current month (opacity-40 cells are other months)
+    // Click a cell that is in the current month (opacity-40 cells are other months).
+    // The first in-month cell may already be the selected day (today defaults
+    // selected); clicking it toggles selection off. Click the second one to
+    // guarantee a selection change.
     const inMonthCells = page.locator('.grid-cols-7.gap-px > div:not([class*="opacity-40"])')
-    await inMonthCells.first().click()
-    // Detail panel should appear
-    await expect(page.getByText('THURSDAY', { exact: false }).or(
-      page.getByText('MONDAY', { exact: false }).or(
-        page.getByText('Recovery Day', { exact: false })
-      )
-    )).toBeVisible({ timeout: 5_000 })
+    await inMonthCells.nth(1).click()
+    // Detail panel header includes the long-form date (e.g. "Wednesday, April 1, 2026").
+    await expect(
+      page.getByText(/(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)/i).first()
+    ).toBeVisible({ timeout: 5_000 })
   })
 
   test('clicking a day with a ride shows ride metrics in the panel', async ({ page }) => {
@@ -101,7 +102,7 @@ test.describe('Calendar', () => {
     }
   })
 
-  test('View Analysis button in day panel navigates to ride detail', async ({ page }) => {
+  test('View Analysis link in day panel navigates to /rides/:id', async ({ page }) => {
     // Find a cell with a ride
     const rideCell = page.locator('.grid-cols-7.gap-px > div').filter({
       has: page.locator('[class*="text-green"]'),
@@ -111,10 +112,29 @@ test.describe('Calendar', () => {
     if (hasCells > 0) {
       await rideCell.click()
       await page.waitForTimeout(1_000)
-      const viewBtn = page.getByRole('button', { name: /View Analysis/i })
-      if (await viewBtn.count() > 0) {
-        await viewBtn.click()
+      const viewLink = page.getByRole('link', { name: /View Analysis/i })
+      if (await viewLink.count() > 0) {
+        await viewLink.first().click()
+        await expect(page).toHaveURL(/\/rides\/\d+$/, { timeout: 8_000 })
         await expect(page.getByText('Back to List')).toBeVisible({ timeout: 8_000 })
+      }
+    }
+  })
+
+  test('Show Details link in day panel navigates to /workouts/:id', async ({ page }) => {
+    // Find a cell with a planned workout (yellow text)
+    const workoutCell = page.locator('.grid-cols-7.gap-px > div').filter({
+      has: page.locator('[class*="text-yellow"]'),
+    }).first()
+
+    const hasCells = await workoutCell.count()
+    if (hasCells > 0) {
+      await workoutCell.click()
+      await page.waitForTimeout(1_000)
+      const showDetailsLink = page.getByRole('link', { name: /Show Details/i })
+      if (await showDetailsLink.count() > 0) {
+        await showDetailsLink.first().click()
+        await expect(page).toHaveURL(/\/workouts\/\d+$/, { timeout: 8_000 })
       }
     }
   })
@@ -128,6 +148,17 @@ test.describe('Calendar', () => {
     if (count > 0) {
       await expect(workoutCells.first()).toBeVisible()
     }
+  })
+
+  test('?date=YYYY-MM-DD deep-link opens the correct month and selects the day', async ({ page }) => {
+    await page.goto(`${BASE}/calendar?date=2026-03-15`)
+    // Wait for the grid (re-running beforeEach steps inline since we navigated away)
+    await page.waitForSelector('[class*="grid-cols-7"]', { timeout: 10_000 })
+    const heading = page.getByRole('heading', { level: 1 })
+    await expect(heading).toContainText('March')
+    await expect(heading).toContainText('2026')
+    // Detail panel header includes the long-form date "Sunday, March 15, 2026".
+    await expect(page.getByText(/Sunday, March 15/i)).toBeVisible({ timeout: 5_000 })
   })
 
   test('ride cells expose full title via title attribute', async ({ page }) => {

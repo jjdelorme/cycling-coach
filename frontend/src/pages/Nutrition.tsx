@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { Bar } from 'react-chartjs-2'
+import { NavLink, useLocation, useSearchParams } from 'react-router-dom'
 import { useMeals, useDailyNutrition, useWeeklyNutrition } from '../hooks/useApi'
 import { useChartColors } from '../lib/theme'
 import DailySummaryStrip from '../components/DailySummaryStrip'
@@ -13,9 +13,33 @@ interface Props {
   onOpenNutritionist?: (context?: string, sessionId?: string) => void
 }
 
+type ViewMode = 'day' | 'week' | 'plan'
+
+/**
+ * Map the current pathname to a view mode.
+ *  /nutrition           → day
+ *  /nutrition/week      → week
+ *  /nutrition/plan      → plan
+ *  /nutrition/plan/:date → plan (calendar handles the date)
+ */
+function pathToView(pathname: string): ViewMode {
+  if (pathname.startsWith('/nutrition/week')) return 'week'
+  if (pathname.startsWith('/nutrition/plan')) return 'plan'
+  return 'day'
+}
+
 export default function Nutrition({ onOpenNutritionist }: Props) {
-  const [date, setDate] = useState(() => localDateStr())
-  const [viewMode, setViewMode] = useState<'day' | 'week' | 'plan'>('day')
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const viewMode = pathToView(location.pathname)
+
+  // Day view date is driven by ?date=YYYY-MM-DD; default to today.
+  const date = searchParams.get('date') ?? localDateStr()
+  const setDate = (next: string) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('date', next)
+    setSearchParams(params, { replace: false })
+  }
 
   const { data: dailyData, isLoading: dailyLoading } = useDailyNutrition(date)
   const { data: mealsData, isLoading: mealsLoading } = useMeals({
@@ -28,30 +52,20 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
 
   const isLoading = dailyLoading || mealsLoading
 
+  const tabClass = ({ isActive }: { isActive: boolean }) =>
+    `px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+      isActive ? 'bg-accent text-white' : 'text-text-muted hover:text-text'
+    }`
+
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-sm font-bold text-text uppercase tracking-wider">Nutrition</h1>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('day')}
-            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-              viewMode === 'day' ? 'bg-accent text-white' : 'text-text-muted hover:text-text'
-            }`}
-          >Day</button>
-          <button
-            onClick={() => setViewMode('week')}
-            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-              viewMode === 'week' ? 'bg-accent text-white' : 'text-text-muted hover:text-text'
-            }`}
-          >Week</button>
-          <button
-            onClick={() => setViewMode('plan')}
-            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-              viewMode === 'plan' ? 'bg-accent text-white' : 'text-text-muted hover:text-text'
-            }`}
-          >Plan</button>
+          <NavLink to="/nutrition" end className={tabClass}>Day</NavLink>
+          <NavLink to="/nutrition/week" className={tabClass}>Week</NavLink>
+          <NavLink to="/nutrition/plan" className={tabClass}>Plan</NavLink>
         </div>
       </div>
 
@@ -170,7 +184,6 @@ export default function Nutrition({ onOpenNutritionist }: Props) {
           // Navigate to today's day view so the new meal is visible
           const today = localDateStr()
           if (date !== today) setDate(today)
-          if (viewMode !== 'day') setViewMode('day')
         }}
         onOpenNutritionist={onOpenNutritionist}
       />

@@ -1,13 +1,16 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import CoachPanel from './CoachPanel'
 import UserAvatar from './UserAvatar'
+import Breadcrumbs from './Breadcrumbs'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
+import { useNutritionistHandoff } from '../lib/nutritionist-handoff'
+import { HEADER_ROUTES, MORE_MENU_ROUTES, roleSatisfies } from '../lib/routes'
 import {
   LayoutDashboard,
   Bike,
   CalendarDays,
-  TrendingUp,
   UtensilsCrossed,
   MessageSquare,
   Sun,
@@ -17,15 +20,13 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 
-const tabs = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { key: 'rides', label: 'Rides', icon: Bike },
-  { key: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { key: 'analysis', label: 'Analysis', icon: TrendingUp },
-  { key: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed },
-] as const
-
-export type TabKey = (typeof tabs)[number]['key'] | 'settings' | 'admin'
+/**
+ * Tab key — derived from the URL path's first segment. Retained so existing
+ * call-sites (e.g. `CoachPanel`'s `viewContext`) continue to compile during
+ * the gradual migration. Phase 6 will remove this in favor of pulling the
+ * pathname directly from `useLocation()`.
+ */
+export type TabKey = 'dashboard' | 'rides' | 'calendar' | 'analysis' | 'nutrition' | 'settings' | 'admin'
 
 export interface ViewContext {
   tab: TabKey
@@ -34,26 +35,38 @@ export interface ViewContext {
   calendarDate?: string
 }
 
-interface LayoutProps {
-  activeTab: TabKey
-  onTabChange: (tab: TabKey) => void
-  viewContext?: ViewContext
-  nutritionistContext?: string
-  nutritionistSessionId?: string
-  onOpenNutritionist?: (context?: string, sessionId?: string) => void
-  children: ReactNode
+/** Map a pathname onto the legacy TabKey for `viewContext`/active-state. */
+function pathToTab(pathname: string): TabKey {
+  const seg = pathname.split('/').filter(Boolean)[0]
+  switch (seg) {
+    case 'rides': return 'rides'
+    case 'calendar': return 'calendar'
+    case 'analysis': return 'analysis'
+    case 'nutrition': return 'nutrition'
+    case 'settings': return 'settings'
+    case 'admin': return 'admin'
+    case 'workouts': return 'rides' // workout detail nests under rides
+    default: return 'dashboard'
+  }
 }
 
-export default function Layout({ activeTab, onTabChange, viewContext, nutritionistContext, nutritionistSessionId, children }: LayoutProps) {
+export default function Layout() {
   const [coachOpen, setCoachOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
   const { theme, toggle: toggleTheme } = useTheme()
+  const { user } = useAuth()
+  const location = useLocation()
+  const handoff = useNutritionistHandoff()
+
+  const activeTab = pathToTab(location.pathname)
+  const isAdmin = roleSatisfies(user?.role, 'admin')
+  const canSettings = roleSatisfies(user?.role, 'read')
 
   // Auto-open the coach panel when a nutritionist context or session is injected
   useEffect(() => {
-    if (nutritionistContext || nutritionistSessionId) setCoachOpen(true)
-  }, [nutritionistContext, nutritionistSessionId])
+    if (handoff.context || handoff.sessionId) setCoachOpen(true)
+  }, [handoff.context, handoff.sessionId])
 
   // Close More menu on outside click
   useEffect(() => {
@@ -64,10 +77,44 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
-  const canSettings = user?.role === 'admin' || user?.role === 'readwrite' || user?.role === 'read'
-  const isMoreActive = (['rides', 'analysis', 'settings', 'admin'] as TabKey[]).includes(activeTab) && !coachOpen
+  // Reset transient panel state when the route changes.
+  useEffect(() => {
+    setMoreOpen(false)
+    handoff.clear()
+    // Intentionally only react to pathname changes; `handoff` is a stable ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname])
+
+  /**
+   * Build the legacy ViewContext for CoachPanel from URL.
+   *
+   * Phase 1 is intentionally minimal: the hook still receives a ViewContext
+   * derived only from the path. Phase 2 will start populating `rideId`/
+   * `rideDate` from URL params; Phase 6 will move this hook into CoachPanel
+   * itself.
+   */
+  const viewContext = useMemo<ViewContext>(() => ({
+    tab: activeTab,
+  }), [activeTab])
+
+  const isMoreActive =
+    (['rides', 'analysis', 'settings', 'admin'] as TabKey[]).includes(activeTab) && !coachOpen
+
+  // Helper: NavLink className builder for header tabs.
+  const headerTabClass = ({ isActive }: { isActive: boolean }) =>
+    `flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+      isActive
+        ? 'bg-surface2 text-text border border-accent/20'
+        : 'text-text-muted hover:text-text hover:bg-surface2/50 border border-transparent'
+    }`
+
+  // Helper: NavLink className builder for header icons.
+  const headerIconClass = ({ isActive }: { isActive: boolean }) =>
+    `p-2 rounded-md text-sm transition-colors ${
+      isActive
+        ? 'text-accent bg-surface2 border border-accent/20'
+        : 'text-text-muted hover:text-text hover:bg-surface2/50'
+    }`
 
   return (
     <div className="flex h-screen h-[100dvh] flex-col bg-bg">
@@ -80,20 +127,23 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
             </div>
             <span className="font-bold text-text tracking-tight">COACH</span>
           </div>
-          {tabs.map(t => (
-            <button
-              key={t.key}
-              onClick={() => onTabChange(t.key)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === t.key
-                  ? 'bg-surface2 text-text border border-accent/20'
-                  : 'text-text-muted hover:text-text hover:bg-surface2/50 border border-transparent'
-              }`}
-            >
-              <t.icon size={16} />
-              {t.label}
-            </button>
-          ))}
+          {HEADER_ROUTES.map(r => {
+            // Header tabs are visible to anyone authenticated; gated routes
+            // appear as icons on the right.
+            if (r.requireRole) return null
+            const Icon = r.icon
+            return (
+              <NavLink
+                key={r.path}
+                to={r.path}
+                end={r.path === '/'}
+                className={headerTabClass}
+              >
+                {Icon && <Icon size={16} />}
+                {r.label}
+              </NavLink>
+            )
+          })}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -115,30 +165,22 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           {isAdmin && (
-            <button
-              onClick={() => onTabChange('admin')}
-              className={`p-2 rounded-md text-sm transition-colors ${
-                activeTab === 'admin'
-                  ? 'text-accent bg-surface2 border border-accent/20'
-                  : 'text-text-muted hover:text-text hover:bg-surface2/50'
-              }`}
+            <NavLink
+              to="/admin"
+              className={headerIconClass}
               title="User Management"
             >
               <Users size={18} />
-            </button>
+            </NavLink>
           )}
           {canSettings && (
-            <button
-              onClick={() => onTabChange('settings')}
-              className={`p-2 rounded-md text-sm transition-colors ${
-                activeTab === 'settings'
-                  ? 'text-accent bg-surface2 border border-accent/20'
-                  : 'text-text-muted hover:text-text hover:bg-surface2/50'
-              }`}
+            <NavLink
+              to="/settings"
+              className={headerIconClass}
               title="Settings"
             >
               <Settings size={18} />
-            </button>
+            </NavLink>
           )}
           <div className="ml-2 pl-2 border-l border-border">
             <UserAvatar />
@@ -149,10 +191,22 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden relative">
         <main className={`flex-1 overflow-y-auto p-4 md:p-6 ${coachOpen ? 'hidden md:block' : ''}`}>
-          {children}
+          <div className="hidden md:block mb-4">
+            <Breadcrumbs />
+          </div>
+          <div className="md:hidden mb-3">
+            <Breadcrumbs compact />
+          </div>
+          <Outlet />
         </main>
         {coachOpen && (
-          <CoachPanel onClose={() => setCoachOpen(false)} viewContext={viewContext} nutritionistContext={nutritionistContext} nutritionistSessionId={nutritionistSessionId} defaultTab={activeTab === 'nutrition' ? 'nutritionist' : 'coach'} />
+          <CoachPanel
+            onClose={() => setCoachOpen(false)}
+            viewContext={viewContext}
+            nutritionistContext={handoff.context}
+            nutritionistSessionId={handoff.sessionId}
+            defaultTab={activeTab === 'nutrition' ? 'nutritionist' : 'coach'}
+          />
         )}
       </div>
 
@@ -164,20 +218,28 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
       {/* Bottom nav - mobile */}
       <nav className="md:hidden relative flex border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]">
         {([
-          { key: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
-          { key: 'calendar' as const, label: 'Calendar', icon: CalendarDays },
-          { key: 'nutrition' as const, label: 'Nutrition', icon: UtensilsCrossed },
+          { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+          { to: '/calendar', label: 'Calendar', icon: CalendarDays, end: false },
+          { to: '/nutrition', label: 'Nutrition', icon: UtensilsCrossed, end: false },
         ]).map(t => (
-          <button
-            key={t.key}
-            onClick={() => { onTabChange(t.key); setCoachOpen(false); setMoreOpen(false) }}
-            className={`flex-1 flex flex-col items-center py-2 text-[10px] transition-colors ${
-              activeTab === t.key && !coachOpen ? 'text-accent' : 'text-text-muted'
-            }`}
+          <NavLink
+            key={t.to}
+            to={t.to}
+            end={t.end}
+            onClick={() => { setCoachOpen(false); setMoreOpen(false) }}
+            className={({ isActive }) =>
+              `flex-1 flex flex-col items-center py-2 text-[10px] transition-colors ${
+                isActive && !coachOpen ? 'text-accent' : 'text-text-muted'
+              }`
+            }
           >
-            <t.icon size={20} className="mb-1" strokeWidth={activeTab === t.key && !coachOpen ? 2.5 : 2} />
-            <span>{t.label}</span>
-          </button>
+            {({ isActive }) => (
+              <>
+                <t.icon size={20} className="mb-1" strokeWidth={isActive && !coachOpen ? 2.5 : 2} />
+                <span>{t.label}</span>
+              </>
+            )}
+          </NavLink>
         ))}
         <button
           onClick={() => { setCoachOpen(o => !o); setMoreOpen(false) }}
@@ -200,24 +262,28 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
           </button>
           {moreOpen && (
             <div className="absolute bottom-full right-0 mb-1 w-44 bg-surface border border-border rounded-lg shadow-lg z-50">
-              <button
-                onClick={() => { onTabChange('rides'); setCoachOpen(false); setMoreOpen(false) }}
-                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors rounded-t-lg ${
-                  activeTab === 'rides' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
-                }`}
-              >
-                <Bike size={16} />
-                <span>Rides</span>
-              </button>
-              <button
-                onClick={() => { onTabChange('analysis'); setCoachOpen(false); setMoreOpen(false) }}
-                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors ${
-                  activeTab === 'analysis' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
-                }`}
-              >
-                <TrendingUp size={16} />
-                <span>Analysis</span>
-              </button>
+              {/* Open routes (no role gate) */}
+              {MORE_MENU_ROUTES.filter(r => !r.requireRole).map((r, idx, arr) => {
+                const Icon = r.icon ?? Bike
+                return (
+                  <NavLink
+                    key={r.path}
+                    to={r.path}
+                    end={r.path === '/'}
+                    onClick={() => { setCoachOpen(false); setMoreOpen(false) }}
+                    className={({ isActive }) =>
+                      `w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors ${
+                        idx === 0 ? 'rounded-t-lg' : ''
+                      } ${idx === arr.length - 1 ? '' : ''} ${
+                        isActive ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
+                      }`
+                    }
+                  >
+                    <Icon size={16} />
+                    <span>{r.label}</span>
+                  </NavLink>
+                )
+              })}
               <div className="border-t border-border my-1" />
               <button
                 onClick={() => { toggleTheme(); setMoreOpen(false) }}
@@ -226,28 +292,29 @@ export default function Layout({ activeTab, onTabChange, viewContext, nutritioni
                 {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
                 <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
               </button>
-              {isAdmin && (
-                <button
-                  onClick={() => { onTabChange('admin'); setCoachOpen(false); setMoreOpen(false) }}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors ${
-                    activeTab === 'admin' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
-                  }`}
-                >
-                  <Users size={16} />
-                  <span>Users</span>
-                </button>
-              )}
-              {canSettings && (
-                <button
-                  onClick={() => { onTabChange('settings'); setCoachOpen(false); setMoreOpen(false) }}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors rounded-b-lg ${
-                    activeTab === 'settings' ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
-                  }`}
-                >
-                  <Settings size={16} />
-                  <span>Settings</span>
-                </button>
-              )}
+              {/* Role-gated routes */}
+              {MORE_MENU_ROUTES.filter(r => r.requireRole && roleSatisfies(user?.role, r.requireRole)).map((r, idx, arr) => {
+                const Icon = r.icon ?? Bike
+                const isLast = idx === arr.length - 1
+                return (
+                  <NavLink
+                    key={r.path}
+                    to={r.path}
+                    end={r.path === '/'}
+                    onClick={() => { setCoachOpen(false); setMoreOpen(false) }}
+                    className={({ isActive }) =>
+                      `w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors ${
+                        isLast ? 'rounded-b-lg' : ''
+                      } ${
+                        isActive ? 'text-accent bg-surface2/50' : 'text-text-muted hover:text-text hover:bg-surface2/50'
+                      }`
+                    }
+                  >
+                    <Icon size={16} />
+                    <span>{r.label}</span>
+                  </NavLink>
+                )
+              })}
             </div>
           )}
         </div>

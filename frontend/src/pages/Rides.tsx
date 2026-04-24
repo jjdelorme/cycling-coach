@@ -1,19 +1,19 @@
 import { useSyncSingleRide } from '../hooks/useSyncSingleRide'
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { 
-  useRides, 
-  useRide, 
-  useUpdateRideComments, 
-  useUpdateRideTitle, 
+import {
+  useRides,
+  useRide,
+  useUpdateRideComments,
+  useUpdateRideTitle,
   useDeleteRide,
-  useWorkoutByDate, 
-  useUpdateWorkoutNotes, 
-  useSendChat, 
-  useActivityDates 
+  useWorkoutByDate,
+  useUpdateWorkoutNotes,
+  useSendChat
 } from '../hooks/useApi'
-import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, fmtSport, fmtTimestamp, fmtDateStr } from '../lib/format'
+import { fmtDuration, fmtDistance, fmtElevation, fmtTime, zoneColor, fmtSport, fmtTimestamp } from '../lib/format'
 import { useUnits } from '../lib/units'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -23,8 +23,6 @@ import {
   Activity,
   TrendingUp,
   Heart,
-  ChevronLeft,
-  ChevronRight,
   Edit3,
   Save,
   MessageSquare,
@@ -46,6 +44,7 @@ import {
   X
 } from 'lucide-react'
 import SportIcon from '../components/SportIcon'
+import DayDetailShell from '../components/DayDetailShell'
 import type { WorkoutDetail, WorkoutStep, RideLap } from '../types/api'
 import RideTimelineChart from '../components/RideTimelineChart'
 import { calculateStepActuals } from '../lib/workout-utils'
@@ -54,36 +53,29 @@ import { calculateStepActuals } from '../lib/workout-utils'
 // users who never open a ride detail don't pay for it on the main bundle.
 const RideMap = lazy(() => import('../components/RideMap'))
 
-interface Props {
-  initialRideId?: number
-  initialDate?: string
-  onRideSelect?: (id: number | null) => void
-  onDateSelect?: (date: string | null) => void
-}
-
-export default function Rides({ initialRideId, initialDate, onRideSelect, onDateSelect }: Props) {
+/**
+ * Rides page — list view + ride/workout-by-date detail view.
+ *
+ * Detail selection is now URL-driven:
+ *   - `/rides`            → list view
+ *   - `/rides/:id`        → detail for a specific recorded ride
+ *   - `/rides/by-date/:date` → detail for a planned workout (or "no activity")
+ *                              on the given YYYY-MM-DD
+ */
+export default function Rides() {
   const units = useUnits()
-  const [selectedRideId, setSelectedRideId] = useState<number | null>(initialRideId ?? null)
-  const [selectedDate, setSelectedDate] = useState<string | null>(initialDate ?? null)
+  const navigate = useNavigate()
+  const params = useParams<{ id?: string; date?: string }>()
 
-  // Sync internal state with external handlers
+  const selectedRideId = params.id ? Number(params.id) : null
+  const selectedDate = params.date ?? null
+
+  // URL-driven setters — navigate instead of mutating local state.
   const handleSetSelectedRideId = (id: number | null) => {
-    setSelectedRideId(id)
-    onRideSelect?.(id)
-    if (id !== null) {
-      setSelectedDate(null)
-      onDateSelect?.(null)
-    }
+    if (id == null) navigate('/rides')
+    else navigate(`/rides/${id}`)
   }
 
-  const handleSetSelectedDate = (date: string | null) => {
-    setSelectedDate(date)
-    onDateSelect?.(date)
-    if (date !== null) {
-      setSelectedRideId(null)
-      onRideSelect?.(null)
-    }
-  }
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [searchText, setSearchText] = useState('')
@@ -149,21 +141,6 @@ export default function Rides({ initialRideId, initialDate, onRideSelect, onDate
     }
   }, [ride])
 
-  useEffect(() => {
-    if (initialRideId != null) {
-      setSelectedRideId(initialRideId)
-      setSelectedDate(null)
-    }
-  }, [initialRideId])
-
-  useEffect(() => {
-    if (initialDate != null) {
-      setSelectedDate(initialDate)
-      setSelectedRideId(null)
-    }
-  }, [initialDate])
-
-  // Surface backend errors that originate from the geo filter (400/503 from /api/rides).
   useEffect(() => {
     if (ridesError && (filterParams.near || filterParams.near_lat !== undefined)) {
       setGeoError((ridesError as Error).message || 'Could not resolve location')
@@ -312,51 +289,7 @@ const syncSingleRide = useSyncSingleRide()
     return () => { cancelled = true }
   }, [ride?.start_lat, ride?.start_lon])
 
-  const { data: activityDates } = useActivityDates()
   const currentDate = rideDate ?? null
-  const { prevDate, nextDate } = useMemo(() => {
-    if (!activityDates || !currentDate) return { prevDate: null, nextDate: null }
-    const idx = activityDates.indexOf(currentDate)
-    if (idx < 0) {
-      let prev: string | null = null
-      let next: string | null = null
-      for (const d of activityDates) {
-        if (d < currentDate) prev = d
-        if (d > currentDate && !next) next = d
-      }
-      return { prevDate: prev, nextDate: next }
-    }
-    return {
-      prevDate: idx > 0 ? activityDates[idx - 1] : null,
-      nextDate: idx < activityDates.length - 1 ? activityDates[idx + 1] : null,
-    }
-  }, [activityDates, currentDate])
-
-  async function navigateToDate(date: string) {
-    // Check filtered list first (fast path)
-    const rideInList = rides?.find(r => r.date?.slice(0, 10) === date)
-    if (rideInList) {
-      handleSetSelectedRideId(rideInList.id)
-      return
-    }
-
-    // Not in filtered list - fetch rides for this specific date
-    try {
-      const response = await fetch(`/api/rides?start_date=${date}&end_date=${date}`)
-      if (response.ok) {
-        const ridesOnDate = await response.json()
-        if (ridesOnDate && ridesOnDate.length > 0) {
-          handleSetSelectedRideId(ridesOnDate[0].id)
-          return
-        }
-      }
-    } catch (err) {
-      console.warn('Failed to fetch ride for date:', err)
-    }
-
-    // No ride found - navigate by date (will show planned workout or "no activity")
-    handleSetSelectedDate(date)
-  }
 
   if (showDetail) {
     const isRideView = selectedRideId != null && ride != null
@@ -375,42 +308,7 @@ const syncSingleRide = useSyncSingleRide()
     const displayTitle = ride?.title || fmtSport(ride?.sport)
 
     return (
-      <div className="space-y-6 pb-12">
-        {/* Navigation & Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <button 
-            onClick={() => { handleSetSelectedRideId(null); handleSetSelectedDate(null) }}
-            className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors text-xs font-bold uppercase tracking-widest"
-          >
-            <ChevronLeft size={14} /> Back to List
-          </button>
-
-          <div className="flex items-center bg-surface rounded-lg p-1 border border-border shadow-sm">
-            <button
-              onClick={() => prevDate && navigateToDate(prevDate)}
-              disabled={!prevDate}
-              className="p-2 rounded-md transition-all disabled:opacity-20 text-text-muted hover:text-text hover:bg-surface-low"
-              title={prevDate ?? undefined}
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <div className="px-4 text-center min-w-[140px]">
-              <span className="block text-[10px] font-bold text-accent uppercase tracking-tighter">
-                {currentDate && fmtDateStr(currentDate)}
-              </span>
-              <span className="text-xs font-mono font-bold text-text">{currentDate ?? ''}</span>
-            </div>
-            <button
-              onClick={() => nextDate && navigateToDate(nextDate)}
-              disabled={!nextDate}
-              className="p-2 rounded-md transition-all disabled:opacity-20 text-text-muted hover:text-text hover:bg-surface-low"
-              title={nextDate ?? undefined}
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        </div>
-
+      <DayDetailShell currentDate={currentDate} backTo={{ href: '/rides', label: 'Back to List' }}>
         {(rideLoading || workoutLoading) && (
           <div className="flex items-center justify-center py-24">
             <RefreshCw size={32} className="animate-spin text-accent opacity-50" />
@@ -703,7 +601,7 @@ const syncSingleRide = useSyncSingleRide()
             <p className="text-text-muted font-bold uppercase tracking-widest text-xs">No activity found for {selectedDate}</p>
           </div>
         )}
-      </div>
+      </DayDetailShell>
     )
   }
 
@@ -1161,7 +1059,7 @@ function WorkoutStepsTable({ steps, records, highlightedStep, selectedStep, onHo
   )
 }
 
-function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
+export function WorkoutOnlyDetail({ workout }: { workout: WorkoutDetail }) {
   const updateNotes = useUpdateWorkoutNotes(), [athleteNotes, setAthleteNotes] = useState<string | null>(null), [saveStatus, setSaveStatus] = useState('')
   const [hoveredStep, setHoveredStep] = useState<number | null>(null)
   const [selectedStep, setSelectedStep] = useState<number | null>(null)

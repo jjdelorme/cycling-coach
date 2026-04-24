@@ -72,3 +72,16 @@ def test_daily_metrics():
     # Cleanup
     with get_db() as conn:
         conn.execute("DELETE FROM daily_metrics WHERE date='2099-06-01'")
+
+
+def test_nested_queries(db_conn):
+    """Verify that nested queries do not overwrite each other (requires independent cursors)."""
+    # Create some dummy data if needed, but we can just use system tables
+    cursor1 = db_conn.execute("SELECT 1 as val UNION SELECT 2 as val ORDER BY val")
+    results = []
+    for row in cursor1:
+        # With a shared cursor, this execute() would reset cursor1's state
+        cursor2 = db_conn.execute("SELECT %s + 10 as val2", (row['val'],))
+        results.append(cursor2.fetchone()['val2'])
+    
+    assert results == [11, 12], f"Expected [11, 12], got {results}. Shared cursor might be overwriting results."

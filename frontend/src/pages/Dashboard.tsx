@@ -11,6 +11,7 @@ import {
 } from 'chart.js'
 import { Line, Bar } from 'react-chartjs-2'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { usePMC, useRides, useWeeklySummary, useDailySummary } from '../hooks/useApi'
 import type { DailySummary } from '../types/api'
@@ -208,14 +209,9 @@ function SevenDayStrip({ data, today, days: numDays = 7 }: { data: DailySummary[
   )
 }
 
-interface Props {
-  onRideSelect?: (id: number) => void
-  onWorkoutSelect?: (id: number, date: string) => void
-  onNavigateToNutrition?: () => void
-}
-
-export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToNutrition }: Props) {
+export default function Dashboard() {
   const units = useUnits()
+  const navigate = useNavigate()
   const { data: pmcData, isLoading: pmcLoading } = usePMC()
   const { data: rides, isLoading: ridesLoading } = useRides({ limit: 7 })
   const { data: weekly, isLoading: weeklyLoading } = useWeeklySummary()
@@ -348,7 +344,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
             {nextWorkout ? (
               <div
                 className={nextWorkout.id ? "cursor-pointer group" : ""}
-                onClick={() => nextWorkout.id && onWorkoutSelect?.(nextWorkout.id, nextWorkout.date)}
+                onClick={() => nextWorkout.id && navigate(`/workouts/${nextWorkout.id}`)}
               >
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xl font-bold text-text group-hover:text-accent transition-colors">{nextWorkout.name}</h3>
@@ -393,7 +389,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
           </div>
           <div className="p-5">
             {latestRide ? (
-              <div className="cursor-pointer group" onClick={() => onRideSelect?.(latestRide.id)}>
+              <div className="cursor-pointer group" onClick={() => navigate(`/rides/${latestRide.id}`)}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold text-text group-hover:text-accent transition-colors">
                     {latestRide.title || fmtSport(latestRide.sub_sport) || fmtSport(latestRide.sport)}
@@ -431,7 +427,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
         </div>
 
         {/* Energy Balance Widget */}
-        <NutritionDashboardWidget onNavigateToNutrition={onNavigateToNutrition} />
+        <NutritionDashboardWidget onNavigateToNutrition={() => navigate('/nutrition')} />
 
         {/* Last 7 Days — sits beside Energy Balance */}
         <SevenDayStrip data={dailyData ?? []} today={today} days={7} />
@@ -637,7 +633,7 @@ export default function Dashboard({ onRideSelect, onWorkoutSelect, onNavigateToN
               {rides?.map((ride) => (
                 <tr
                   key={ride.id}
-                  onClick={() => onRideSelect?.(ride.id)}
+                  onClick={() => navigate(`/rides/${ride.id}`)}
                   className="text-text hover:bg-surface2/50 transition-colors cursor-pointer group"
                 >
                   <td className="py-3 px-5 font-medium">{ride.date}</td>

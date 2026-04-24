@@ -1,5 +1,8 @@
 /**
- * Rides page — list view, date filter, ride detail, navigation.
+ * Rides page — list view, date filter, ride detail, deep-link navigation.
+ *
+ * After Phase 2 of the routing migration, ride detail is a real route at
+ * `/rides/:id` and is deep-linkable / browser-back aware.
  *
  * Run:
  *   npx playwright test --config tests/e2e/playwright.config.ts 03-rides
@@ -14,6 +17,7 @@ test.describe('Rides — list view', () => {
     await page.goto(BASE)
     await expect(page.getByText('FITNESS (CTL)', { exact: false })).toBeVisible({ timeout: 12_000 })
     await navTo(page, 'Rides')
+    await expect(page).toHaveURL(/\/rides$/)
     await expect(page.getByText('ACTIVITY HISTORY', { exact: false })).toBeVisible({ timeout: 8_000 })
   })
 
@@ -23,14 +27,12 @@ test.describe('Rides — list view', () => {
   })
 
   test('shows date filter controls', async ({ page }) => {
-    // Filter toolbar: two date inputs and a GO button
     const dateInputs = page.locator('input[type="date"]')
     await expect(dateInputs.first()).toBeVisible()
     await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
   })
 
   test('loads ride rows after initial navigation', async ({ page }) => {
-    // The table may take a moment to hydrate from the API
     await page.waitForSelector('table tbody tr', { timeout: 15_000 })
     const rows = page.locator('table tbody tr')
     await expect(rows.first()).toBeVisible()
@@ -41,7 +43,6 @@ test.describe('Rides — list view', () => {
   test('ride rows contain expected columns: date, activity, duration, TSS', async ({ page }) => {
     await page.waitForSelector('table tbody tr', { timeout: 15_000 })
     const firstRow = page.locator('table tbody tr').first()
-    // Date column — matches YYYY-MM-DD
     const dateCell = firstRow.locator('td').first()
     const dateText = await dateCell.innerText()
     expect(dateText).toMatch(/\d{4}-\d{2}-\d{2}/)
@@ -51,7 +52,6 @@ test.describe('Rides — list view', () => {
     await page.waitForSelector('table tbody tr', { timeout: 15_000 })
     const allCount = await page.locator('table tbody tr').count()
 
-    // Filter to a narrow one-month range in the past
     const startInput = page.locator('input[type="date"]').first()
     const endInput   = page.locator('input[type="date"]').last()
     await startInput.fill('2026-03-01')
@@ -59,10 +59,15 @@ test.describe('Rides — list view', () => {
     await page.getByRole('button', { name: 'Go' }).click()
     await page.waitForTimeout(2_000)
 
-    // Either fewer rows or the "No rides match" message
     const newCount = await page.locator('table tbody tr').count()
     const noMatch  = await page.getByText('No rides match').isVisible()
     expect(newCount < allCount || noMatch).toBeTruthy()
+  })
+
+  test('clicking a row updates the URL to /rides/:id', async ({ page }) => {
+    await page.waitForSelector('table tbody tr', { timeout: 15_000 })
+    await page.locator('table tbody tr').first().click()
+    await expect(page).toHaveURL(/\/rides\/\d+$/, { timeout: 10_000 })
   })
 
   /**
@@ -123,7 +128,12 @@ test.describe('Rides — ride detail', () => {
     await navTo(page, 'Rides')
     await page.waitForSelector('table tbody tr', { timeout: 15_000 })
     await page.locator('table tbody tr').first().click()
+    await expect(page).toHaveURL(/\/rides\/\d+$/, { timeout: 10_000 })
     await expect(page.getByText('Back to List')).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('URL contains the ride id', async ({ page }) => {
+    await expect(page).toHaveURL(/\/rides\/\d+$/)
   })
 
   test('shows Back to List navigation', async ({ page }) => {
@@ -131,13 +141,11 @@ test.describe('Rides — ride detail', () => {
   })
 
   test('shows date navigation arrows', async ({ page }) => {
-    // Previous / Next chevron buttons in the date bar
     const chevrons = page.locator('[class*="rounded-lg"] button')
     await expect(chevrons.first()).toBeVisible()
   })
 
   test('renders metric cards: Duration, Distance, TSS, Avg Power, NP', async ({ page }) => {
-    // Wait for the metrics grid to appear (8-col grid of small metric cards)
     await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
     for (const label of ['DISTANCE', 'TSS', 'POWER']) {
       await expect(page.getByText(label, { exact: false }).first()).toBeVisible({ timeout: 8_000 })
@@ -157,14 +165,19 @@ test.describe('Rides — ride detail', () => {
     await expect(textarea).toBeEditable()
   })
 
-  test('Back to List returns to the rides list', async ({ page }) => {
+  test('Back to List returns to /rides', async ({ page }) => {
     await page.getByText('Back to List').click()
+    await expect(page).toHaveURL(/\/rides$/)
     await expect(page.getByText('ACTIVITY HISTORY', { exact: false })).toBeVisible({ timeout: 8_000 })
+  })
+
+  test('browser back from ride detail returns to /rides', async ({ page }) => {
+    await page.goBack()
+    await expect(page).toHaveURL(/\/rides$/)
   })
 
   test('timeline chart canvas is rendered when ride has records', async ({ page }) => {
     await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
-    // The chart is only rendered when the ride has records; check conditionally
     const canvas = page.locator('canvas').first()
     const hasCanvas = await canvas.count() > 0
     if (hasCanvas) {
@@ -245,5 +258,56 @@ test.describe('Rides — ride detail', () => {
 
     // Reset Zoom appears when a real drag-selection commits.
     await expect(page.getByRole('button', { name: /Reset Zoom/i })).toBeVisible({ timeout: 5_000 })
+  })
+})
+
+test.describe('Rides — deep link', () => {
+  test('pasting /rides/:id directly loads that ride detail', async ({ page }) => {
+    // Fetch a ride id from the API to avoid relying on hardcoded values
+    const res = await page.request.get(`${BASE}/api/rides?limit=1`)
+    const rides = await res.json()
+    if (!Array.isArray(rides) || rides.length === 0) test.skip()
+    const id = rides[0].id
+
+    await page.goto(`${BASE}/rides/${id}`)
+    await expect(page).toHaveURL(new RegExp(`/rides/${id}$`))
+    await expect(page.getByText('Back to List')).toBeVisible({ timeout: 12_000 })
+    await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 12_000 })
+  })
+})
+
+/**
+ * Workout detail (`/workouts/:id`) shares the day-navigation shell with the
+ * ride detail page, so the prev/next-day chevron pill must appear there too.
+ *
+ * Regression guard: previously `/workouts/:id` rendered only the back-link
+ * and was missing the chevron pill that exists on `/rides/:id`. The shared
+ * `DayDetailShell` component now owns this nav for both routes.
+ */
+test.describe('Workout detail — day navigation', () => {
+  test('chevron date-pill is rendered on /workouts/:id', async ({ page }) => {
+    // Find a planned workout by walking activity-dates until one resolves to a workout.
+    const datesRes = await page.request.get(`${BASE}/api/plan/activity-dates`)
+    const dates: string[] = await datesRes.json()
+    if (!Array.isArray(dates) || dates.length === 0) test.skip()
+
+    let workoutId: number | null = null
+    for (const d of dates) {
+      const wRes = await page.request.get(`${BASE}/api/plan/workouts/by-date/${d}`)
+      if (!wRes.ok()) continue
+      const w = await wRes.json()
+      if (w && typeof w.id === 'number') {
+        workoutId = w.id
+        break
+      }
+    }
+    if (workoutId == null) test.skip()
+
+    await page.goto(`${BASE}/workouts/${workoutId}`)
+    await expect(page).toHaveURL(new RegExp(`/workouts/${workoutId}$`))
+    await expect(page.getByText('Back to Calendar')).toBeVisible({ timeout: 12_000 })
+
+    // The shell renders a YYYY-MM-DD date string in the chevron pill.
+    await expect(page.locator('text=/\\d{4}-\\d{2}-\\d{2}/').first()).toBeVisible({ timeout: 8_000 })
   })
 })
