@@ -225,3 +225,96 @@ def test_backfill_start_location_picks_first_point_from_concatenated_latlng():
     sql, params = conn.execute_calls[0]
     assert "UPDATE rides" in sql and "start_lat IS NULL" in sql
     assert params == (35.690, -105.940, 99)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — lat-only "Variant B" payload + corruption guard (Campaign 20 D4)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_latlng_lat_only_variant_returns_empty():
+    """Variant B (observed on ride 3238, 2026-04-22): the ICU latlng stream
+    is 100% latitudes (no longitudes anywhere). The first/second halves are
+    statistically identical latitude clouds.
+
+    The Phase 7 detector must return [] rather than fabricating (lat, lat)
+    pairs that the existing alternating-pairs fallback would otherwise emit.
+    """
+    # 100 elements, all in the latitude range, with sub-degree noise. No
+    # longitudes anywhere — both halves are still latitudes.
+    raw = []
+    for i in range(50):
+        raw.extend([39.750 + i * 0.0001, 39.750 + i * 0.0001])
+    assert len(raw) == 100
+
+    result = _normalize_latlng(raw)
+    assert result == []
+
+
+def test_normalize_latlng_lat_only_short_payload_passes_through():
+    """A short (n<60) lat-only-shaped payload bypasses the new detector and
+    falls through to the existing alternating-pairs branch.
+
+    This is intentional: small fixtures used in other tests (and any real
+    very-short ride) don't trigger the heuristic, which needs a meaningful
+    sample size to be confident. The previous 'lat-only short' behaviour
+    (produces (lat, lat) pairs) is preserved verbatim here so other test
+    expectations that pre-date Phase 7 keep working."""
+    raw = [39.750, 39.751, 39.752, 39.753, 39.754, 39.755]
+    result = _normalize_latlng(raw)
+
+    # Old-style alternating-pairs fallback fires — n=6 < 60 so the new
+    # detector does not engage.
+    assert len(result) == 3
+    # And critically each pair has |lat - lon| < 1° (the (lat, lat) shape
+    # the new detector exists to suppress at scale). This is a contract test
+    # documenting the deliberate carve-out.
+    for lat, lon in result:
+        assert abs(lat - lon) < 1.0
+
+
+def test_normalize_latlng_real_us_ride_passes():
+    """A 100-element concatenated payload for a real Boulder, CO ride
+    must still parse as 50 valid (lat, lon) pairs after Phase 7's
+    detector is added — proves we didn't break the happy path."""
+    lat_values = [40.000 + i * 0.0001 for i in range(50)]
+    lon_values = [-105.300 - i * 0.0001 for i in range(50)]
+    raw = lat_values + lon_values
+    assert len(raw) == 100
+
+    result = _normalize_latlng(raw)
+    assert len(result) == 50
+    for lat, lon in result:
+        # Real (lat, lon) for the US: |lat - lon| > 100°.
+        assert abs(lat - lon) > 100
+
+
+def test_store_streams_corruption_guard_drops_lat_lat_pairs():
+    """When _normalize_latlng yields pairs that nonetheless trip the D4
+    corruption signature (>50% have |lat-lon|<1°) AND there are at least
+    MIN_GPS_RECORDS_FOR_DETECTION (60) of them, the _store_streams guard
+    refuses to write GPS columns for that ride — non-GPS columns still
+    get written so power/HR/cadence aren't lost.
+
+    This is belt-and-suspenders: a future parser variant we missed should
+    still produce 'no GPS' (UI shows the indoor placeholder) rather than
+    rendering a wrong polyline."""
+    conn = _FakeConn()
+    # 80 nested (lat, lat) pairs — fits the corruption signature and meets
+    # the MIN_GPS_RECORDS threshold.
+    streams = {
+        "time": list(range(80)),
+        "watts": [200] * 80,
+        "latlng": [[39.75, 39.75]] * 80,
+    }
+
+    _store_streams(ride_id=99, streams=streams, conn=conn)
+
+    assert len(conn.executemany_calls) == 1
+    _sql, rows = conn.executemany_calls[0]
+    assert len(rows) == 80
+    # Every row has lat=None AND lon=None — the guard fired.
+    for row in rows:
+        assert row[8] is None and row[9] is None
+    # Power was preserved (column index 2) — guard only nukes GPS.
+    assert all(row[2] == 200 for row in rows)

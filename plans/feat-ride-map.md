@@ -1800,13 +1800,30 @@ pytest tests/unit/test_sync_latlng.py -v
 All existing 18 cases plus 4 new = 22 cases green.
 
 ### Phase 7 Definition of Done
-* `_normalize_latlng` returns `[]` for the lat-only variant.
-* `_store_streams` refuses to write rows that would trip the D4
-  signature.
-* Existing test suite untouched + 4 new green tests.
-* Two new structured-log channels (`latlng_lat_only_payload_detected`,
+* [x] `_normalize_latlng` returns `[]` for the lat-only variant
+  (n>=60, both halves statistically still latitudes).
+* [x] `_store_streams` refuses to write rows that would trip the D4
+  signature (guard runs after parser, before INSERT; non-GPS columns
+  are still written so power/HR/cadence aren't lost).
+* [x] Existing test suite untouched + 4 new green tests
+  (22/22 green in `tests/unit/test_sync_latlng.py`).
+* [x] Two new structured-log channels (`latlng_lat_only_payload_detected`,
   `streams_latlng_corruption_guard_triggered`) emit so we can
   monitor in Cloud Logging post-deploy.
+
+**Status: ✅ Implemented.** Plan placement note: the lat-only detector
+had to be hoisted to run BEFORE the existing concatenated-format
+branch (not between concat and alternating as the plan originally
+sketched), because the concatenated detector's `abs(r0 - r1) < 1°`
+trigger ALSO matches lat-only payloads (consecutive latitudes are
+always within 1° of each other) and would fire first. Gating the
+new detector on the same `r0 ≈ r1` proximity means legitimate
+alternating data — where lat and lon differ by far more than 1° for
+any real outdoor ride — is never inspected. The constants
+`MIN_GPS_RECORDS_FOR_DETECTION = 60` and
+`GPS_CORRUPTION_RATIO_THRESHOLD = 0.5` are defined once at module
+scope in `server/services/sync.py` for re-use by Phase 9 (backfill)
+and the `_store_streams` guard.
 
 ---
 

@@ -31,6 +31,13 @@ from server.services.intervals_icu import (
 
 logger = get_logger(__name__)
 
+# Campaign 20 D4 — corruption-detection signature constants. Three call
+# sites share this single source of truth: the streams-write guard below
+# (Phase 7), the historical backfill detector (Phase 9), and the frontend
+# safeguard (Phase 10 — duplicates the constants in TypeScript).
+MIN_GPS_RECORDS_FOR_DETECTION = 60
+GPS_CORRUPTION_RATIO_THRESHOLD = 0.5
+
 # In-memory registry of active sync runs and their subscribers
 _active_syncs: dict[str, dict] = {}
 _subscribers: dict[str, list[asyncio.Queue]] = {}
@@ -252,6 +259,45 @@ def _normalize_latlng(raw) -> list[tuple[float, float]]:
     n = len(raw)
     r0 = raw[0] if n >= 1 else None
     r1 = raw[1] if n >= 2 else None
+
+    # Phase 7 (Campaign 20) — "lat-only" Variant B detector. Observed on
+    # ride 3238 (2026-04-22): the ICU /streams endpoint sometimes returns
+    # only latitudes — every value across the whole array is in the
+    # latitude range, with no longitudes anywhere. Both the concatenated
+    # detector and the alternating-pairs fallback below would otherwise
+    # emit garbage (lat, lat) pairs from such a payload.
+    #
+    # This detector runs FIRST because the concatenated branch's
+    # `abs(r0 - r1) < 1°` trigger ALSO matches lat-only (consecutive
+    # latitudes are always within 1° of each other). We gate on the same
+    # proximity so legitimate alternating data — where r0 (lat) and r1
+    # (lon) differ by far more than 1° for any real outdoor ride — is
+    # never inspected here.
+    #
+    # Confidence: requires n >= 60 samples and a population-level test
+    # (mean of the second half is itself a latitude AND within 5° of the
+    # mean of the first half). Real concatenated payloads have a second
+    # half of longitudes — populations are statistically distinct.
+    if (n >= 60
+            and r0 is not None and r1 is not None
+            and r0 != 0.0 and r1 != 0.0
+            and abs(r0) <= 90 and abs(r1) <= 90
+            and abs(r0 - r1) < 1.0):
+        half = n // 2
+        first_half = [v for v in raw[:half] if isinstance(v, (int, float))]
+        second_half = [v for v in raw[half:] if isinstance(v, (int, float))]
+        if first_half and second_half:
+            avg_first = sum(first_half) / len(first_half)
+            avg_second = sum(second_half) / len(second_half)
+            if abs(avg_first - avg_second) < 5.0 and abs(avg_second) <= 90:
+                logger.warning(
+                    "latlng_lat_only_payload_detected",
+                    n=n,
+                    first_half_avg=round(avg_first, 3),
+                    second_half_avg=round(avg_second, 3),
+                )
+                return []
+
     # Detect concatenated [all_lats..., all_lons...] format: both raw[0] and
     # raw[1] must be non-None, non-zero (GPS fix, not the 0.0 Garmin no-lock
     # sentinel), in valid latitude range, and within 1° of each other
@@ -267,6 +313,7 @@ def _normalize_latlng(raw) -> list[tuple[float, float]]:
             for i in range(half)
             if raw[i] is not None and raw[half + i] is not None
         ]
+
     # Flat alternating floats — discard a trailing odd element and None pairs.
     return [
         (raw[i], raw[i + 1])
@@ -320,6 +367,28 @@ def _store_streams(ride_id: int, streams: dict | list, conn=None):
     # Parse latlng — intervals.icu may return [lat, lng] pairs or flat values
     # (see _normalize_latlng for both shapes).
     latlng_pairs = _normalize_latlng(latlng_raw)
+
+    # Belt-and-suspenders: if the parser returned pairs that nonetheless
+    # trip the D4 corruption signature, refuse to write them. The map will
+    # then render as "no GPS" (indoor placeholder), which is far better
+    # than rendering wrong GPS. The MIN_GPS_RECORDS gate avoids
+    # false-positives on tiny test fixtures and very short rides.
+    if len(latlng_pairs) >= MIN_GPS_RECORDS_FOR_DETECTION:
+        suspect = sum(
+            1
+            for lat, lon in latlng_pairs
+            if lat is not None
+            and lon is not None
+            and abs(lat - lon) < 1.0
+        )
+        if suspect / len(latlng_pairs) > GPS_CORRUPTION_RATIO_THRESHOLD:
+            logger.warning(
+                "streams_latlng_corruption_guard_triggered",
+                ride_id=ride_id,
+                total=len(latlng_pairs),
+                suspect=suspect,
+            )
+            latlng_pairs = []
 
     n = len(time_data)
     rows = []
