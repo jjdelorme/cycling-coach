@@ -1007,3 +1007,1173 @@ Single branch — house style for one campaign:
 Phases 2-4 land as one PR by default. Split Phase 2 into its own PR only
 if review feedback on the standalone static-map step is sought before
 investing in cursor sync.
+
+---
+
+# CAMPAIGN 20 EXPANSION (added 2026-04-22): GPS Data-Quality Foundation
+
+## Why this expansion (read first)
+
+While verifying Campaign 20's map UI against real production rides, we
+discovered that the **map UI is correct but the underlying per-record GPS
+data is corrupted for many ICU-synced rides**. Two corruption variants
+were observed in the wild:
+
+* **Variant A — exact `lat == lon`** (e.g. ride `3236`, Fruita CO,
+  4/13/2026): `start_lat=39.31, start_lon=-108.71` is correct
+  (FIT-laps-derived, fixed in commit `266c925`), but every
+  `ride_records[i]` row stores `lat=39.31, lon=39.31`. The map renders
+  a perfect diagonal in the wrong country.
+* **Variant B — `lat ≈ lon` with sub-degree noise** (e.g. ride `3237`):
+  same shape — both columns latitude-like — but the values vary by
+  small fractions, producing a curvy blob that loosely resembles a
+  route but isn't it.
+
+**Empirical root cause** — confirmed by hitting ICU directly for ride
+`3238`:
+
+```
+streams.latlng length: 7003 (odd)
+first 5 elements: [39.750404, 39.750404, 39.75041, 39.75041, 39.750412]
+last 5 elements:  [39.7504,   39.750404, 39.750404, 39.75041, 39.75041]
+second-half average: 39.718  ← still latitudes
+```
+
+ICU's `latlng` stream returned **only latitudes — no longitudes
+anywhere in the array**. Pattern: `[lat1, lat1, lat2, lat2, ..., lat1]`
+(each lat repeated, plus one trailing element giving an odd length).
+
+The Campaign 17 fix in `b6637ed`/`266c925` (`fix(sync): correctly parse
+ICU latlng stream and use FIT laps for GPS backfill`) only handled the
+`[all_lats..., all_lons...]` concatenated variant **and** only recovered
+ride-level `start_lat/lon` (via FIT *lap* messages). Per-record GPS in
+`ride_records` was never touched by that fix and is corrupted on every
+ICU-synced ride that hit this newer variant — both the rides synced
+before the Campaign 17 fix *and* rides synced after it (the fix simply
+doesn't apply to lat-only stream payloads). The current parser at
+`server/services/sync.py:_normalize_latlng` (≈line 229) requires
+`n % 2 == 0` for the concatenated-format heuristic, so a 7003-element
+payload falls through to the alternating-pairs branch and produces
+`(lat, lat)` pairs.
+
+**User directive (verbatim, 2026-04-22):**
+> *I want to expand this campaign to address that fundamental fix.
+> (1) FIT is primary, (2) Streams backup when no FIT; has to fix the
+> lat/lon, etc... (3) Speed smoothing should happen in our libraries,
+> we probably already do some smoothing/averaging with python libraries
+> to get tss, power, etc... I also want a plan to fix all the
+> historical values, we need a 1 time data migration for this.*
+
+This is folded into Campaign 20 (per user instruction — not a separate
+Campaign 23) and will ship in the same release as the map work.
+
+---
+
+## Investigation summary for the data-quality work (already done — read-only)
+
+* **`server/services/sync.py`**
+  * `_normalize_latlng` (lines ≈229-274): three-format parser. The
+    concatenated-format detector at line 258 hard-requires `n % 2 == 0`
+    and an `r0 ≈ r1` 1° proximity check. The lat-only Variant B above
+    has `n=7003` (odd) AND `r0 ≈ r1` — currently falls through to
+    alternating-pairs interpretation, producing `(lat, lat)` pairs.
+  * `_extract_streams` (lines ≈277-301): normalises ICU stream
+    response into `{type: list}`. Used both by `_store_streams` and the
+    backfill scripts.
+  * `_store_streams` (lines ≈304-354): inserts one row per
+    `time` sample into `ride_records` from the ICU streams response.
+    All non-GPS columns (power, hr, cadence, velocity_smooth, altitude,
+    distance, temperature) come from the corresponding ICU stream.
+  * `_backfill_start_location` (lines ≈357-386): writes ride-level
+    `start_lat/lon` from the **first valid stream point**.
+  * `_backfill_start_from_laps` (lines ≈389-422): the Campaign 17 fix.
+    Writes ride-level `start_lat/lon` from FIT lap 0's
+    `start_position_lat/long`. Already deployed and working —
+    correctly fires for any ride where `start_lat` is NULL or matches
+    the `ABS(start_lat-start_lon) < 1°` corruption signature.
+* **`server/services/intervals_icu.py`**
+  * `fetch_activity_streams` (lines ≈190-208): GETs
+    `/api/v1/activity/{id}/streams` with
+    `types=time,watts,heartrate,cadence,velocity_smooth,altitude,distance,latlng`.
+  * `fetch_activity_fit_laps` (lines ≈222-297): GETs
+    `/api/v1/activity/{id}/file` (the original FIT), parses with
+    `fitparse.FitFile(...).get_messages("lap")`, throws away every
+    other message type. **The same FIT file contains the per-record
+    `record` messages with `position_lat/position_long` semicircles** —
+    we are downloading and discarding them today.
+  * `_semicircles_to_degrees` (lines ≈212-218): the semicircle→degrees
+    conversion is already implemented (`val * (180 / 2**31)` for
+    `abs(val) > 180`).
+  * Returns 200 + a binary FIT file when one exists; non-200 (often
+    404) for activities that have no original FIT (manually-created
+    ICU activities, some Strava-imported ones, some non-FIT-device
+    exports).
+* **`server/ingest.py`**
+  * `parse_ride_json` already converts FIT JSON `record[i]` to
+    `(lat, lon)` via `_semicircles_to_degrees` at lines ≈233-234. The
+    same conversion path is exactly what we need for ICU re-sync.
+* **`server/services/single_sync.py`**
+  * `import_specific_activity` (re-sync of a single ride). Currently
+    calls `fetch_activity_streams` then `_store_streams`,
+    `_backfill_start_location`, `fetch_activity_fit_laps`,
+    `_store_laps`, `_backfill_start_from_laps`. **This is the function
+    we will retarget at FIT-records-primary** — both the bulk sync
+    (`_download_rides`) and the per-ride re-sync paths must converge
+    on the same primitive.
+* **`server/metrics.py`**
+  * `clean_ride_data` (lines ≈58-157): rolling Z-score outlier
+    removal + 5/3-sample median filter for power, HR, cadence.
+    Uses `scipy.signal.medfilt` and `scipy.ndimage.uniform_filter1d`.
+  * `calculate_np` (lines ≈159-178): 30-sample rolling mean (the NP
+    "30 second rolling average").
+  * `compute_rolling_best` (lines ≈191-222): vectorised sliding-window
+    sums via `np.convolve`.
+  * **No equivalent for speed today** — `velocity_smooth` is consumed
+    raw from ICU and stored verbatim in `ride_records.speed`. This is
+    Pillar 3's gap.
+* **Schema (`migrations/0001_baseline.sql:53-66`):**
+  ```sql
+  CREATE TABLE IF NOT EXISTS ride_records (
+      id SERIAL PRIMARY KEY,
+      ride_id INTEGER NOT NULL REFERENCES rides(id),
+      timestamp_utc TEXT,
+      power INTEGER,
+      heart_rate INTEGER,
+      cadence INTEGER,
+      speed REAL,
+      altitude REAL,
+      distance REAL,
+      lat REAL,
+      lon REAL,
+      temperature REAL
+  );
+  ```
+* **Existing parser tests:** `tests/unit/test_sync_latlng.py` covers
+  empty / nested / flat-alternating / concatenated / odd-truncate /
+  zero-prefix and three `_store_streams` / four
+  `_backfill_start_location` cases. **Missing coverage:** the
+  lat-only "Variant B" payload that triggered this bug. Phase 7 adds
+  that.
+* **Frontend `RideRecord` type** (`frontend/src/types/api.ts:37-48`)
+  already includes optional `lat`/`lon`/`speed`. **No type or response
+  schema change is required for the data-quality work.**
+
+---
+
+## Resolved Decisions (data-quality expansion, locked 2026-04-22)
+
+These decisions are made by the architect after investigation; the
+engineer should not relitigate them without a documented reason.
+
+### D1 — FIT-vs-streams precedence (per field)
+
+For ICU-synced rides where the FIT file is downloadable, **FIT records
+are the primary source for every per-record field below**. Streams are
+the fallback ONLY when the FIT download returns non-200, when FIT
+parsing throws, or when the FIT file has zero `record` messages.
+
+| Field | Primary | Fallback (no FIT) | Why |
+|---|---|---|---|
+| `lat`, `lon` | **FIT** (`position_lat`/`long` semicircles) | Streams `latlng` (with the Phase 7 hardened parser) | FIT semicircles are unambiguous; streams `latlng` has at least 3 known shape variants and now a fourth (lat-only) — that's the bug |
+| `timestamp_utc` | **FIT** (`record.timestamp`) | Synthesised from `time` stream + ride `start_time` | FIT carries true UTC timestamps per sample; streams `time` is offset-from-start only |
+| `power` | **FIT** (`record.power`) | Streams `watts` | FIT is the device's recording. Equal fidelity but FIT is authoritative; consistency win — every field comes from one source |
+| `heart_rate` | **FIT** (`record.heart_rate`) | Streams `heartrate` | Same reasoning as power |
+| `cadence` | **FIT** (`record.cadence`) | Streams `cadence` | Same |
+| `altitude` | **FIT** (`record.enhanced_altitude` ?? `record.altitude`) | Streams `altitude` | FIT enhanced_altitude is barometric-corrected on most modern Garmins; preserves resolution that ICU sometimes downsamples in the streams API |
+| `distance` | **FIT** (`record.distance`) | Streams `distance` | Same as power/HR |
+| `speed` | **FIT** (`record.enhanced_speed` ?? `record.speed`) → then **smooth in our pipeline** (Phase 8) | Streams `velocity_smooth` (raw, no extra smoothing) | We want consistent smoothing controlled by us; ICU's `velocity_smooth` window is undocumented and varies. See D3 |
+| `temperature` | **FIT** (`record.temperature`) | Streams `temp` if present, else NULL | Same |
+
+**Implementation note:** when FIT is the source we ignore the streams
+response entirely for `_store_streams`'s job (per-record write).
+Streams are still needed for the metric pipeline today
+(`process_ride_samples`) which expects power/HR/cadence as flat lists —
+those will be derived from the FIT records list instead, so the
+metrics pipeline keeps the same input shape but a different upstream
+producer.
+
+### D2 — No new schema columns (provenance is logged, not stored)
+
+We will **not** add a `gps_source` (or any other "where did this
+column come from") field to `ride_records` or `rides`. Justification:
+
+* The corruption is detectable post-hoc by a deterministic signature
+  (`abs(lat - lon) < 1°` for >50% of records — see D4).
+* A provenance flag on every row (10k×N rides) is a 4-byte-per-row
+  permanent tax to debug a one-shot bug.
+* For one-shot debugging during the rollout we add structured logs
+  (`logger.info("gps_source", ride_id=..., source=...)`) on the sync
+  path. Logs persist in Cloud Logging long enough for any forensic
+  follow-up.
+
+If a future bug requires the flag we can fix forward with a migration
+that backfills it from the most-recent sync log.
+
+### D3 — Speed smoothing: 5-sample rolling mean, NaN-aware
+
+In `server/metrics.py` add a new pure helper `smooth_speed(speed_array,
+window=5)` that:
+
+* Accepts a list/array of `float | None`, returns a list of `float |
+  None`.
+* Treats `None` and `NaN` as missing; uses linear interpolation for
+  gaps `< 10` consecutive samples (matches the existing
+  `clean_ride_data` policy at `server/metrics.py:77-90`).
+* Applies `scipy.ndimage.uniform_filter1d(arr, size=5)` (centred
+  5-sample boxcar — visually equivalent to a 5-second window for
+  1 Hz data, which all FIT records and ICU streams are).
+* Re-inserts `None` at positions that were originally missing AND
+  whose surrounding gap exceeded 10 samples (i.e. don't fabricate
+  values across long stops).
+
+Why 5, not the 30 we use for NP? NP needs a long window to suppress
+fast-twitch power transients without losing the metabolic envelope.
+Speed only needs to suppress GPS-jitter spikes — a 5-second window
+feels smooth on a chart without lagging the actual decel/accel
+behaviour. The number is chosen empirically; if the engineer finds it
+too aggressive or too lax during Phase 8 the constant lives in
+exactly one place.
+
+The smoothed series is stored in `ride_records.speed` and surfaces
+through the existing `RideRecord.speed` field — no API or frontend
+change required.
+
+### D4 — Corruption-detection signature & threshold
+
+A ride's per-record GPS is considered **corrupt** when, of all
+records that have non-NULL `lat` AND non-NULL `lon`, **more than 50%
+satisfy `ABS(lat - lon) < 1.0`**.
+
+Reasoning:
+
+* For real outdoor rides outside the equator/prime-meridian
+  intersection, `ABS(lat - lon) ≥ 5°` everywhere on populated land.
+  US: lat 25-49, lon -67..-125 → `ABS` always > 25. Europe: lat
+  35-71, lon -10..40 → `ABS` always > 1 (and almost always > 30).
+* Real rides in the corruption-friendly band (lat≈lon within 1° —
+  e.g. parts of Brazil where lat≈-7 and lon≈-7 is plausible) exist
+  but are rare *and* still won't have **every** record meeting the
+  threshold (a 30 km ride spans ≥0.27° of latitude — points spread
+  across the threshold).
+* Variant A (exact `lat == lon`) trivially hits 100% of records.
+  Variant B (lat≈lon noisy) typically hits 100% of records — the
+  noise is sub-degree.
+* `> 50%` (rather than `> 95%`) tolerates partial corruption (e.g.
+  a ride whose stream has half good data and half lat-only) and
+  catches rare future variants while staying safely above the
+  natural-coincidence rate.
+
+The threshold lives in one constant in
+`scripts/backfill_corrupt_gps.py` (Phase 9) and is also reused by
+the frontend safeguard (Phase 10) and a new defensive runtime check
+in `_store_streams` (Phase 7). Three call sites, one constant.
+
+### D5 — Backfill safety model
+
+Mirrors `scripts/backfill_ride_start_geo.py`:
+
+* `--dry-run` is the **default** mode. Reads only.
+* `--allow-remote` is required if `CYCLING_COACH_DATABASE_URL` is
+  not localhost (`localhost`, `127.0.0.1`, `::1`).
+* `--sleep` (default 0.5s) between ICU API calls to respect rate
+  limits.
+* `--limit N` to backfill at most N rides per invocation (resumability).
+* Idempotent: a ride re-flagged as corrupt after partial success
+  is safe to re-process; `_store_records_from_fit` deletes existing
+  `ride_records` for that ride first inside a transaction.
+* Outputs a JSON summary at the end:
+  `{total_examined, total_corrupt, fixed, fit_unavailable,
+  fit_parse_failed, icu_api_error, skipped_already_clean}`.
+* The architect MUST never run this script during planning. The
+  engineer runs it locally first; only after a green dry-run + a
+  green non-dry-run against the local Podman DB does anyone consider
+  prod.
+
+### D6 — Phasing strategy
+
+The C20 map UI (Phases 1-4) has shipped to `feat/ride-map`. Phases
+5-10 are additive and shipped on the same branch in this exact
+order. Each phase is independently reversible (each is a small,
+self-contained PR-or-commit set). No phase breaks the existing map UI.
+
+### D7 — Scope of the frontend safeguard (Phase 10)
+
+The frontend gets a small additive safeguard: when the corruption
+signature (D4) fires on the `records[]` it just received, the
+`<RideMap>` component renders a one-line warning banner *over* the
+polyline rather than rendering a wrong polyline silently. The banner
+text:
+
+> "GPS data appears corrupted for this ride. Re-sync the ride to fix
+> (Settings → Sync → Re-sync this ride)."
+
+This is **belt-and-suspenders** — once Phase 9 backfills production,
+the banner should never fire on real data. But it buys safety while
+the backfill runs, and remains a useful diagnostic for any future
+parser variant we miss.
+
+### D8 — `velocity_smooth` retirement (cycling sports only)
+
+When FIT is the source, do not also pull `velocity_smooth` from
+streams — derive `speed` from FIT records (D1 row 8), then run
+`smooth_speed` on the result (D3). When the streams fallback fires
+(no FIT), prefer `velocity_smooth` if present, else `velocity` /
+`speed` (raw), then smooth via the same `smooth_speed` helper.
+Single output shape downstream.
+
+### D9 — What is intentionally OUT of scope (still)
+
+Carried forward from the existing C20 plan, plus new exclusions
+from the data-quality expansion:
+
+* **Per-record GPS for non-ICU sources** (legacy JSON-FIT-import
+  files in `data/json/`): already correct because `parse_ride_json`
+  already uses semicircles. No change.
+* **Re-deriving lap data from FIT records.** We continue to use FIT
+  `lap` messages for lap timing (existing path). Phase 5+ only
+  changes how `record` messages are consumed.
+* **Re-running PMC after backfill.** Per-record GPS does not affect
+  TSS / NP / CTL / ATL — those are computed from power and HR
+  streams which are unaffected by this bug. No PMC recomputation
+  required.
+* **Adding new ICU API stream types.** We do not introduce a new
+  fetch — the FIT file is the same one we already download for
+  laps; we just stop discarding the records.
+
+---
+
+## Phase Overview (data-quality additions)
+
+| Phase | Scope | Ships independently? | Risk |
+| --- | --- | --- | --- |
+| **Phase 5** | New `fetch_activity_fit_records()` in `intervals_icu.py` + unit tests; pure addition, no callers wired yet. | Yes — dead code that's just tested. | Low |
+| **Phase 6** | New `_store_records_from_fit()` in `sync.py`; switch `_download_rides` and `single_sync.import_specific_activity` to FIT-primary with streams fallback. Behaviour change for new syncs. | Yes — gated by feature flag for one release if engineer prefers, otherwise direct cutover. | Medium |
+| **Phase 7** | Harden `_normalize_latlng` to detect lat-only payloads and emit empty (better to render nothing than render wrong). New unit tests for the Variant B payload. Defensive guard in `_store_streams` rejects writes that would trip the D4 corruption signature. | Yes | Low |
+| **Phase 8** | Add `smooth_speed()` to `server/metrics.py` + unit tests; wire into both FIT and streams ingest paths. | Yes | Low |
+| **Phase 9** | New `scripts/backfill_corrupt_gps.py` + integration tests against the disposable test DB with mocked ICU/FIT fixtures. | Yes | Low (until run) |
+| **Phase 10** | Frontend safeguard: detect D4 signature in `RideMap`, render warning banner instead of polyline; add unit test for the detector. Operator action: run Phase 9 backfill against prod (separate from code release). | Yes | Low |
+
+---
+
+## PHASE 5 — FIT-records fetch path (no behaviour change)
+
+### Goal
+Add a single pure-function downloader/parser for FIT `record` messages.
+No call site is wired yet. The result is dead but tested code that
+becomes the single source of truth for Pillar 1 (D1) in Phase 6.
+
+### Files to touch
+* `server/services/intervals_icu.py` — **edit** — add
+  `fetch_activity_fit_records(activity_id: str) -> list[dict]` next to
+  `fetch_activity_fit_laps`. Refactor to share the FIT download +
+  tempfile dance via a small private helper
+  `_download_fit_temp(activity_id) -> str | None` returning the local
+  tempfile path (or `None` on non-200 / parse error). Both
+  `fetch_activity_fit_laps` and `fetch_activity_fit_records` consume
+  it. **Do not** change the existing `fetch_activity_fit_laps` return
+  shape.
+* `tests/unit/test_intervals_icu_fit_records.py` — **new** — pin the
+  parser using a small synthetic FIT file (or mocked
+  `fitparse.FitFile`).
+
+### Step-by-step
+
+#### Step 5.A — Extract the FIT-download helper (refactor under harness)
+*Target:* `server/services/intervals_icu.py`.
+*Test the existing behaviour first:* `pytest tests/unit/test_fit_laps.py
+tests/integration/test_laps.py -v` must be green BEFORE the refactor.
+*Refactor:* extract the `tempfile.mkstemp + httpx.get + os.write +
+FitFile + try/finally unlink` block from `fetch_activity_fit_laps` into
+a new private context manager `_open_fit(activity_id: str) ->
+fitparse.FitFile | None`. Use `contextlib.contextmanager` so the temp
+file is always cleaned up.
+*Verification:* re-run the same command — all green, zero behaviour
+change.
+
+#### Step 5.B — Implement `fetch_activity_fit_records`
+*Target file:* `server/services/intervals_icu.py`.
+*Signature:*
+```python
+def fetch_activity_fit_records(activity_id: str) -> list[dict]:
+    """Download the FIT file from intervals.icu and extract `record` messages.
+
+    Returns a list of dicts in the same flat shape as parse_ride_json
+    builds today, ready for _store_records_from_fit:
+        {
+            "timestamp_utc": str | None,  # ISO-8601 UTC
+            "power": int | None,
+            "heart_rate": int | None,
+            "cadence": int | None,
+            "speed": float | None,         # m/s, raw (smoothed in Phase 8)
+            "altitude": float | None,      # m
+            "distance": float | None,      # m
+            "lat": float | None,           # degrees
+            "lon": float | None,           # degrees
+            "temperature": float | None,
+        }
+
+    Returns [] when the FIT is unavailable, the file fails to parse,
+    or it contains zero `record` messages.
+    """
+```
+*Implementation notes for the engineer:*
+* Use the existing `_semicircles_to_degrees` helper for `position_lat`
+  / `position_long`.
+* `record.timestamp` from `fitparse` is a `datetime` (UTC) — emit
+  `value.isoformat() + 'Z'` (or `.replace(tzinfo=timezone.utc).isoformat()`)
+  so the column matches the existing `timestamp_utc TEXT` shape.
+* Prefer `enhanced_speed` over `speed`, `enhanced_altitude` over
+  `altitude` (D1).
+* Skip records with no `timestamp` field (extremely rare; defensively
+  defended).
+* No power/HR/cadence default. Missing field → `None`. The downstream
+  metrics pipeline already tolerates `None`.
+
+#### Step 5.C — Unit tests
+*Target file:* `tests/unit/test_intervals_icu_fit_records.py`.
+*Test cases:*
+
+1. `test_fetch_records_happy_path`: monkeypatch `httpx.get` to return
+   200 + a known FIT byte payload (use `tests/fixtures/sample.fit` —
+   create a tiny 5-record FIT file via `fit_tool.py` once or commit
+   one of the existing test FITs already in `data/`). Assert returned
+   list length matches the FIT's record count and field types.
+2. `test_fetch_records_semicircle_conversion`: assert a known
+   `position_lat = 469000000` (semicircles) maps to ~39.31° degrees.
+3. `test_fetch_records_no_fit_returns_empty_list`: monkeypatch
+   `httpx.get` to return 404. Assert `== []` (no exception).
+4. `test_fetch_records_parse_error_returns_empty_list`: monkeypatch
+   `_open_fit` to raise `fitparse.FitParseError`. Assert `== []`.
+5. `test_fetch_records_uses_enhanced_fields_when_present`: assert
+   `enhanced_speed` wins over `speed` and `enhanced_altitude` wins
+   over `altitude`.
+6. `test_fetch_records_emits_iso_utc_timestamps`: assert every
+   `timestamp_utc` is a string ending in `Z` or `+00:00`.
+
+*Verification:*
+```bash
+pytest tests/unit/test_intervals_icu_fit_records.py -v
+```
+All 6 cases must pass. The pre-existing `tests/unit/test_fit_laps.py`
+must still pass (refactor regression guard).
+
+### Phase 5 Definition of Done
+* `fetch_activity_fit_records` exists, is exported, has a docstring
+  matching D1's field semantics.
+* `fetch_activity_fit_laps` shares the FIT-download path with the
+  new function and still returns identical output (regression-tested).
+* Unit-test coverage for the 6 cases above.
+* No call site changes anywhere — `git grep
+  fetch_activity_fit_records server` returns only the definition and
+  its tests.
+
+---
+
+## PHASE 6 — Switch ICU re-sync to FIT-primary
+
+### Goal
+Wire `fetch_activity_fit_records` into both the bulk sync
+(`_download_rides` in `server/services/sync.py`) and the per-ride
+re-sync (`single_sync.import_specific_activity`). Streams remain the
+fallback when FIT is unavailable.
+
+### Files to touch
+* `server/services/sync.py` — **edit** — add
+  `_store_records_from_fit(ride_id, fit_records, conn)` and a
+  `_store_records_or_fallback(ride_id, icu_id, conn) -> str` that
+  encapsulates the FIT-then-streams decision and returns the
+  `gps_source` ("fit" / "streams" / "none") for logging.
+* `server/services/single_sync.py` — **edit** — replace the
+  unconditional `_store_streams` + `_backfill_start_location`
+  sequence with `_store_records_or_fallback`. Keep the
+  `_backfill_start_from_laps` call afterwards (still useful — laps are
+  more reliable than even FIT records for ride-start geo because the
+  first `record` is sometimes a pre-ride GPS lock attempt).
+* `tests/integration/test_sync.py` — **extend** — add a test asserting
+  the FIT-primary path writes `ride_records` from FIT and ignores the
+  streams `latlng` even if it's malformed.
+
+### Step-by-step
+
+#### Step 6.A — Add `_store_records_from_fit`
+*Target file:* `server/services/sync.py`.
+*Signature:*
+```python
+def _store_records_from_fit(
+    ride_id: int,
+    fit_records: list[dict],
+    conn,
+) -> int:
+    """Insert FIT-derived per-record rows, returns the count written.
+
+    Replaces any existing ride_records for this ride id (DELETE first,
+    then INSERT) so the call is safe to re-run during re-sync. Caller
+    owns the transaction.
+    """
+```
+*Implementation:*
+1. `conn.execute("DELETE FROM ride_records WHERE ride_id = %s",
+   (ride_id,))` first — idempotent for re-syncs.
+2. Build rows tuple in the same column order as the existing
+   `_store_streams` insert. Use the FIT record dict produced by
+   Phase 5 directly (one-to-one field map).
+3. `conn.executemany(...)` with the existing INSERT statement.
+4. Log `logger.info("gps_source", ride_id=ride_id, source="fit",
+   record_count=len(rows))`.
+5. Return `len(rows)`.
+
+#### Step 6.B — Add `_store_records_or_fallback`
+*Target file:* `server/services/sync.py`.
+*Signature:*
+```python
+def _store_records_or_fallback(
+    ride_id: int,
+    icu_id: str,
+    conn,
+) -> tuple[str, dict | None]:
+    """Decide FIT vs streams for per-record GPS, write the records, return the chosen source + the stream dict (or None) so callers that still need streams for the metric pipeline don't re-fetch.
+
+    Returns:
+        ("fit", streams_dict_or_None) when FIT was used. streams_dict is
+            still fetched & returned so the metric pipeline can use the
+            unsmoothed power/HR series; pass None to skip that fetch.
+        ("streams", streams_dict) when FIT failed and streams were used.
+        ("none", None) when both failed (rare).
+    """
+```
+*Implementation:*
+1. Try `fit_records = fetch_activity_fit_records(icu_id)`. Wrap in
+   `try / except Exception`; on exception treat as empty.
+2. If `fit_records`: call `_store_records_from_fit(ride_id, fit_records,
+   conn)`. Then call `fetch_activity_streams(icu_id)` (still needed
+   for the metric pipeline's `process_ride_samples` input — power /
+   HR / cadence flat lists). Return `("fit", streams)`.
+3. Else: fall back. `streams = fetch_activity_streams(icu_id)`. If
+   streams: `_store_streams(ride_id, streams, conn=conn)` (existing
+   code path) AND `_backfill_start_location(ride_id, streams,
+   conn=conn)` (existing). Log
+   `logger.warning("gps_source_fallback_streams", ride_id=ride_id,
+   reason="fit_unavailable")`. Return `("streams", streams)`.
+4. Else: log `logger.warning("gps_source_none", ride_id=ride_id)`.
+   Return `("none", None)`.
+
+**Important:** when FIT is the source we deliberately do NOT call
+`_backfill_start_location(streams, ...)` because the streams `latlng`
+might be the corrupt lat-only variant. We always call
+`_backfill_start_from_laps(...)` afterwards (existing path) which is
+the authoritative ride-start source.
+
+#### Step 6.C — Wire into `_download_rides` (bulk sync)
+*Target file:* `server/services/sync.py`, ≈line 600 (inside the
+`for activity in activities` loop's stream-download block).
+*Change:* Replace the existing
+`streams = await asyncio.to_thread(fetch_activity_streams, icu_id)`
++ `_store_streams` + `_backfill_start_location` block with:
+
+```python
+gps_source, streams = await asyncio.to_thread(
+    _store_records_or_fallback, ride_db_id, icu_id, conn,
+)
+log_lines.append(_tlog(f"  + stored per-record data via {gps_source} for {ride_date_str}"))
+```
+
+The downstream metric pipeline (the `_extract_streams(streams)` calls
++ `process_ride_samples` block) is unchanged; it still receives the
+streams dict from the helper's second return value.
+
+#### Step 6.D — Wire into `single_sync.import_specific_activity`
+*Target file:* `server/services/single_sync.py`.
+*Change:* same shape as 6.C — replace the
+`fetch_activity_streams` + `_store_streams` +
+`_backfill_start_location` sequence with a single call to
+`_store_records_or_fallback`. Keep the subsequent
+`fetch_activity_fit_laps` + `_store_laps` +
+`_backfill_start_from_laps` chain unchanged.
+
+#### Step 6.E — Backfill the streams script for the same path
+*Target file:* `scripts/backfill_icu_streams.py`.
+*Change:* update the script's `_store_streams + _backfill_start_location`
+calls to use `_store_records_or_fallback` so the existing operational
+"fix missing streams" tool also benefits from the new behaviour.
+Document the script's mode in its docstring as "FIT-primary, streams-fallback".
+
+#### Step 6.F — Integration test (FIT wins over malformed streams)
+*Target file:* `tests/integration/test_sync.py` (extend or add a new
+file `test_sync_fit_primary.py` if the existing file is unwieldy).
+*Test case:*
+```python
+def test_fit_primary_overrides_corrupt_streams_latlng(client, db_conn, monkeypatch):
+    """When the FIT records resolve, ignore the streams latlng even if it is the lat-only Variant B."""
+    fake_fit_records = _build_fit_records(...)  # helper that produces the dict-shape expected by _store_records_from_fit
+    fake_corrupt_streams = {
+        "time": list(range(len(fake_fit_records))),
+        # Lat-only Variant B: every "lon" is actually a latitude
+        "latlng": [39.75, 39.75, 39.75, 39.75, ...],
+    }
+    monkeypatch.setattr("server.services.sync.fetch_activity_fit_records",
+                        lambda icu_id: fake_fit_records)
+    monkeypatch.setattr("server.services.sync.fetch_activity_streams",
+                        lambda icu_id: fake_corrupt_streams)
+
+    _store_records_or_fallback(ride_id=42, icu_id="i999", conn=db_conn)
+
+    rows = db_conn.execute(
+        "SELECT lat, lon FROM ride_records WHERE ride_id = 42 ORDER BY id"
+    ).fetchall()
+    # Assert: every row matches FIT, NOT 39.75 (the streams latlng)
+    assert all(r["lat"] != 39.75 or r["lon"] != 39.75 for r in rows)
+    # Assert: the values match the FIT-derived expectations (e.g. lon negative for a US ride)
+    assert all(r["lon"] < 0 for r in rows)
+```
+
+#### Step 6.G — Verification
+```bash
+pytest tests/unit/test_intervals_icu_fit_records.py tests/unit/test_sync_latlng.py -v
+./scripts/run_integration_tests.sh tests/integration/test_sync.py -v
+```
+Manual smoke (operator):
+```bash
+# Re-sync the known-corrupt ride 3238 against local DB
+python -c "import asyncio; from server.services.single_sync import import_specific_activity; asyncio.run(import_specific_activity('i_<actual_icu_id_for_3238>'))"
+# Inspect:
+psql $CYCLING_COACH_DATABASE_URL -c "SELECT lat, lon FROM ride_records WHERE ride_id = 3238 LIMIT 5;"
+# Expect: lat≈39.75, lon negative (US ride). NOT (lat, lat).
+```
+
+### Phase 6 Definition of Done
+* `_store_records_or_fallback` exists, has unit + integration coverage.
+* Both bulk sync and single re-sync go through it.
+* Logging emits `gps_source=fit|streams|none` for every ride synced.
+* The FIT-vs-corrupt-streams integration test is green.
+* No regression in existing `test_sync_latlng.py` cases.
+
+---
+
+## PHASE 7 — Streams parser hardening (defence in depth)
+
+### Goal
+When streams are the fallback (no FIT), do not produce
+garbage `(lat, lat)` pairs from a lat-only payload. Instead detect
+and drop the GPS portion entirely (records get NULL lat/lon — the
+indoor-placeholder UX in Phase 4 already handles that gracefully).
+Add a defensive guard in `_store_streams` that refuses to write
+records when the resulting series trips the D4 corruption signature.
+
+### Files to touch
+* `server/services/sync.py` — **edit**
+  * `_normalize_latlng` (≈line 229): add a new branch after the
+    existing concatenated detector that catches the lat-only variant.
+  * `_store_streams` (≈line 304): after `latlng_pairs =
+    _normalize_latlng(...)`, run the D4 detection on the pairs. If
+    >50% of pairs satisfy `abs(lat-lon) < 1.0` AND the ride has more
+    than `MIN_GPS_RECORDS_FOR_DETECTION = 60` total pairs (avoid
+    flagging tiny test fixtures), discard `latlng_pairs` (set to
+    empty list) and log
+    `logger.warning("streams_latlng_corruption_detected",
+    ride_id=ride_id, total=N, suspect=K)`.
+* `tests/unit/test_sync_latlng.py` — **extend**
+  * Add 4 new test cases covering the lat-only Variant B and the
+    `_store_streams` corruption guard.
+
+### Step-by-step
+
+#### Step 7.A — Detection logic in `_normalize_latlng`
+*Target file:* `server/services/sync.py`.
+*Change:* between the existing concatenated-format branch (line ≈258)
+and the alternating-pairs fallback (line ≈270), insert:
+
+```python
+# Detect the "lat-only" payload variant (the Variant B observed on
+# ride 3238 in 2026-04-22). Heuristic: if the second half of the
+# array is statistically still latitudes (not longitudes), the
+# payload is corrupt and we have no usable GPS. Better to return
+# nothing than to fabricate (lat, lat) pairs.
+if n >= 60:  # only check if we have enough samples to be confident
+    half = n // 2
+    second_half = [v for v in raw[half:] if isinstance(v, (int, float))]
+    if second_half:
+        avg_second = sum(second_half) / len(second_half)
+        # A real longitude in any populated region has |lon| > 1°
+        # (the equator/prime-meridian corner is the rare exception).
+        # Latitudes in populated regions have |lat| in [25°, 71°].
+        # If the mean of "what should be longitudes" is in the
+        # latitude range and within 5° of the mean of "what should
+        # be latitudes", the payload is corrupt.
+        first_half = [v for v in raw[:half] if isinstance(v, (int, float))]
+        if first_half:
+            avg_first = sum(first_half) / len(first_half)
+            if abs(avg_first - avg_second) < 5.0 and abs(avg_second) < 90:
+                logger.warning(
+                    "latlng_lat_only_payload_detected",
+                    n=n,
+                    first_half_avg=round(avg_first, 3),
+                    second_half_avg=round(avg_second, 3),
+                )
+                return []
+```
+
+#### Step 7.B — Defensive guard in `_store_streams`
+*Target file:* `server/services/sync.py`.
+*Change:* after `latlng_pairs = _normalize_latlng(latlng_raw)` (line
+≈321), add:
+
+```python
+# Belt-and-suspenders: if the parser returned pairs that nonetheless
+# trip the D4 signature, refuse to write them. Streams will then
+# render as "no GPS" which is far better than rendering wrong GPS.
+MIN_GPS_RECORDS_FOR_DETECTION = 60
+if len(latlng_pairs) >= MIN_GPS_RECORDS_FOR_DETECTION:
+    suspect = sum(
+        1 for lat, lon in latlng_pairs
+        if lat is not None and lon is not None and abs(lat - lon) < 1.0
+    )
+    if suspect / len(latlng_pairs) > 0.5:
+        logger.warning(
+            "streams_latlng_corruption_guard_triggered",
+            ride_id=ride_id,
+            total=len(latlng_pairs),
+            suspect=suspect,
+        )
+        latlng_pairs = []
+```
+
+#### Step 7.C — New unit tests
+*Target file:* `tests/unit/test_sync_latlng.py`.
+*Test cases to add:*
+
+1. `test_normalize_latlng_lat_only_variant_returns_empty`:
+   Build a 100-element list `[39.75, 39.75, 39.751, 39.751, ...,
+   39.75, 39.75]` (no longitudes anywhere). Assert
+   `_normalize_latlng(raw) == []`.
+
+2. `test_normalize_latlng_lat_only_short_payload_passes_through`:
+   Build a 10-element same-shape list. Because `n < 60` we don't
+   trigger the new detector — the existing alternating-pairs
+   fallback fires, producing `(lat, lat)` pairs. Assert that
+   behaviour is preserved (no false-positive on tiny fixtures used
+   in other tests). Document in a comment that this is intentional.
+
+3. `test_normalize_latlng_real_us_ride_passes`:
+   Build a 100-element concatenated payload `[lat × 50, lon × 50]`
+   for a real Boulder, CO ride (lat≈40.0, lon≈-105.3). Assert the
+   parser returns 50 valid pairs with `abs(lat - lon) > 100` for
+   each.
+
+4. `test_store_streams_corruption_guard_drops_lat_lat_pairs`:
+   Construct a `_FakeConn`. Call `_store_streams(ride_id=99,
+   streams={"time": list(range(80)), "latlng":
+   [[39.75, 39.75]] * 80}, ...)`. Assert that the resulting
+   `executemany` rows all have `lat is None and lon is None` (the
+   guard fired and stripped the GPS columns), but other columns are
+   still written.
+
+#### Step 7.D — Verification
+```bash
+pytest tests/unit/test_sync_latlng.py -v
+```
+All existing 18 cases plus 4 new = 22 cases green.
+
+### Phase 7 Definition of Done
+* `_normalize_latlng` returns `[]` for the lat-only variant.
+* `_store_streams` refuses to write rows that would trip the D4
+  signature.
+* Existing test suite untouched + 4 new green tests.
+* Two new structured-log channels (`latlng_lat_only_payload_detected`,
+  `streams_latlng_corruption_guard_triggered`) emit so we can
+  monitor in Cloud Logging post-deploy.
+
+---
+
+## PHASE 8 — Speed smoothing in our libraries
+
+### Goal
+Pillar 3 (D3): own the speed-smoothing pipeline so we are not
+dependent on ICU's undocumented `velocity_smooth` window. Apply the
+same smoothing on both the FIT path (raw `record.enhanced_speed`)
+and the streams fallback path (raw `velocity` if `velocity_smooth`
+is absent).
+
+### Files to touch
+* `server/metrics.py` — **edit** — add `smooth_speed(speed_array,
+  window: int = 5) -> list[float | None]`.
+* `server/services/sync.py` — **edit** —
+  * In `_store_records_from_fit`: collect `speed_raw` from the FIT
+    records, run through `smooth_speed`, write the smoothed series
+    into the rows.
+  * In `_store_streams` (the fallback path): same — accept the
+    streams `velocity_smooth` if present (already smoothed by ICU)
+    OR `velocity` (if not), then run our `smooth_speed` for
+    consistency. Document that for streams we prefer running it
+    even on `velocity_smooth` to normalise window across rides.
+* `tests/unit/test_metrics.py` — **extend** — add `smooth_speed`
+  cases.
+
+### Step-by-step
+
+#### Step 8.A — Implement `smooth_speed`
+*Target file:* `server/metrics.py`.
+*Signature:*
+```python
+def smooth_speed(speed_array, window: int = 5):
+    """Apply a centred uniform rolling-mean smoothing to a speed series.
+
+    - None/NaN treated as missing.
+    - Gaps < 10 samples linearly interpolated (matches clean_ride_data policy).
+    - Gaps >= 10 samples preserved as None in the output (no fabrication
+      across long stops).
+    - Returns a list of float|None matching the input length.
+    """
+```
+Use `scipy.ndimage.uniform_filter1d` for the smoothing, mirroring
+the existing rolling-mean pattern at `metrics.py:108`.
+
+#### Step 8.B — Unit tests
+*Target file:* `tests/unit/test_metrics.py`.
+*Cases:*
+1. `test_smooth_speed_empty_returns_empty`.
+2. `test_smooth_speed_passthrough_for_constant_signal`: `[5.0]*20` →
+   `[5.0]*20` (small float tolerance).
+3. `test_smooth_speed_single_spike_attenuated`: `[5.0]*10 + [50.0] +
+   [5.0]*10` → output center value is much closer to 5 than 50.
+4. `test_smooth_speed_short_gap_interpolated`: input has 3
+   consecutive None in the middle of constant 5.0 — output replaces
+   them with ~5.0.
+5. `test_smooth_speed_long_gap_preserved_as_none`: input has 12
+   consecutive None — output keeps None at those positions.
+6. `test_smooth_speed_window_size_validated`: `window=0` or
+   negative raises `ValueError`.
+
+#### Step 8.C — Wire into FIT path
+*Target file:* `server/services/sync.py`,
+`_store_records_from_fit`.
+*Change:* before building the executemany rows, run:
+```python
+from server.metrics import smooth_speed
+raw_speeds = [r.get("speed") for r in fit_records]
+smoothed = smooth_speed(raw_speeds, window=5)
+# Then in the row-build loop, use smoothed[i] instead of fit_records[i]["speed"].
+```
+
+#### Step 8.D — Wire into streams fallback path
+*Target file:* `server/services/sync.py`, `_store_streams`.
+*Change:* after `velocity = stream_map.get("velocity_smooth", [])`,
+add a fallback to `velocity = stream_map.get("velocity", velocity)
+or velocity` and then `velocity = smooth_speed(velocity, window=5)`.
+
+#### Step 8.E — Verification
+```bash
+pytest tests/unit/test_metrics.py -v -k smooth_speed
+./scripts/run_integration_tests.sh tests/integration/test_sync.py -v
+```
+
+### Phase 8 Definition of Done
+* `smooth_speed` exists with 6 green unit tests.
+* Both ingest paths use it.
+* Re-syncing a known ride yields a `speed` series that is monotonic
+  smoother than ICU's raw `velocity_smooth` (manual eyeball on a
+  chart in dev — the hardness gate is the unit tests).
+
+---
+
+## PHASE 9 — Historical backfill script
+
+### Goal
+Pillar 4: a one-time, idempotent, dry-run-by-default script that
+walks every ride in the DB, detects the D4 corruption signature, and
+re-fetches from ICU (FIT-primary via the Phase 6 helpers) to
+overwrite `ride_records.lat/lon` and the other affected per-record
+fields.
+
+### Files to touch
+* `scripts/backfill_corrupt_gps.py` — **new** — modeled after
+  `scripts/backfill_ride_start_geo.py`. Uses
+  `_store_records_or_fallback` (Phase 6).
+* `tests/integration/test_backfill_corrupt_gps.py` — **new** —
+  drives `run_backfill(dry_run=True)` and `run_backfill(dry_run=False)`
+  against the test DB with monkeypatched ICU/FIT responses.
+
+### Step-by-step
+
+#### Step 9.A — Skeleton (mirror `backfill_ride_start_geo.py`)
+*Target file:* `scripts/backfill_corrupt_gps.py`.
+*Public surface:*
+```python
+def detect_corruption(records: list[dict]) -> dict:
+    """Return {total, suspect, corrupt: bool}.
+
+    `corrupt` is True iff total >= MIN_GPS_RECORDS_FOR_DETECTION (60)
+    AND suspect/total > 0.5.
+    """
+
+def run_backfill(*, dry_run: bool, sleep_seconds: float = 0.5,
+                 limit: int | None = None) -> dict:
+    """Walk corrupt rides; re-sync via _store_records_or_fallback.
+
+    Returns: {
+        total_examined, total_corrupt, fixed,
+        fit_unavailable, fit_parse_failed, icu_api_error,
+        skipped_already_clean,
+    }
+    """
+
+def main(argv: list[str] | None = None) -> int:
+    # Same arg shape as backfill_ride_start_geo.py:
+    # --dry-run (default True), --allow-remote, --sleep N, --limit N.
+```
+
+*Detection query:*
+```sql
+SELECT r.id, r.filename, COUNT(*) AS total,
+       SUM(CASE WHEN ABS(rr.lat - rr.lon) < 1.0 THEN 1 ELSE 0 END) AS suspect
+  FROM rides r
+  JOIN ride_records rr ON rr.ride_id = r.id
+ WHERE r.filename LIKE 'icu_%'
+   AND rr.lat IS NOT NULL AND rr.lon IS NOT NULL
+ GROUP BY r.id, r.filename
+HAVING COUNT(*) >= 60
+   AND SUM(CASE WHEN ABS(rr.lat - rr.lon) < 1.0 THEN 1 ELSE 0 END)::float / COUNT(*) > 0.5
+ ORDER BY r.start_time DESC
+[ LIMIT %s ]
+```
+
+For each suspect ride: extract `icu_id` from filename (mirror
+`backfill_ride_start_geo._icu_id_from_filename`); if `dry_run`,
+log "WOULD re-sync"; else call `_store_records_or_fallback(ride_id,
+icu_id, conn)`. Sleep `sleep_seconds` between rides.
+
+#### Step 9.B — Localhost guard + arg parsing
+Mirror `backfill_ride_start_geo.py` lines 165-225 line-for-line. Same
+LOCALHOST_HOSTNAMES allowlist, same `--allow-remote` requirement.
+
+#### Step 9.C — Integration tests
+*Target file:* `tests/integration/test_backfill_corrupt_gps.py`.
+*Cases:*
+1. `test_detect_corruption_flags_lat_lat_pairs`: insert 100
+   `ride_records` with `lat=lon=39.75`; assert
+   `detect_corruption(...)` returns `corrupt=True`.
+2. `test_detect_corruption_passes_real_us_ride`: insert 100
+   `ride_records` with `lat=39.75, lon=-105.3`; assert
+   `corrupt=False`.
+3. `test_detect_corruption_passes_short_ride`: 30 records all
+   `lat=lon`; `corrupt=False` (below `MIN_GPS_RECORDS_FOR_DETECTION`).
+4. `test_run_backfill_dry_run_makes_no_writes`: seed corrupt rides,
+   monkeypatch `fetch_activity_fit_records` and
+   `fetch_activity_streams`. Run `dry_run=True`. Assert no rows
+   changed.
+5. `test_run_backfill_writes_when_not_dry_run`: same seed,
+   monkeypatched FIT returns valid US lat/lon. Run `dry_run=False`.
+   Assert previously-corrupt records now have correct values.
+6. `test_run_backfill_handles_no_fit_no_streams`: monkeypatch FIT
+   to return `[]` and streams to return `{}`. Run; assert
+   `fit_unavailable + icu_api_error` is incremented and the row is
+   left untouched (still corrupt) so the next run can retry.
+7. `test_run_backfill_respects_limit`: seed 5 corrupt rides; run
+   with `limit=2`; assert only 2 are touched.
+
+#### Step 9.D — Verification
+```bash
+./scripts/run_integration_tests.sh tests/integration/test_backfill_corrupt_gps.py -v
+# Then a real local-DB dry-run (operator)
+python scripts/backfill_corrupt_gps.py --dry-run
+# Then a real local-DB write run
+python scripts/backfill_corrupt_gps.py
+# Sanity:
+psql $CYCLING_COACH_DATABASE_URL -c "
+  SELECT COUNT(DISTINCT r.id)
+    FROM rides r JOIN ride_records rr ON rr.ride_id = r.id
+   WHERE rr.lat IS NOT NULL AND ABS(rr.lat - rr.lon) < 1.0
+   GROUP BY r.id HAVING COUNT(*) > 60;"
+# Expect: 0.
+```
+
+### Phase 9 Definition of Done
+* Script lives at `scripts/backfill_corrupt_gps.py`.
+* 7 integration tests green.
+* Local-DB dry-run reports a non-zero corrupt-ride count.
+* Local-DB non-dry-run reduces that count to 0 and the resulting
+  `ride_records` reverse-geocode to plausible locations (manual
+  spot-check on 3 rides).
+* Script does NOT run against prod (architect mandate D5).
+
+---
+
+## PHASE 10 — Frontend safeguard + production rollout
+
+### Goal
+* Frontend: detect the D4 signature in the records the API returned;
+  if tripped, render a banner over the polyline rather than rendering
+  wrong GPS.
+* Operator: run the Phase 9 backfill against the prod DB after the
+  v1.14.x release containing Phases 5-9 ships and bakes for ≥24h.
+
+### Files to touch
+* `frontend/src/lib/map.ts` — **edit** — add a pure helper
+  `detectGpsCorruption(records: { lat?: number | null; lon?: number
+  | null }[]): { corrupt: boolean; total: number; suspect: number }`.
+  Same threshold as D4 / backend.
+* `frontend/src/components/RideMap.tsx` — **edit** — call the helper
+  on render; if `corrupt`, render the banner overlay AND skip the
+  polyline.
+* `frontend/src/lib/map.test.ts` — **extend** — add 4 cases for
+  `detectGpsCorruption`.
+* `tests/e2e/03-rides.spec.ts` — **extend** — one E2E case that
+  seeds a corrupt-GPS ride into the test DB (or monkey-patches the
+  API response in the page test) and asserts the banner is visible.
+
+### Step-by-step
+
+#### Step 10.A — `detectGpsCorruption` helper
+*Target file:* `frontend/src/lib/map.ts`.
+*Signature:*
+```ts
+export const MIN_GPS_RECORDS_FOR_DETECTION = 60
+export const CORRUPTION_RATIO_THRESHOLD = 0.5
+
+export function detectGpsCorruption(
+  records: Array<{ lat?: number | null; lon?: number | null }>,
+): { corrupt: boolean; total: number; suspect: number } {
+  let total = 0
+  let suspect = 0
+  for (const r of records) {
+    if (typeof r.lat === 'number' && typeof r.lon === 'number') {
+      total++
+      if (Math.abs(r.lat - r.lon) < 1.0) suspect++
+    }
+  }
+  return {
+    total,
+    suspect,
+    corrupt:
+      total >= MIN_GPS_RECORDS_FOR_DETECTION
+      && suspect / total > CORRUPTION_RATIO_THRESHOLD,
+  }
+}
+```
+
+#### Step 10.B — Render the banner in `<RideMap>`
+*Target file:* `frontend/src/components/RideMap.tsx`.
+*Change:* near the top of the render function, before computing
+`coords`:
+```tsx
+const corruption = useMemo(() => detectGpsCorruption(records), [records])
+if (corruption.corrupt) {
+  return (
+    <section className="bg-surface rounded-xl border border-warning/30 p-6 text-center">
+      <AlertTriangle size={28} className="mx-auto mb-3 text-warning" />
+      <p className="text-xs font-medium text-warning">
+        GPS data appears corrupted for this ride.
+      </p>
+      <p className="text-[11px] text-text-muted mt-1">
+        Re-sync this ride to fix (Settings → Sync → Re-sync this ride).
+      </p>
+    </section>
+  )
+}
+```
+The existing indoor-placeholder path stays as-is.
+
+#### Step 10.C — Unit tests
+*Target file:* `frontend/src/lib/map.test.ts`.
+*Cases:*
+1. `detectGpsCorruption(empty array)` → `{ total: 0, suspect: 0,
+   corrupt: false }`.
+2. `detectGpsCorruption(100 lat≈lon records)` → `corrupt: true`.
+3. `detectGpsCorruption(100 real US records)` → `corrupt: false`.
+4. `detectGpsCorruption(30 lat≈lon records)` → `corrupt: false` (below
+   `MIN_GPS_RECORDS_FOR_DETECTION`).
+
+#### Step 10.D — E2E
+*Target file:* `tests/e2e/03-rides.spec.ts`.
+*Case:* seed (or monkey-patch the API response for) a ride whose
+records have `lat == lon` for every entry; navigate to the ride
+detail; assert the warning text "GPS data appears corrupted" is
+visible AND the `canvas.maplibregl-canvas` is NOT rendered.
+
+#### Step 10.E — Operator rollout (post-merge, post-deploy)
+*Pre-conditions:* v1.14.x containing Phases 5-9 deployed to prod and
+baked for ≥24h with no error spike.
+*Sequence:*
+1. `python scripts/backfill_corrupt_gps.py --dry-run --allow-remote`
+   from a workstation with prod credentials. Inspect the summary
+   counts (`total_corrupt`).
+2. If `total_corrupt > 100`, run with `--limit 50` first to verify
+   end-to-end before doing the full sweep.
+3. `python scripts/backfill_corrupt_gps.py --allow-remote` (no
+   `--dry-run`). Monitor Cloud Logging for `gps_source=fit` (good)
+   vs `gps_source_fallback_streams` (degraded but acceptable) vs
+   `gps_source=none` (failure — investigate per ride).
+4. Verify post-state with the SQL query in Phase 9.D.
+5. Spot-check 3 rides on the live map UI.
+
+### Phase 10 Definition of Done
+* Frontend detects corruption and shows the warning banner instead
+  of a wrong polyline.
+* 4 new Vitest cases green.
+* 1 new Playwright case green.
+* Operator runbook above is captured in
+  `plans/00_MASTER_ROADMAP.md` Campaign 20 entry as a follow-up
+  action item, separate from the merge blocker.
+
+---
+
+## Updated Test Plan Summary (data-quality additions only)
+
+| Layer | What we test | Where |
+| --- | --- | --- |
+| Unit (BE) | `fetch_activity_fit_records` happy path + 5 edge cases | `tests/unit/test_intervals_icu_fit_records.py` |
+| Unit (BE) | `_normalize_latlng` lat-only Variant B | `tests/unit/test_sync_latlng.py` (extend) |
+| Unit (BE) | `_store_streams` corruption guard | `tests/unit/test_sync_latlng.py` (extend) |
+| Unit (BE) | `smooth_speed` 6 cases | `tests/unit/test_metrics.py` (extend) |
+| Integration | FIT-primary overrides corrupt streams `latlng` | `tests/integration/test_sync.py` (extend) |
+| Integration | Backfill detection + dry-run + write paths (7 cases) | `tests/integration/test_backfill_corrupt_gps.py` (new) |
+| Unit (FE) | `detectGpsCorruption` 4 cases | `frontend/src/lib/map.test.ts` (extend) |
+| E2E | Corrupt-GPS ride shows warning banner, no canvas | `tests/e2e/03-rides.spec.ts` (extend) |
+| Manual | Ride 3238 (the original repro) re-syncs to a correct US polyline | local DB after Phase 6 |
+| Manual | Prod backfill dry-run shows N corrupt rides; non-dry-run fixes them all | prod DB after Phase 10.E |
+
+---
+
+## Updated Risks & Mitigations (data-quality additions)
+
+| Risk | Likelihood | Mitigation |
+| --- | --- | --- |
+| FIT file is truthful but records contain `(0,0)` GPS pre-fix entries | Medium | The existing `_backfill_start_from_laps` path uses lap GPS for the ride-level start (immune). For per-record we let `(0,0)` flow through as data — frontend already tolerates it (the 0.0 fallback is rare and a single point on a polyline is invisible) |
+| FIT records exist but `position_lat/long` are absent (some Garmin Edge older firmwares for indoor recordings) | Low | `_semicircles_to_degrees(None) → None`; rows get NULL lat/lon; map placeholder fires. Same UX as a true indoor ride |
+| `fitparse` chokes on a malformed FIT file mid-stream | Low | `_open_fit` context manager wraps in try/except, returns `None`; FIT path returns `[]`; streams fallback engages. No data lost |
+| Corruption-detection threshold flags a real ride near the equator/prime-meridian intersection | Very low | Real rides at lat≈lon spread across degrees as the ride progresses; the detector requires >50% of records to satisfy the threshold AND a minimum 60-record sample. We accept the false-positive risk of 1 banner-misfire per ~100k rides as preferable to a silent wrong-polyline render |
+| `MIN_GPS_RECORDS_FOR_DETECTION = 60` excludes very short rides from the detector | Low | A <60s ride is a stop-after-start mishap or a deliberate calibration ride. Hiding the map for such rides via the indoor placeholder is acceptable; rendering a 5-point wrong polyline isn't a meaningful UX degradation either way |
+| Backfill exhausts ICU rate limits | Medium | `--sleep 0.5` between requests = 2 req/s. ICU's published limit is ~10 req/s. `--limit` allows resumable batches. 429 responses surface as `icu_api_error` in the summary |
+| Backfill partial failure leaves a ride with mixed-source records | Low | `_store_records_from_fit` deletes existing records first inside a transaction; the next backfill run rewrites them atomically |
+| FIT file is downloaded twice per re-sync (once for laps, once for records) | High | Phase 5.A's `_open_fit` context manager downloads once and the engineer is encouraged to plumb a single download into both `fetch_activity_fit_laps` and `fetch_activity_fit_records` (e.g. via a `fetch_activity_fit(activity_id) -> tuple[list[dict], list[dict]]` combined call). This is an optimisation, not a correctness requirement — defer if it complicates the diff. Doc the perf cost (one extra GET per ride re-sync = ~500ms) so the operator running the prod backfill knows to expect it |
+| Deploying Phases 5-8 changes the byte-for-byte output of new syncs (downstream PMC sensitivity) | Low | PMC depends on TSS, which depends on power and HR — both unaffected. Speed smoothing affects only the `speed` column displayed on the chart and used for nothing else |
+| Schema migration for `gps_source` column rejected (D2) but a future bug needs it | Low | Sync logs in Cloud Logging carry the `gps_source` channel; for a future bug we can correlate the error to the source via timestamp lookup. If that proves insufficient, fix forward with a migration that backfills the column from logs |
+
+---
+
+## Open Questions for the User (must answer before engineering starts)
+
+1. **FIT-download dedup (Risk row 8).** OK to add a small refactor in
+   Phase 5 that combines `fetch_activity_fit_laps` +
+   `fetch_activity_fit_records` into a single download per ride
+   (`fetch_activity_fit_all(icu_id) -> {laps, records}`)? Strictly
+   optional, saves ~500ms per re-sync at the cost of a slightly
+   bigger Phase 5 diff. Default: **yes, do it** (the extra LOC pays
+   for itself the first time the prod backfill runs).
+2. **`gps_source` schema flag (D2).** Confirmed NOT adding it. If the
+   user wants the option for future debugging, say so now and we
+   add a migration in Phase 6.
+3. **Frontend banner copy (Phase 10.B).** Wording: "GPS data appears
+   corrupted for this ride. Re-sync this ride to fix (Settings →
+   Sync → Re-sync this ride)." OK as-is, or shorter?
+4. **Backfill rollout risk appetite.** Default plan is: ship code in
+   v1.14.x, bake 24h, then operator runs backfill against prod with
+   `--limit 50` then full sweep. Acceptable, or want a more
+   conservative phased rollout (e.g. backfill last-30-days only on
+   day 1, last-180-days on week 2, full history on week 3)?
+5. **Speed-smoothing window (D3).** Locked at 5 samples. If the user
+   has a strong opinion (e.g. 10 for cyclocross, 3 for crit racing),
+   say so; otherwise the engineer ships 5.
+
+These are real open questions. Engineering should not start Phases
+5+ without explicit answers to #1-#5 (or an explicit "go with
+defaults" from the user).
