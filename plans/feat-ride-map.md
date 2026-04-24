@@ -1458,14 +1458,19 @@ All 6 cases must pass. The pre-existing `tests/unit/test_fit_laps.py`
 must still pass (refactor regression guard).
 
 ### Phase 5 Definition of Done
-* `fetch_activity_fit_records` exists, is exported, has a docstring
+* [x] `fetch_activity_fit_records` exists, is exported, has a docstring
   matching D1's field semantics.
-* `fetch_activity_fit_laps` shares the FIT-download path with the
+* [x] `fetch_activity_fit_laps` shares the FIT-download path with the
   new function and still returns identical output (regression-tested).
-* Unit-test coverage for the 6 cases above.
-* No call site changes anywhere — `git grep
-  fetch_activity_fit_records server` returns only the definition and
-  its tests.
+* [x] Unit-test coverage for the 6 cases above (8 cases shipped — added
+  zero-records and missing-timestamp defensive cases).
+* [x] No call site changes anywhere — `git grep
+  fetch_activity_fit_records server` returns only the definition.
+
+**Status: ✅ Implemented in `server/services/intervals_icu.py` (refactored
+`_open_fit` context manager + new `fetch_activity_fit_records`) + new
+`tests/unit/test_intervals_icu_fit_records.py` (8 cases). All 18
+existing FIT-laps tests + 18 streams-latlng tests still green.**
 
 ---
 
