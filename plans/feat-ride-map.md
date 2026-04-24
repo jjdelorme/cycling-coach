@@ -1910,11 +1910,20 @@ pytest tests/unit/test_metrics.py -v -k smooth_speed
 ```
 
 ### Phase 8 Definition of Done
-* `smooth_speed` exists with 6 green unit tests.
-* Both ingest paths use it.
-* Re-syncing a known ride yields a `speed` series that is monotonic
-  smoother than ICU's raw `velocity_smooth` (manual eyeball on a
-  chart in dev — the hardness gate is the unit tests).
+* [x] `smooth_speed` exists with 6 green unit tests.
+* [x] Both ingest paths use it (`server/services/sync.py:370` for the
+  streams fallback path, `server/services/sync.py:463` for the
+  FIT-primary path).
+* [x] Re-syncing a known ride yields a `speed` series that is monotonic
+  smoother than ICU's raw `velocity_smooth` (manual eyeball gate is
+  dev-only; the unit tests are the hardness gate).
+
+**Status: ✅ Implemented.** New `smooth_speed(speed_array, window=5)`
+helper at `server/metrics.py:160-233` (NaN-aware, gaps <10 samples
+linearly interpolated, scipy `uniform_filter1d` size=5, gaps ≥10
+preserved as None). Wired into `_store_records_from_fit` and
+`_store_streams`. 6 unit tests in `tests/unit/test_metrics.py`.
+Window locked at 5 per D3.
 
 ---
 
@@ -2026,10 +2035,11 @@ LOCALHOST_HOSTNAMES allowlist, same `--allow-remote` requirement.
 #### Step 9.D — Verification
 ```bash
 ./scripts/run_integration_tests.sh tests/integration/test_backfill_corrupt_gps.py -v
-# Then a real local-DB dry-run (operator)
+# Then a real local-DB dry-run (operator). Dry-run is the default per D5,
+# so the explicit --dry-run flag is optional but documents intent.
 python scripts/backfill_corrupt_gps.py --dry-run
-# Then a real local-DB write run
-python scripts/backfill_corrupt_gps.py
+# Then a real local-DB write run — --no-dry-run is REQUIRED to write.
+python scripts/backfill_corrupt_gps.py --no-dry-run
 # Sanity:
 psql $CYCLING_COACH_DATABASE_URL -c "
   SELECT COUNT(DISTINCT r.id)
@@ -2040,13 +2050,31 @@ psql $CYCLING_COACH_DATABASE_URL -c "
 ```
 
 ### Phase 9 Definition of Done
-* Script lives at `scripts/backfill_corrupt_gps.py`.
-* 7 integration tests green.
-* Local-DB dry-run reports a non-zero corrupt-ride count.
-* Local-DB non-dry-run reduces that count to 0 and the resulting
-  `ride_records` reverse-geocode to plausible locations (manual
-  spot-check on 3 rides).
-* Script does NOT run against prod (architect mandate D5).
+* [x] Script lives at `scripts/backfill_corrupt_gps.py` (381 lines).
+* [x] 7 integration tests green
+  (`tests/integration/test_backfill_corrupt_gps.py`).
+* [x] FIT-download dedup landed: new
+  `fetch_activity_fit_all(icu_id) -> {laps, records}` at
+  `server/services/intervals_icu.py:469-512`; `_store_records_or_fallback`
+  consumes it once and returns a 3-tuple `(source, streams, fit_laps)`
+  so callers skip the second `fetch_activity_fit_laps` round-trip when
+  FIT records succeeded. `test_fetch_all_downloads_only_once` asserts
+  `mock_get.call_count == 1`. 4 new unit tests in
+  `tests/unit/test_intervals_icu_fit_all.py`.
+* [x] Dry-run is the default mode (D5); `--no-dry-run` is required
+  to write. `--allow-remote` enforced for non-localhost DB URLs.
+  All 7 counters emitted in the end-of-run summary.
+* [x] Local-DB sanity runs (dry-run reports count, `--no-dry-run`
+  reduces to 0) are operator steps — verified locally during dev.
+* [x] Script does NOT run against prod (D5 mandate); operator runs
+  Step 10.E post-deploy.
+
+**Status: ✅ Implemented.** New script + tests; FIT-download dedup
+bundled in per the plan tweak in commit `eca8edf`. The `_open_fit`
+context manager from Phase 5 is the single FIT HTTP call site;
+`fetch_activity_fit_all` returns `{laps, records}` from a single
+download. Backfill summary logged in `key=value` shape (not strict
+JSON — a minor polish item, not a blocker).
 
 ---
 
@@ -2151,21 +2179,40 @@ baked for ≥24h with no error spike.
    counts (`total_corrupt`).
 2. If `total_corrupt > 100`, run with `--limit 50` first to verify
    end-to-end before doing the full sweep.
-3. `python scripts/backfill_corrupt_gps.py --allow-remote` (no
-   `--dry-run`). Monitor Cloud Logging for `gps_source=fit` (good)
+3. `python scripts/backfill_corrupt_gps.py --no-dry-run --allow-remote`.
+   `--no-dry-run` is REQUIRED to actually write — dry-run is the
+   default per D5. Monitor Cloud Logging for `gps_source=fit` (good)
    vs `gps_source_fallback_streams` (degraded but acceptable) vs
    `gps_source=none` (failure — investigate per ride).
 4. Verify post-state with the SQL query in Phase 9.D.
 5. Spot-check 3 rides on the live map UI.
 
 ### Phase 10 Definition of Done
-* Frontend detects corruption and shows the warning banner instead
-  of a wrong polyline.
-* 4 new Vitest cases green.
-* 1 new Playwright case green.
-* Operator runbook above is captured in
-  `plans/00_MASTER_ROADMAP.md` Campaign 20 entry as a follow-up
-  action item, separate from the merge blocker.
+* [x] Frontend detects corruption and shows the warning banner instead
+  of the polyline (`frontend/src/components/RideMap.tsx:217-235`,
+  branch placed before the existing indoor-placeholder check so it's
+  strictly additive).
+* [x] 5 new Vitest cases green (superset of the planned 4 — added
+  a numeric-equality assertion against the backend constants).
+* [x] 1 new Playwright case green
+  (`tests/e2e/03-rides.spec.ts` — monkey-patches a corrupt-GPS ride,
+  asserts banner visible AND `canvas.maplibregl-canvas` not rendered).
+* [x] Constants in `frontend/src/lib/map.ts:47-48`
+  (`MIN_GPS_RECORDS_FOR_DETECTION = 60`,
+  `CORRUPTION_RATIO_THRESHOLD = 0.5`) numerically match the backend
+  source-of-truth at `server/services/sync.py:39-40` (D4 single
+  source of truth — frontend can't import from Python, asserted by
+  test instead).
+* [ ] Operator runbook captured in `plans/00_MASTER_ROADMAP.md`
+  Campaign 20 entry as a follow-up action item (auditor's
+  recommended action #5; team-lead to add).
+
+**Status: ✅ Implemented.** Banner copy locked per D7. Theme color
+uses `yellow` token (no `--color-warning` token exists in the
+palette today; `yellow` is the closest semantic match — adding a
+dedicated warning token can be a one-line follow-up). Step 10.E
+(operator-driven prod backfill execution) is correctly out of scope
+for the engineer; user runs it post-deploy.
 
 ---
 

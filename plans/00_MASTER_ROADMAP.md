@@ -12,16 +12,18 @@ This document serves as the top-level view of all active, planned, and completed
   - **Phase B — Multi-Instance Cache:** Move the in-process Nominatim LRU cache to a Postgres-backed `geocoder_cache` table (TTL column, `ON CONFLICT DO UPDATE`). Eliminates per-instance cold-start hits against Nominatim when Cloud Run scales beyond one replica.
 
 - [ ] **Campaign 20: Ride Map with Synced Timeline Cursor + GPS Data-Quality Foundation** (`plans/feat-ride-map.md`)
-  - *Status:* **Phases 1–4 (map UI) shipped on `feat/ride-map` worktree (audit PASS WITH NOTES). Phases 5–10 (GPS data-quality) PLANNED 2026-04-22 — same branch, same release.**
-  - **Why expanded:** real-world testing of the C20 map exposed that ICU's `latlng` stream returns a lat-only payload variant (e.g. ride 3238 length=7003 odd) that the Campaign 17 parser fix did not cover. Per-record `ride_records.lat/lon` are corrupted on every ICU-synced ride hit by this variant — map renders a wrong polyline. User directive: fold the fix into C20, ship in the same release.
+  - *Status (2026-04-24):* **All 10 engineering phases ✅ shipped on `feat/ride-map`.** Phases 5-7 audit PASS (`AUDIT_feat-ride-map_c20_phases5-7.md`). Phases 8-10 audit PASS WITH NOTES (`AUDIT_feat-ride-map_c20_phases8-10.md`). Pending operator follow-up below.
   - **Phase 1–4 (DONE):** `<RideMap>` component with MapLibre GL + OpenFreeMap; lazy-loaded; cursor-sync to timeline chart; lap + drag-zoom highlighting; indoor placeholder.
-  - **Phase 5 — FIT-records fetch path:** `fetch_activity_fit_records()` parses FIT `record` messages we already download for laps. No call sites wired yet.
-  - **Phase 6 — FIT-primary cutover:** `_store_records_or_fallback` makes ICU re-sync use FIT for per-record GPS/power/HR/cadence/altitude/distance/speed/temperature; streams remain the fallback when FIT is unavailable.
-  - **Phase 7 — Streams-parser hardening:** `_normalize_latlng` detects the lat-only variant and returns `[]`; `_store_streams` defensive guard refuses to write rows that trip the corruption signature.
-  - **Phase 8 — Local speed smoothing:** new `smooth_speed()` in `server/metrics.py` (5-sample uniform filter, NaN-aware); wired into both ingest paths.
-  - **Phase 9 — Historical backfill script:** `scripts/backfill_corrupt_gps.py` (dry-run by default, `--allow-remote` for prod, `--limit` for resumability) detects rides where `ABS(lat-lon) < 1°` for >50% of records and re-syncs them via the Phase 6 helpers.
-  - **Phase 10 — Frontend safeguard + prod rollout:** `<RideMap>` detects the corruption signature client-side and renders a warning banner instead of a wrong polyline; operator runs the Phase 9 backfill against prod after the v1.14.x release bakes for ≥24h.
-  - *Pre-engineering blocker:* 5 open questions to user (see end of `plans/feat-ride-map.md`) — defaults proposed, but engineer should not start Phases 5+ without explicit user sign-off.
+  - **Phase 5–7 (DONE, merged at `134064e`):** FIT-records fetch path + FIT-primary cutover for ICU sync + lat-only Variant B parser hardening with D4 corruption write-guard.
+  - **Phase 8–10 (DONE, latest at `ab49f5a`):** local 5-sample speed smoothing + `backfill_corrupt_gps.py` (dry-run default, `--no-dry-run` to write, `--allow-remote` for prod) with bundled FIT-download dedup via `fetch_activity_fit_all` + frontend `<RideMap>` corruption banner that displaces a wrong polyline.
+  - **Operator follow-up — Step 10.E prod backfill (NOT yet run):**
+    - *Pre-condition:* v1.14.x containing Phases 5-10 deployed to prod and baked ≥24 h with no error spike.
+    - 1. `python scripts/backfill_corrupt_gps.py --dry-run --allow-remote` from a workstation with prod credentials. Inspect summary `total_corrupt`, `since_date`.
+    - 2. If `total_corrupt > 100`, run `--no-dry-run --allow-remote --limit 50` first to verify end-to-end before the full sweep.
+    - 3. `python scripts/backfill_corrupt_gps.py --no-dry-run --allow-remote`. Monitor Cloud Logging for `gps_source` events: `source=fit` (good), `source=fallback_streams` (degraded but acceptable), `source=none` (failure — investigate per ride).
+    - 4. Verify post-state with the SQL in Phase 9.D of `plans/feat-ride-map.md`.
+    - 5. Spot-check 3 rides on the live map UI.
+  - **Optional polish items** (not merge blockers, not operator-blocking): refresh stale mocks in `tests/integration/test_sync.py:169,297` to use `fetch_activity_fit_all`; add a `--color-warning` design token to replace the `yellow` stand-in in the corruption banner.
 
 ---
 
