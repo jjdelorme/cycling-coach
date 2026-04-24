@@ -241,6 +241,13 @@ def _normalize_latlng(raw) -> list[tuple[float, float]]:
     and raw[1] are consecutive latitude readings that are nearly identical
     (sub-degree difference for any realistic cycling speed). We use a 1°
     threshold since GPS cannot move more than ~111 km in one second.
+
+    Note: the typed-entry shape returned by ``/api/v1/activity/{id}/streams``
+    (``{"type": "latlng", "data": [...lats], "data2": [...lons]}``) is
+    pre-zipped into nested pairs by ``_extract_streams`` upstream and reaches
+    this function via the nested-pair branch. The flat-alternating and
+    concatenated branches remain load-bearing for callers that pre-flatten
+    streams (existing tests, future shapes) — do not delete them.
     """
     if not raw:
         return []
@@ -283,7 +290,19 @@ def _extract_streams(streams: dict | list) -> dict[str, list]:
     if isinstance(streams, list):
         for s in streams:
             if isinstance(s, dict) and "type" in s:
-                stream_map[s["type"]] = s.get("data") or []
+                stype = s["type"]
+                data = s.get("data") or []
+                # ICU returns latlng as parallel arrays: data=[lat,...], data2=[lon,...].
+                # Zip into nested pairs so downstream `_normalize_latlng` hits its
+                # nested-pair branch and never sees an array of bare latitudes
+                # (which would otherwise fall into "flat alternating" mode and
+                # produce (lat, lat) pairs — the Syria-bug signature).
+                if stype == "latlng":
+                    data2 = s.get("data2") or []
+                    if data2:
+                        n = min(len(data), len(data2))
+                        data = [(data[i], data2[i]) for i in range(n)]
+                stream_map[stype] = data
     elif isinstance(streams, dict):
         for k, v in streams.items():
             stream_map[k] = v or []
@@ -354,8 +373,14 @@ def _store_streams(ride_id: int, streams: dict | list, conn=None):
     logger.info("streams_stored", ride_id=ride_id, record_count=len(rows))
 
 
-def _backfill_start_location(ride_id: int, streams, conn=None):
-    """Update start_lat/start_lon on ride from stream GPS data."""
+def _backfill_start_location(ride_id: int, streams, conn=None, *, overwrite_corrupt: bool = False):
+    """Update start_lat/start_lon on ride from stream GPS data.
+
+    By default only writes when start_lat IS NULL. When ``overwrite_corrupt`` is
+    True the WHERE clause additionally allows overwriting rows whose existing
+    coordinates match the (lat, lat) corruption signature (ABS(lat-lon) < 1°)
+    — for use by the historical-cleanup data migration.
+    """
     stream_map = _extract_streams(streams)
     latlng_raw = stream_map.get("latlng", [])
     if not latlng_raw:
@@ -372,12 +397,32 @@ def _backfill_start_location(ride_id: int, streams, conn=None):
             continue
         if lat == 0.0 and lon == 0.0:
             continue
+        # Defense-in-depth: refuse to write the (lat, lat) Syria-bug signature
+        # even if some upstream parser regresses. Real cycling rides cannot
+        # start at a location where ABS(lat-lon) < 1° outside a narrow
+        # equatorial band near 0°E (Gulf of Guinea / São Tomé) — vanishingly
+        # unlikely for this athlete dataset, and the cost of a false negative
+        # there is "GPS not backfilled" not "coordinates corrupted".
+        if abs(lat - lon) < 1.0:
+            logger.warning(
+                "backfill_start_location_rejected_lat_lat_signature",
+                ride_id=ride_id, lat=lat, lon=lon,
+            )
+            continue
+
+        if overwrite_corrupt:
+            sql = (
+                "UPDATE rides SET start_lat = ?, start_lon = ? "
+                "WHERE id = ? AND (start_lat IS NULL OR ABS(start_lat - start_lon) < 1.0)"
+            )
+        else:
+            sql = (
+                "UPDATE rides SET start_lat = ?, start_lon = ? "
+                "WHERE id = ? AND start_lat IS NULL"
+            )
 
         def _update(c):
-            c.execute(
-                "UPDATE rides SET start_lat = ?, start_lon = ? WHERE id = ? AND start_lat IS NULL",
-                (lat, lon, ride_id),
-            )
+            c.execute(sql, (lat, lon, ride_id))
         if conn:
             _update(conn)
         else:
