@@ -31,7 +31,7 @@ This document serves as the top-level view of all active, planned, and completed
 **Tracking Plan:** `plans/feat-rides-search.md`
 - *Merged to main (`7b97931`); released as v1.12.3 on 2026-04-21.*
 - *Post-ship GPS bugfixes (Syria bug — ICU latlng stream normalization + FIT lap fallback) released as v1.12.5-beta; location display granularity fix (zoom=12, state_code) released as v1.12.6-beta.*
-- *Pending operator action: run `scripts/backfill_ride_start_geo.py --allow-remote` against prod DB to populate `start_lat/lon` for pre-Campaign-17 rides. Note: script currently produces `(lat, lat)` writes for ICU streams returned in the typed-entry shape — see KNOWN BUG header. Auto-apply via Campaign 23's data-migration framework deferred to follow-up PR after `_extract_streams` is fixed to read `data2`.*
+- *GPS backfill now auto-applies via Campaign 23's data-migration framework (`data_migrations/0001_backfill_ride_start_geo.py`); no operator follow-up required.*
 
 ### Campaign 16: Calendar Ride-Name Display (Completed)
 **Tracking Plan:** `plans/feat-calendar-ride-names.md`

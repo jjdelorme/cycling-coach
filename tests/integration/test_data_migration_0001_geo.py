@@ -149,3 +149,66 @@ def test_icu_disabled_env_var_short_circuits(monkeypatch, db_conn):
     monkeypatch.setenv("INTERVALS_ICU_DISABLED", "1")
     result = migration_module.run(conn=None)
     assert result == {"skipped": True, "reason": "icu_disabled"}
+
+
+# ---------------------------------------------------------------------------
+# End-to-end against a real ICU response shape — the test that would have
+# caught the (lat, lat) Syria-bug regression in the data migration before
+# it ran against svc-pgdb. Loads the sanitized fixture captured from
+# fetch_activity_streams("i134594382") (ride 2814, real location ~Taos, NM).
+# ---------------------------------------------------------------------------
+
+
+import json  # noqa: E402  (intentional grouping with the e2e test below)
+_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "icu_streams_typed_entries.json"
+)
+
+
+def test_migration_handles_real_icu_typed_entry_shape(monkeypatch, db_conn):
+    """Insert a ride with a NULL start_lat, monkeypatch fetch_activity_streams
+    to return the real typed-entry response from ride 2814, run the migration,
+    assert start_lat/lon land in the Taos, NM range — not (lat, lat) Syria.
+    """
+    monkeypatch.delenv("INTERVALS_ICU_DISABLED", raising=False)
+    monkeypatch.delenv("INTERVALS_ICU_DISABLE", raising=False)
+
+    fixture = json.loads(_FIXTURE_PATH.read_text())
+
+    db_conn.execute(
+        "DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename = ?)",
+        ("icu_geomig_typed_2814",),
+    )
+    db_conn.execute("DELETE FROM rides WHERE filename = ?", ("icu_geomig_typed_2814",))
+    db_conn.execute(
+        "INSERT INTO rides (filename, start_time, sport, duration_s,"
+        " distance_m, tss, total_ascent) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("icu_geomig_typed_2814", "2099-09-01 09:00:00+00", "Ride", 3600, 30000, 50, 100),
+    )
+    db_conn.commit()
+
+    from server.services import sync as sync_module
+    monkeypatch.setattr(sync_module, "fetch_activity_streams", lambda icu_id: fixture)
+
+    try:
+        counts = migration_module.run(conn=None, sleep_seconds=0.0)
+        assert counts["errors"] == 0
+        assert counts["backfilled"] >= 1
+
+        row = dict(db_conn.execute(
+            "SELECT start_lat, start_lon FROM rides WHERE filename = ?",
+            ("icu_geomig_typed_2814",),
+        ).fetchone())
+        lat, lon = row["start_lat"], row["start_lon"]
+        assert lat is not None and lon is not None
+        assert 36.5 < lat < 36.7, f"lat out of Taos range: {lat}"
+        assert -105.5 < lon < -105.4, f"lon out of Taos range: {lon}"
+        # Anti-regression: explicitly NOT the (lat, lat) Syria signature.
+        assert abs(lat - lon) >= 1.0, f"(lat, lat) corruption regressed: ({lat}, {lon})"
+    finally:
+        db_conn.execute(
+            "DELETE FROM ride_records WHERE ride_id IN (SELECT id FROM rides WHERE filename = ?)",
+            ("icu_geomig_typed_2814",),
+        )
+        db_conn.execute("DELETE FROM rides WHERE filename = ?", ("icu_geomig_typed_2814",))
+        db_conn.commit()
