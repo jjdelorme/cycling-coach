@@ -265,14 +265,16 @@ def _get_agent():
         get_athlete_nutrition_status,
         get_week_summary,
         list_workout_templates,
-        preload_memory_tool,
     ]
-    
+
     tools = [json_safe_tool(fn) for fn in raw_tools]
-    
-    # Add the AgentTool (which is a class instance, not a function, so it doesn't get wrapped)
+
+    # Tool *objects* (not functions) -- ADK introspects these via their own
+    # _get_declaration(); wrapping with json_safe_tool would set __wrapped__
+    # to the non-callable instance and break inspect.signature().
     tools.append(AgentTool(agent=get_nutritionist_agent()))
-    
+    tools.append(preload_memory_tool)
+
     for fn in _WRITE_TOOLS:
         tools.append(json_safe_tool(_permission_gate(fn)))
 

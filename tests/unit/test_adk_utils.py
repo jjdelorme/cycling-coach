@@ -95,3 +95,29 @@ def test_passes_arguments_through():
         return {"a": a, "b": b, "c": c}
 
     assert tool(1, 2, c=3) == {"a": 1, "b": 2, "c": 3}
+
+
+def test_rejects_adk_tool_objects():
+    """Regression: PreloadMemoryTool / AgentTool / GoogleSearchTool are
+    BaseTool instances (not functions). Wrapping them would crash later
+    in ADK schema generation. Fail fast at registration instead."""
+
+    class FakeAdkTool:
+        def _get_declaration(self):
+            return {}
+
+    with pytest.raises(TypeError, match="ADK tool object"):
+        json_safe_tool(FakeAdkTool())
+
+
+def test_rejects_non_function_callables():
+    """Plain class instances with __call__ are not regular functions and
+    should also be rejected — ADK expects either a tool object (handled
+    above) or a real function with introspectable signature."""
+
+    class CallableInstance:
+        def __call__(self, x):
+            return x
+
+    with pytest.raises(TypeError, match="expected a function"):
+        json_safe_tool(CallableInstance())
