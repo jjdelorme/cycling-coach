@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.13.6-beta] - 2026-04-24
+
+Hotfix for v1.13.5-beta: the coaching agent was returning HTTP 500 on every chat (e.g. the Analyze button on a ride) because Campaign 22's `json_safe_tool` wrapper was applied to `preload_memory_tool`, which is a `PreloadMemoryTool` *instance* rather than a function. `functools.wraps` set the wrapper's `__wrapped__` to that non-callable instance; ADK's schema generation then crashed with `TypeError: descriptor '__call__' for 'type' objects doesn't apply to a 'PreloadMemoryTool' object`.
+
+### Fixes
+- **fix(adk): don't json_safe_tool-wrap ADK tool objects** — `server/coaching/agent.py` now appends `preload_memory_tool` directly to the tools list alongside `AgentTool`, since both are tool *objects* that ADK introspects via their own `_get_declaration()` rather than `inspect.signature()`.
+- **fix(adk): json_safe_tool fails fast on non-functions** — the wrapper now raises a clear `TypeError` at registration time if handed a tool object (`hasattr(_get_declaration)`) or any other non-function callable. The next misuse of this pattern will fail at import, not at first chat.
+
+### Tests
+- 19 new test cases covering this regression class:
+  - `tests/unit/test_adk_utils.py`: 2 new cases for the `json_safe_tool` guard branches.
+  - `tests/unit/test_agent_tool_wiring.py`: `test_*_agent_tools_are_all_introspectable` for both agents — mirrors ADK's `inspect.signature` traversal so this failure mode is caught at registration. Verified to fail on the buggy code.
+  - `tests/e2e/09-agent-chat.spec.ts`: 2 Playwright smoke tests POSTing to `/api/coaching/chat` and `/api/nutrition/chat`. A 500 from schema generation now fails the e2e suite, not a user click.
+- Audit confirmed `_WRITE_TOOLS` in both agents are clean callable functions; `google_search` is imported in both files but never added to the tools list.
+
+### Test results
+- **422 unit tests pass** (was 418 in v1.13.4).
+- **230 integration tests pass** on shared svc-pgdb (3 pre-existing failures fixed at root in this campaign).
+- **114 Playwright e2e specs pass**, 2 skipped, 0 failed.
+
+### Notes
+- No schema or migration changes.
+- Pure backend fix; the v1.13.5-beta frontend bundle is unaffected and will continue to work against this build.
+
 ## [v1.13.5-beta] - 2026-04-24
 
 Campaign 22 (ADK tool serialization safety) plus a pair of nutritionist-agent UX fixes uncovered while testing the campaign.
