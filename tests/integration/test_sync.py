@@ -166,11 +166,12 @@ async def test_sync_generates_power_bests():
     
     with patch("server.services.sync.fetch_activities", return_value=[mock_activity]), \
          patch("server.services.sync.fetch_activity_streams", return_value=mock_streams), \
+         patch("server.services.sync.fetch_activity_fit_records", return_value=[]), \
          patch("server.services.sync.fetch_activity_fit_laps", return_value=[]), \
          patch("server.services.sync.get_watermark", return_value=None), \
          patch("server.services.sync.set_watermark"), \
          patch("server.services.sync._broadcast"):
-        
+
         sync_id = "test-pb-1"
         log_lines = []
         
@@ -293,11 +294,12 @@ async def test_sync_processes_fit_laps():
     
     with patch("server.services.sync.fetch_activities", return_value=[mock_activity]), \
          patch("server.services.sync.fetch_activity_streams", return_value=mock_streams), \
+         patch("server.services.sync.fetch_activity_fit_records", return_value=[]), \
          patch("server.services.sync.fetch_activity_fit_laps", return_value=mock_laps), \
          patch("server.services.sync.get_watermark", return_value=None), \
          patch("server.services.sync.set_watermark"), \
          patch("server.services.sync._broadcast"):
-        
+
         sync_id = "test-laps-1"
         log_lines = []
         
@@ -333,3 +335,219 @@ async def test_sync_processes_fit_laps():
             conn.execute("DELETE FROM ride_laps WHERE ride_id = %s", (ride_db_id,))
             conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_db_id,))
             conn.execute("DELETE FROM rides WHERE id = %s", (ride_db_id,))
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — FIT-primary GPS write path (Campaign 20 D1)
+# ---------------------------------------------------------------------------
+
+
+def _build_fit_records(n: int, lat: float, lon: float):
+    """Build ``n`` flat-shape FIT records spanning ``n`` seconds.
+
+    Mirrors the dict shape returned by ``fetch_activity_fit_records`` after
+    Phase 5. Used by the FIT-primary integration test to feed the
+    ``_store_records_or_fallback`` helper without requiring a real FIT file.
+    """
+    base = "2026-04-13T14:30:%02d+00:00"
+    records = []
+    for i in range(n):
+        records.append(
+            {
+                "timestamp_utc": base % (i % 60),
+                "power": 200,
+                "heart_rate": 140,
+                "cadence": 85,
+                "speed": 7.5,
+                "altitude": 1500.0 + i,
+                "distance": float(i * 7),
+                "lat": lat + i * 0.0001,
+                "lon": lon + i * 0.0001,
+                "temperature": 22,
+            }
+        )
+    return records
+
+
+def test_store_records_from_fit_writes_one_row_per_record(db_conn):
+    """``_store_records_from_fit`` deletes existing rows then inserts per-record."""
+    from server.services.sync import _store_records_from_fit
+
+    # Seed a ride row to attach records to.
+    res = db_conn.execute(
+        """INSERT INTO rides (start_time, filename, sport, duration_s, distance_m)
+           VALUES ('2026-04-13T14:30:00', 'icu_fit_primary_test_1', 'ride', 100, 0)
+           RETURNING id"""
+    ).fetchone()
+    ride_id = res["id"]
+    try:
+        # Pre-populate one bogus row to verify the DELETE-first idempotency.
+        db_conn.execute(
+            "INSERT INTO ride_records (ride_id, lat, lon) VALUES (%s, 0.0, 0.0)",
+            (ride_id,),
+        )
+
+        fit_records = _build_fit_records(10, lat=39.31, lon=-108.71)
+        count = _store_records_from_fit(ride_id, fit_records, conn=db_conn)
+        db_conn.commit()
+
+        assert count == 10
+        rows = db_conn.execute(
+            "SELECT lat, lon, power FROM ride_records WHERE ride_id = %s ORDER BY id",
+            (ride_id,),
+        ).fetchall()
+        assert len(rows) == 10
+        # First row's lat/lon match what we put in (NOT (0, 0) which was the
+        # pre-existing bogus row we expected DELETE to have removed).
+        assert rows[0]["lat"] == pytest.approx(39.31)
+        assert rows[0]["lon"] == pytest.approx(-108.71)
+        # Every row's lon is negative (US ride) — a sanity check that
+        # FIT lat/lon weren't accidentally swapped or both-set-to-lat.
+        assert all(r["lon"] < 0 for r in rows)
+    finally:
+        db_conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_id,))
+        db_conn.execute("DELETE FROM rides WHERE id = %s", (ride_id,))
+        db_conn.commit()
+
+
+def test_fit_primary_overrides_corrupt_streams_latlng(db_conn, monkeypatch):
+    """``_store_records_or_fallback`` writes FIT records and ignores the
+    streams ``latlng`` even when the streams payload is the lat-only
+    Variant B that produced the original Campaign 20 bug."""
+    from server.services import sync as sync_module
+    from server.services.sync import _store_records_or_fallback
+
+    # Seed the ride row we'll backfill.
+    res = db_conn.execute(
+        """INSERT INTO rides (start_time, filename, sport, duration_s, distance_m)
+           VALUES ('2026-04-13T14:30:00', 'icu_fit_primary_test_2', 'ride', 100, 0)
+           RETURNING id"""
+    ).fetchone()
+    ride_id = res["id"]
+    icu_id = "i_fit_primary_test_2"
+    try:
+        fake_fit_records = _build_fit_records(80, lat=39.75, lon=-108.71)
+
+        # Streams: a lat-only Variant B payload that would corrupt
+        # ride_records if it ever reached _store_streams.
+        fake_corrupt_streams = {
+            "time": list(range(80)),
+            "watts": [200] * 80,
+            "heartrate": [140] * 80,
+            # 160-element flat array of latitudes only — would normalise to
+            # (lat, lat) pairs under the existing parser.
+            "latlng": [39.75, 39.75] * 80,
+        }
+
+        monkeypatch.setattr(
+            sync_module,
+            "fetch_activity_fit_records",
+            lambda i: fake_fit_records,
+        )
+        monkeypatch.setattr(
+            sync_module,
+            "fetch_activity_streams",
+            lambda i: fake_corrupt_streams,
+        )
+
+        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
+        db_conn.commit()
+
+        assert gps_source == "fit"
+        # Streams dict still returned for the metric pipeline.
+        assert streams is not None
+        assert "watts" in streams
+
+        rows = db_conn.execute(
+            "SELECT lat, lon FROM ride_records WHERE ride_id = %s ORDER BY id",
+            (ride_id,),
+        ).fetchall()
+        assert len(rows) == 80
+        # Critically: no row has the (lat, lat) shape that the corrupt
+        # streams would have produced.
+        for r in rows:
+            assert r["lat"] is not None and r["lon"] is not None
+            # Lon must be negative (US ride) — proves we didn't accidentally
+            # write streams data.
+            assert r["lon"] < 0
+            # |lat - lon| > 100 → we have a real (lat, lon) pair, not (lat, lat).
+            assert abs(r["lat"] - r["lon"]) > 100
+    finally:
+        db_conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_id,))
+        db_conn.execute("DELETE FROM rides WHERE id = %s", (ride_id,))
+        db_conn.commit()
+
+
+def test_store_records_or_fallback_uses_streams_when_fit_unavailable(db_conn, monkeypatch):
+    """When FIT returns ``[]`` (e.g. 404 from /file), fall back to the
+    streams writer, which produces per-record rows from streams data."""
+    from server.services import sync as sync_module
+    from server.services.sync import _store_records_or_fallback
+
+    res = db_conn.execute(
+        """INSERT INTO rides (start_time, filename, sport, duration_s, distance_m)
+           VALUES ('2026-04-13T14:30:00', 'icu_fit_primary_test_3', 'ride', 100, 0)
+           RETURNING id"""
+    ).fetchone()
+    ride_id = res["id"]
+    icu_id = "i_fit_primary_test_3"
+    try:
+        clean_streams = {
+            "time": list(range(5)),
+            "watts": [200, 210, 220, 230, 240],
+            # Flat alternating lat/lon (the simple, correct shape).
+            "latlng": [39.75, -108.71, 39.751, -108.711, 39.752, -108.712,
+                       39.753, -108.713, 39.754, -108.714],
+        }
+
+        monkeypatch.setattr(sync_module, "fetch_activity_fit_records", lambda i: [])
+        monkeypatch.setattr(sync_module, "fetch_activity_streams", lambda i: clean_streams)
+
+        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
+        db_conn.commit()
+
+        assert gps_source == "streams"
+        assert streams is not None
+        rows = db_conn.execute(
+            "SELECT lat, lon FROM ride_records WHERE ride_id = %s ORDER BY id",
+            (ride_id,),
+        ).fetchall()
+        assert len(rows) == 5
+        assert rows[0]["lat"] == pytest.approx(39.75)
+        assert rows[0]["lon"] == pytest.approx(-108.71)
+    finally:
+        db_conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_id,))
+        db_conn.execute("DELETE FROM rides WHERE id = %s", (ride_id,))
+        db_conn.commit()
+
+
+def test_store_records_or_fallback_returns_none_when_both_fail(db_conn, monkeypatch):
+    """No FIT, no streams → ('none', None); no rows written, no exception."""
+    from server.services import sync as sync_module
+    from server.services.sync import _store_records_or_fallback
+
+    res = db_conn.execute(
+        """INSERT INTO rides (start_time, filename, sport, duration_s, distance_m)
+           VALUES ('2026-04-13T14:30:00', 'icu_fit_primary_test_4', 'ride', 100, 0)
+           RETURNING id"""
+    ).fetchone()
+    ride_id = res["id"]
+    icu_id = "i_fit_primary_test_4"
+    try:
+        monkeypatch.setattr(sync_module, "fetch_activity_fit_records", lambda i: [])
+        monkeypatch.setattr(sync_module, "fetch_activity_streams", lambda i: {})
+
+        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
+        db_conn.commit()
+
+        assert gps_source == "none"
+        assert streams is None
+        rows = db_conn.execute(
+            "SELECT * FROM ride_records WHERE ride_id = %s",
+            (ride_id,),
+        ).fetchall()
+        assert len(rows) == 0
+    finally:
+        db_conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_id,))
+        db_conn.execute("DELETE FROM rides WHERE id = %s", (ride_id,))
+        db_conn.commit()

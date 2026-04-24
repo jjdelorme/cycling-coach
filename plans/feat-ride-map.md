@@ -1646,11 +1646,32 @@ psql $CYCLING_COACH_DATABASE_URL -c "SELECT lat, lon FROM ride_records WHERE rid
 ```
 
 ### Phase 6 Definition of Done
-* `_store_records_or_fallback` exists, has unit + integration coverage.
-* Both bulk sync and single re-sync go through it.
-* Logging emits `gps_source=fit|streams|none` for every ride synced.
-* The FIT-vs-corrupt-streams integration test is green.
-* No regression in existing `test_sync_latlng.py` cases.
+* [x] `_store_records_or_fallback` exists, has integration coverage
+  (`test_sync.py::test_store_records_from_fit_writes_one_row_per_record`,
+  `test_fit_primary_overrides_corrupt_streams_latlng`,
+  `test_store_records_or_fallback_uses_streams_when_fit_unavailable`,
+  `test_store_records_or_fallback_returns_none_when_both_fail`).
+* [x] Both bulk sync (`_download_rides`) and single re-sync
+  (`single_sync.import_specific_activity`) go through it. The operational
+  `scripts/backfill_icu_streams.py` was switched too (Step 6.E).
+* [x] Logging emits structured `gps_source` event with
+  `source=fit|streams|none` for every ride synced. Streams-fallback path
+  also emits `gps_source_fallback_streams`; both-failed path emits
+  `gps_source_none`.
+* [x] The FIT-vs-corrupt-streams integration test is green
+  (`test_fit_primary_overrides_corrupt_streams_latlng` confirms an 80-pt
+  lat-only Variant B streams payload is ignored when FIT records resolve).
+* [x] No regression in existing `test_sync_latlng.py` cases (18/18 still
+  green); existing two FIT-laps integration tests updated to also mock
+  `fetch_activity_fit_records=[]` so they remain on the streams-fallback
+  branch and continue asserting their original behaviour.
+
+**Status: ✅ Implemented.** New helpers in `server/services/sync.py`,
+call-site changes in `server/services/sync.py::_download_rides` and
+`server/services/single_sync.py::import_specific_activity`, plus a
+matching update in `scripts/backfill_icu_streams.py`. Step 6.G manual
+smoke is **deferred to operator** — Phases 5-7 are code-only per the
+team-lead brief.
 
 ---
 

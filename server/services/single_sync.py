@@ -6,8 +6,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from server.database import get_db
 from server.logging_config import get_logger
-from server.services.intervals_icu import _get_credentials, fetch_activity_fit_laps, fetch_activity_streams, is_configured, map_activity_to_ride
-from server.services.sync import _enrich_laps_with_np, _extract_streams, _store_laps, _store_streams, _backfill_start_location, _backfill_start_from_laps
+from server.services.intervals_icu import _get_credentials, fetch_activity_fit_laps, is_configured, map_activity_to_ride
+from server.services.sync import _enrich_laps_with_np, _extract_streams, _store_laps, _store_records_or_fallback, _backfill_start_from_laps
 from server.metrics import process_ride_samples
 from server.queries import get_latest_metric
 from server.ingest import get_benchmark_for_date
@@ -87,15 +87,20 @@ async def import_specific_activity(icu_id):
             ride_id = res["id"]
             
         logger.info("single_sync_fetch_streams", icu_id=icu_id)
-        streams = fetch_activity_streams(icu_id)
+        # Campaign 20 D1 — FIT-records primary, streams fallback. Helper writes
+        # ride_records itself and returns the streams dict (still needed below
+        # for the metric pipeline's flat-list shape).
+        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=conn)
+        logger.info(
+            "single_sync_per_record_stored",
+            icu_id=icu_id,
+            ride_id=ride_id,
+            gps_source=gps_source,
+        )
         sport = ride_data.get("sport", "").lower()
         is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
         stream_map = {}
         if streams:
-            logger.info("single_sync_storing_streams", icu_id=icu_id, ride_id=ride_id)
-            _store_streams(ride_id, streams, conn=conn)
-            _backfill_start_location(ride_id, streams, conn=conn)
-
             stream_map = _extract_streams(streams)
             raw_powers = stream_map.get("watts", []) if is_cycling else []
             raw_hrs = stream_map.get("heartrate", [])
