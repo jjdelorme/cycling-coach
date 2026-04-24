@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.13.7-beta] - 2026-04-24
+
+Two nutritionist-UX fixes uncovered while testing v1.13.6-beta on the meal-plan screen.
+
+### Features
+- **feat(nutrition-ui): "Plan This Day" plans in place** — the empty-state button on the meal-plan day detail used to open the chat panel with a pre-filled prompt, requiring the user to hit Enter to actually create the plan. It now invokes `/api/nutrition/chat` directly via `useNutritionistChat`, shows a spinner + "Planning…" label (with a one-line note that the agent is checking training load and dietary preferences and will take 10–20 seconds), and auto-refreshes the day view via the existing `['meal-plan-day']` query invalidation. The agent's response text is rendered inline below the button — with an alert icon when no plan was actually persisted (e.g. when the hallucinated-persistence guard from v1.13.6 fired).
+
+### Fixes
+- **fix(nutrition-ui): "Ask a question" works when the chat panel is already open** — clicking the per-meal "Ask a question" button while the chat was already open did nothing visible. The handoff state updated, but `NutritionistPanel`'s one-shot `sentInitialRef` short-circuited the consumer effect, so the new chip never appeared. Two-part fix: (1) `nutritionist-handoff.tsx` now exposes a `requestNonce` that increments on every `open()` call (React's `setState` dedupes by value, so without a nonce a repeat click on the same meal can't be detected); (2) `NutritionistPanel.tsx` consumes per-request — if the panel is empty it just swaps the chip in place; if a conversation is already in flight it starts a new session (clears messages/sessionId/input) and surfaces the chip in the fresh chat. The previous session is still listed in Recent Sessions, so no conversation is lost.
+
+### Notes
+- Pure frontend change. No backend, schema, env-var, or dependency changes.
+- Layout and CoachPanel forward `requestNonce` through the existing prop chain; no API surface changes outside the new optional prop.
+
 ## [v1.13.6-beta] - 2026-04-24
 
 Hotfix for v1.13.5-beta: the coaching agent was returning HTTP 500 on every chat (e.g. the Analyze button on a ride) because Campaign 22's `json_safe_tool` wrapper was applied to `preload_memory_tool`, which is a `PreloadMemoryTool` *instance* rather than a function. `functools.wraps` set the wrapper's `__wrapped__` to that non-callable instance; ADK's schema generation then crashed with `TypeError: descriptor '__call__' for 'type' objects doesn't apply to a 'PreloadMemoryTool' object`.
