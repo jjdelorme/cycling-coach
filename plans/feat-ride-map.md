@@ -1934,6 +1934,16 @@ fields.
 * `tests/integration/test_backfill_corrupt_gps.py` — **new** —
   drives `run_backfill(dry_run=True)` and `run_backfill(dry_run=False)`
   against the test DB with monkeypatched ICU/FIT responses.
+* `server/services/intervals_icu.py` — **edit** — fold in the
+  FIT-download dedup that was deferred from Phase 5 (Q1 in the
+  Resolved Open Questions section). Add `fetch_activity_fit_all(icu_id)
+  -> {laps, records}` that downloads the FIT once and returns both,
+  then update `_store_records_or_fallback` to use it. Saves ~500 ms
+  per ride × N rides during the backfill sweep — that is the call
+  site where the perf cost actually compounds. Engineer punted from
+  Phase 5 (auditor accepted) on the basis that it buys nothing
+  material until the backfill runs; bundling here ties the
+  optimization to the work where it pays off.
 
 ### Step-by-step
 
