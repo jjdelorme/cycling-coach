@@ -231,6 +231,63 @@ test.describe('Rides — ride detail', () => {
     await expect(page.locator('.maplibregl-marker').first()).toBeVisible({ timeout: 5_000 })
   })
 
+  test('renders the GPS-corruption banner instead of the map when the API returns lat==lon records', async ({ page }) => {
+    // Phase 10 / D4 — frontend safeguard. We monkey-patch the
+    // /api/rides/:id response so the records all trip the corruption
+    // signature (lat == lon, more than 60 records, > 50% suspect). The
+    // <RideMap> component must short-circuit, render the banner copy
+    // verbatim from D7, and NOT mount a MapLibre canvas.
+    //
+    // We replace ONLY the records[] field on the existing ride detail
+    // payload so every other downstream component (timeline chart,
+    // metric cards, AI coaching, …) keeps working. That keeps this
+    // test focused on the safeguard in isolation.
+    const corruptRecords = Array.from({ length: 100 }, (_, i) => ({
+      timestamp_utc: `2026-04-22T10:00:${String(i % 60).padStart(2, '0')}Z`,
+      power: 200,
+      heart_rate: 140,
+      cadence: 85,
+      speed: 7.5,
+      altitude: 1500,
+      distance: i * 7,
+      lat: 39.75,
+      lon: 39.75,  // lat == lon — the D4 signature.
+      temperature: 22,
+    }))
+
+    await page.route(/\/api\/rides\/\d+(?:\?.*)?$/, async (route) => {
+      const response = await route.fetch()
+      let payload: Record<string, unknown>
+      try {
+        payload = await response.json()
+      } catch {
+        return route.continue()
+      }
+      payload.records = corruptRecords
+      return route.fulfill({
+        response,
+        json: payload,
+      })
+    })
+
+    // Force the lazy <RideMap> chunk to re-fetch the patched payload by
+    // navigating fresh; the beforeEach already opened a ride, but we
+    // installed the route AFTER that, so reload is needed.
+    await page.reload()
+    await expect(page.getByText('DURATION', { exact: false }).first()).toBeVisible({ timeout: 15_000 })
+
+    // Banner copy locked by D7 — exact match.
+    await expect(
+      page.getByText('GPS data appears corrupted for this ride.', { exact: false }),
+    ).toBeVisible({ timeout: 12_000 })
+    await expect(
+      page.getByText(/Re-sync this ride to fix/i),
+    ).toBeVisible()
+
+    // Critical: the polyline must NOT render (better than wrong GPS).
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)
+  })
+
   test('drag-selecting a time range on the chart surfaces the Reset Zoom affordance', async ({ page }) => {
     // The drag-zoom selection on the chart (which Phase 4 also propagates to
     // the map for highlight + auto-fit) shows a "Reset Zoom" button as soon

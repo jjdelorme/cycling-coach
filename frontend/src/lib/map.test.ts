@@ -5,6 +5,9 @@ import {
   buildLapIndexMap,
   lapRecordRange,
   sliceCoords,
+  detectGpsCorruption,
+  MIN_GPS_RECORDS_FOR_DETECTION,
+  CORRUPTION_RATIO_THRESHOLD,
 } from './map'
 import type { RideLap } from '../types/api'
 
@@ -285,5 +288,50 @@ describe('drag-zoom + lap highlight composition', () => {
         ? sliceCoords(records, 0, 0)
         : []
     expect(slice).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detectGpsCorruption (Phase 10 / D4)
+//
+// Mirrors the backend constants in `server/services/sync.py`:
+//   MIN_GPS_RECORDS_FOR_DETECTION = 60
+//   GPS_CORRUPTION_RATIO_THRESHOLD = 0.5
+// Same numeric values must live on both sides — backend write-time guard
+// (Phase 7), backfill detector (Phase 9), and this frontend safeguard.
+// ---------------------------------------------------------------------------
+
+describe('detectGpsCorruption', () => {
+  it('returns { total: 0, suspect: 0, corrupt: false } for an empty array', () => {
+    expect(detectGpsCorruption([])).toEqual({ total: 0, suspect: 0, corrupt: false })
+  })
+
+  it('flags 100 records with lat ≈ lon as corrupt', () => {
+    const records = Array.from({ length: 100 }, () => ({ lat: 39.75, lon: 39.75 }))
+    const result = detectGpsCorruption(records)
+    expect(result.total).toBe(100)
+    expect(result.suspect).toBe(100)
+    expect(result.corrupt).toBe(true)
+  })
+
+  it('passes 100 real US records (lat positive, lon negative) as not corrupt', () => {
+    const records = Array.from({ length: 100 }, () => ({ lat: 39.75, lon: -105.3 }))
+    const result = detectGpsCorruption(records)
+    expect(result.total).toBe(100)
+    expect(result.suspect).toBe(0)
+    expect(result.corrupt).toBe(false)
+  })
+
+  it('does NOT flag 30 lat ≈ lon records — below the MIN_GPS_RECORDS gate', () => {
+    const records = Array.from({ length: 30 }, () => ({ lat: 39.75, lon: 39.75 }))
+    const result = detectGpsCorruption(records)
+    expect(result.total).toBe(30)
+    expect(result.corrupt).toBe(false)
+  })
+
+  it('exposes the threshold constants for cross-module reuse', () => {
+    // Locked at the same numeric values as the backend constants.
+    expect(MIN_GPS_RECORDS_FOR_DETECTION).toBe(60)
+    expect(CORRUPTION_RATIO_THRESHOLD).toBe(0.5)
   })
 })

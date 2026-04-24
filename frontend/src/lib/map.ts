@@ -38,6 +38,53 @@ export const MAP_STYLE: string | StyleSpecification =
   ?? DEFAULT_RASTER_STYLE
 
 /**
+ * Campaign 20 D4 — GPS corruption-detection thresholds. Three call sites
+ * share these numeric values: the backend write-time guard
+ * (`server/services/sync.py:38-39`), the historical backfill detector
+ * (`scripts/backfill_corrupt_gps.py`), and this frontend safeguard.
+ * Bumping either constant requires updating all three sites.
+ */
+export const MIN_GPS_RECORDS_FOR_DETECTION = 60
+export const CORRUPTION_RATIO_THRESHOLD = 0.5
+
+/**
+ * Detect the D4 corruption signature on a list of per-record GPS points.
+ *
+ * The signature: too many records where `|lat - lon| < 1°`. That pattern
+ * is what a botched lat-only Variant B parse produced — the streams
+ * payload had only latitudes, the parser paired adjacent latitudes as
+ * `(lat, lat)`, and the resulting "GPS" points all sit on the y=x diagonal.
+ *
+ * A ride is flagged `corrupt` iff:
+ *   - it has at least `MIN_GPS_RECORDS_FOR_DETECTION` (60) GPS points, AND
+ *   - the fraction of suspect records exceeds `CORRUPTION_RATIO_THRESHOLD`
+ *     (0.5).
+ *
+ * Records missing either coordinate are not counted toward `total` or
+ * `suspect`. The MIN gate avoids false positives on tiny test fixtures
+ * and very short rides — same posture the backend takes.
+ */
+export function detectGpsCorruption(
+  records: Array<{ lat?: number | null; lon?: number | null }>,
+): { corrupt: boolean; total: number; suspect: number } {
+  let total = 0
+  let suspect = 0
+  for (const r of records) {
+    if (typeof r.lat === 'number' && typeof r.lon === 'number') {
+      total++
+      if (Math.abs(r.lat - r.lon) < 1.0) suspect++
+    }
+  }
+  return {
+    total,
+    suspect,
+    corrupt:
+      total >= MIN_GPS_RECORDS_FOR_DETECTION
+      && suspect / total > CORRUPTION_RATIO_THRESHOLD,
+  }
+}
+
+/**
  * Reduce records to at most maxPoints `[lon, lat]` pairs (GeoJSON order)
  * by uniform stride sampling. Skips records with null lat/lon.
  *

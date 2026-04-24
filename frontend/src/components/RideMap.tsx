@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Map as MapIcon } from 'lucide-react'
+import { AlertTriangle, Map as MapIcon } from 'lucide-react'
 import type { RideRecord, RideLap } from '../types/api'
 import {
   MAP_STYLE,
   decimatePolyline,
+  detectGpsCorruption,
   polylineBounds,
   lapRecordRange,
   sliceCoords,
@@ -69,6 +70,12 @@ export default function RideMap({
 
   const coords = useMemo(() => decimatePolyline(records, 600), [records])
   const fullBounds = useMemo(() => polylineBounds(coords), [coords])
+  // Campaign 20 D4 — frontend safeguard. If the per-record GPS trips the
+  // corruption signature (≥60 records, >50% with |lat-lon|<1°), render a
+  // banner instructing the operator to re-sync rather than displaying a
+  // wrong polyline. Wraps the same numeric thresholds as the backend
+  // write-time guard and the historical backfill detector.
+  const corruption = useMemo(() => detectGpsCorruption(records), [records])
 
   // ── Map init / teardown ────────────────────────────────────────────────
   useEffect(() => {
@@ -206,6 +213,26 @@ export default function RideMap({
       map.once('load', apply)
     }
   }, [selectedLap, selectedTimeRange, records, laps, fullBounds])
+
+  if (corruption.corrupt) {
+    // D7 — exact copy locked in plan: do NOT auto-trigger a re-sync, just
+    // explain the action so the user knows where to fix it. The map is
+    // intentionally NOT rendered (better than a wrong polyline).
+    // Theme note: there is no `warning` color token in the index.css
+    // palette, so we use `yellow` (the existing "caution" hue at #f5c518)
+    // which is what other warning-style UIs in this codebase reach for.
+    return (
+      <section className="bg-surface rounded-xl border border-yellow/30 p-6 text-center">
+        <AlertTriangle size={28} className="mx-auto mb-3 text-yellow" />
+        <p className="text-xs font-medium text-yellow">
+          GPS data appears corrupted for this ride.
+        </p>
+        <p className="text-[11px] text-text-muted mt-1">
+          Re-sync this ride to fix (Settings → Sync → Re-sync this ride).
+        </p>
+      </section>
+    )
+  }
 
   if (coords.length < 2) {
     return (
