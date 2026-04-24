@@ -95,10 +95,14 @@ test.describe('Calendar', () => {
     if (hasCells > 0) {
       await rideCell.click()
       await page.waitForTimeout(1_000)
-      // Should show ride metrics like Duration, TSS, Avg Power
-      await expect(page.getByText('Duration', { exact: false }).or(
-        page.getByText('TSS', { exact: false })
-      )).toBeVisible({ timeout: 5_000 })
+      // Should show ride metrics in the day-detail panel. "Duration" only
+      // appears as a panel label (cell badges show "TSS" but not "Duration"),
+      // so it's a panel-specific signal. Multiple rides on the same day
+      // produce multiple "Duration" labels — .first() satisfies strict mode
+      // while still proving the panel rendered.
+      await expect(
+        page.getByText('Duration', { exact: true }).first()
+      ).toBeVisible({ timeout: 5_000 })
     }
   })
 
