@@ -38,12 +38,18 @@ steps:
       - '/workspace/cloud-sql-proxy'
       - 'https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64'
 
-  # Run database migrations via Cloud SQL Proxy.
+  # Run database + data migrations via Cloud SQL Proxy.
   # The Cloud SQL instance (project:region:instance) is parsed out of the
   # connection-string secret's host=/cloudsql/... param so there is no
   # hardcoded region in this file.
+  #
+  # Schema migrations (server.migrate) run first, then data migrations
+  # (server.data_migrate). Both run under a single proxy instance — merging
+  # avoids a second proxy startup race and shares one container pull.
+  # Timeout raised to 1200s to accommodate ICU-rate-limited backfills.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'migrate'
+    timeout: '1200s'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -80,7 +86,7 @@ steps:
           -v /workspace/cloudsql:/cloudsql \
           -e CYCLING_COACH_DATABASE_URL="$$CYCLING_COACH_DATABASE_URL" \
           ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$$(cat /workspace/TAG_VERSION) \
-          python -m server.migrate
+          bash -c "python -m server.migrate && python -m server.data_migrate"
 
         EXIT_CODE=$$?
         kill $$PROXY_PID 2>/dev/null

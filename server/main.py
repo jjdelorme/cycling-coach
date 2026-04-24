@@ -54,6 +54,23 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("JWT_SECRET is required when GOOGLE_AUTH_ENABLED=true. "
                            "Set it via environment variable or Secret Manager.")
     logger.info("Starting cycling-coach", version=APP_VERSION)
+
+    # Local-dev affordance: auto-apply pending data migrations on boot so a
+    # fresh `uvicorn server.main:app --reload` matches the prod shape (where
+    # Cloud Build runs `python -m server.data_migrate` before traffic flips).
+    # Failures are logged, not fatal — operators run the CLI explicitly in prod.
+    try:
+        import psycopg2
+        from server.config import DATABASE_URL
+        from server.data_migrate import run_data_migrations
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            run_data_migrations(conn)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("data_migrations_startup_failed", error=str(exc))
+
     yield
     logger.info("Shutting down cycling-coach")
     telemetry_shutdown()
