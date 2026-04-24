@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.13.5-beta] - 2026-04-24
+
+Campaign 22 (ADK tool serialization safety) plus a pair of nutritionist-agent UX fixes uncovered while testing the campaign.
+
+### Features — Campaign 22: ADK Tool Serialization Safety
+- **feat(utils): `json_safe_tool` wrapper** — new `server/utils/adk.py` decorator that wraps any agent tool's return value through `pydantic_core.to_jsonable_python`, converting `date` / `datetime` / `UUID` / `Decimal` / nested structures into JSON-serializable forms before the ADK passes them to `json.dumps()`. Uses `functools.wraps` so the original signature, docstring, and type hints are preserved for Gemini schema generation.
+- **fix(adk): apply `json_safe_tool` dynamically to all agent tools** — both the Coaching agent (`server/coaching/agent.py`) and Nutritionist agent (`server/nutrition/agent.py`) now wrap every read tool with `json_safe_tool` and every write tool with `json_safe_tool(_permission_gate(fn))` at registration time. The `AgentTool(agent=…)` delegation wrapper is intentionally left unwrapped since it's a class instance, not a function. Eliminates the `TypeError: Object of type date is not JSON serializable` class of crashes without leaking serialization concerns into business logic.
+
+### Features — Nutritionist UX
+- **fix(nutrition-agent): guard against hallucinated meal-plan persistence** — the agent was emitting prose like "I have persisted this plan to your dashboard" without actually calling `generate_meal_plan`, leaving the dashboard empty while the user believed the plan was saved. Two layered defenses: (1) strengthened `MEAL PLANNING PROTOCOL` system instruction with a `CRITICAL` header explaining that the dashboard reads from the DB and chat text is invisible there, plus an explicit prohibition on persistence-claim phrases unless the corresponding write tool returned `status=success` in the same turn; (2) server-side guardrail in `chat()` that detects first-person/passive persistence claims tied to a plan/meal noun via two conservative regex patterns; if no write tool was called this turn but a claim was made, the response is replaced with an honest "did not save" message and a `nutritionist_hallucinated_persistence` warning is logged.
+- **feat(nutrition-ui): show incoming context as removable chip above input** — when a `MacroCard`'s "Ask Nutritionist" button pre-loaded the chat with context, the entire context blob was dumped into the textarea, forcing the user to scroll/edit around it. Now the context surfaces as a read-only chip with an `X` button above the textarea; on send, the message body combines them as `Context:\n<chip>\n\nQuestion: <input>` so the agent sees the same content. Retry preserves the original sent payload while displaying just the user's question in the bubble.
+
+### Tests
+- **111 Playwright e2e specs pass** (2 pre-existing skips, 0 fail).
+- **418 unit tests pass** — added 19 new tests in `tests/unit/test_nutrition_agent.py` covering the `_claims_persistence` regex (8 positive + 9 benign cases) and three `chat()` override paths (claim+no-write → override; claim+write → keep; no-claim → keep).
+- **230 integration tests pass on shared `svc-pgdb`** — fixed three pre-existing tests that were brittle outside the local Podman flow:
+  - `test_ride_local_date_derivation`: added `ON CONFLICT (filename) DO NOTHING` to its first INSERT to match every sibling test in the file.
+  - `test_get_pmc_metrics_by_date`: replaced hard-coded `ctl > 40` against the bundled seed with a behavior assertion — pick the date from the DB's actual `daily_metrics` rows and verify the `date=` parameter routes to *that* row.
+  - `test_mint_token_user_not_found`: set `JWT_SECRET` in the subprocess env so the user-lookup branch is reached (the CLI checks `JWT_SECRET` first and short-circuits).
+
+### Notes
+- No schema or migration changes.
+- No new env vars or dependencies; `pydantic_core` was already pulled in transitively.
+- Removes the previous fragile workarounds (manual `_serialize_dates` recursion in nutrition tools, scattered `::TEXT` SQL casts and `str(row['date'])` calls in coaching tools) at the registration boundary.
+
 ## [v1.13.4] - 2026-04-23
 
 Hotfix release for the prev/next-day navigation regression on ride/workout detail pages introduced by Campaign 18 in v1.13.0.
