@@ -19,6 +19,7 @@ from server.queries import get_latest_metric
 from server.services.intervals_icu import (
     compute_sync_hash,
     fetch_activities,
+    fetch_activity_fit_all,
     fetch_activity_fit_laps,
     fetch_activity_fit_records,
     fetch_activity_streams,
@@ -496,25 +497,38 @@ def _store_records_from_fit(ride_id: int, fit_records: list[dict], conn) -> int:
 
 def _store_records_or_fallback(
     ride_id: int, icu_id: str, conn
-) -> tuple[str, dict | None]:
+) -> tuple[str, dict | None, list[dict] | None]:
     """Decide FIT-vs-streams for per-record GPS, write the records, return the
-    chosen source plus the streams dict (or ``None``) so callers that still
-    need the metric pipeline don't re-fetch.
+    chosen source plus the streams dict (or ``None``) AND the FIT laps
+    extracted from the same FIT download so callers don't re-download.
 
-    Returns:
-        ``("fit", streams_dict)`` — FIT records were used (D1-primary path).
-            ``streams_dict`` is still fetched separately so the downstream
-            metric pipeline (which expects the streams flat-list shape) can
-            consume it. May be ``None`` if the streams call also failed.
-        ``("fallback_streams", streams_dict)`` — FIT was unavailable
-            (or returned ``[]``) and the streams writer was used as the
-            D1 fallback.
-        ``("none", None)`` — both FIT and streams failed; no per-record rows
-            were written. This is the rare degraded-but-tolerated path.
+    Returns a 3-tuple:
+        ``("fit", streams_dict, fit_laps)`` — FIT records were used
+            (D1-primary path). ``streams_dict`` is still fetched separately
+            so the downstream metric pipeline (which expects the streams
+            flat-list shape) can consume it. May be ``None`` if the
+            streams call also failed. ``fit_laps`` is the laps list from
+            the same FIT file we just used for records (may be ``[]`` if
+            the file genuinely has no laps).
+        ``("fallback_streams", streams_dict, None)`` — FIT was
+            unavailable (or returned no records) and the streams writer
+            was used as the D1 fallback. ``fit_laps`` is ``None``
+            (caller may still try ``fetch_activity_fit_laps`` separately
+            — a separate retry is cheap and may succeed if the FIT file
+            exists but had no record messages).
+        ``("none", None, None)`` — both FIT and streams failed; no
+            per-record rows were written. This is the rare
+            degraded-but-tolerated path.
 
     The decision-and-write happens in a single helper so both the bulk
     ``_download_rides`` and the per-ride ``single_sync.import_specific_activity``
     paths converge on identical behaviour.
+
+    Phase 9 (Campaign 20) dedup: this function now uses
+    ``fetch_activity_fit_all`` so a single FIT HTTP download yields both
+    the per-record series (consumed here) and the laps (returned so the
+    caller can skip its own ``fetch_activity_fit_laps`` round-trip).
+    Saves ~500 ms per ride on the bulk-sync hot path.
 
     Note: when FIT is the source we deliberately do NOT call
     ``_backfill_start_location`` from streams — the streams ``latlng``
@@ -528,10 +542,14 @@ def _store_records_or_fallback(
     matches the function's return value exactly so a single Cloud Logging
     filter ``jsonPayload.event="gps_source"`` covers all three sources.
     """
-    # Step 1 — try FIT records first (D1-primary).
+    # Step 1 — try FIT first (D1-primary). Single download yields both
+    # records and laps (Phase 9 dedup).
     fit_records: list[dict] = []
+    fit_laps: list[dict] = []
     try:
-        fit_records = fetch_activity_fit_records(icu_id) or []
+        fit_data = fetch_activity_fit_all(icu_id) or {"laps": [], "records": []}
+        fit_records = fit_data.get("records") or []
+        fit_laps = fit_data.get("laps") or []
     except Exception as e:
         logger.warning(
             "fit_records_fetch_failed",
@@ -539,6 +557,7 @@ def _store_records_or_fallback(
             error=str(e),
         )
         fit_records = []
+        fit_laps = []
 
     if fit_records:
         _store_records_from_fit(ride_id, fit_records, conn)
@@ -557,7 +576,7 @@ def _store_records_or_fallback(
                 error=str(e),
             )
             streams = None
-        return ("fit", streams)
+        return ("fit", streams, fit_laps)
 
     # Step 2 — FIT unavailable. Fall back to streams (D1-fallback).
     streams = None
@@ -580,7 +599,7 @@ def _store_records_or_fallback(
         )
         _store_streams(ride_id, streams, conn=conn)
         _backfill_start_location(ride_id, streams, conn=conn)
-        return ("fallback_streams", streams)
+        return ("fallback_streams", streams, None)
 
     # Step 3 — both failed.
     logger.warning(
@@ -589,7 +608,7 @@ def _store_records_or_fallback(
         source="none",
         icu_id=icu_id,
     )
-    return ("none", None)
+    return ("none", None, None)
 
 
 def _backfill_start_location(ride_id: int, streams, conn=None):
@@ -833,6 +852,11 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                 sport = ride.get("sport", "").lower()
                 is_cycling = sport in ('ride', 'ebikeride', 'emountainbikeride', 'gravelride', 'mountainbikeride', 'trackride', 'velomobile', 'virtualride', 'handcycle', 'cycling')
                 stream_map = {}
+                # FIT laps populated by _store_records_or_fallback (Phase 9
+                # dedup); falls back to a separate fetch_activity_fit_laps
+                # call below when FIT was unavailable for records or the
+                # records call raised before assignment.
+                fit_laps: list[dict] | None = None
                 try:
                     t_stream = time.monotonic()
                     # Campaign 20 D1 — FIT records are the primary source for
@@ -840,7 +864,7 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                     # the FIT file is unavailable. The helper writes ride_records
                     # itself and returns the streams dict (still needed below for
                     # the metric pipeline's flat-list shape).
-                    gps_source, streams = await asyncio.to_thread(
+                    gps_source, streams, fit_laps = await asyncio.to_thread(
                         _store_records_or_fallback, ride_db_id, icu_id, conn
                     )
                     log_lines.append(_tlog(f"  + stored per-record data via {gps_source} for {ride_date_str} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
@@ -945,9 +969,16 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                     logger.warning("streams_fetch_failed", icu_id=icu_id, error=str(se))
                     log_lines.append(_tlog(f"  ! {err}"))
 
-                # Fetch and store device laps from FIT file
+                # Fetch and store device laps from FIT file. Phase 9 dedup:
+                # if _store_records_or_fallback already extracted laps from
+                # the same FIT download, reuse them — saves one HTTP
+                # round-trip per ride. Fall back to a fresh fetch if FIT
+                # records were unavailable (fit_laps will be None).
                 try:
-                    laps = await asyncio.to_thread(fetch_activity_fit_laps, icu_id)
+                    if fit_laps is not None:
+                        laps = fit_laps
+                    else:
+                        laps = await asyncio.to_thread(fetch_activity_fit_laps, icu_id)
                     if laps:
                         # Calculate NP per lap from stream power data
                         if is_cycling and stream_map:

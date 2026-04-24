@@ -439,10 +439,14 @@ def test_fit_primary_overrides_corrupt_streams_latlng(db_conn, monkeypatch):
             "latlng": [39.75, 39.75] * 80,
         }
 
+        # Phase 9 dedup: _store_records_or_fallback now calls
+        # fetch_activity_fit_all (one HTTP round-trip for both records and
+        # laps). Patch that single source rather than the legacy split
+        # records helper.
         monkeypatch.setattr(
             sync_module,
-            "fetch_activity_fit_records",
-            lambda i: fake_fit_records,
+            "fetch_activity_fit_all",
+            lambda i: {"laps": [], "records": fake_fit_records},
         )
         monkeypatch.setattr(
             sync_module,
@@ -450,13 +454,16 @@ def test_fit_primary_overrides_corrupt_streams_latlng(db_conn, monkeypatch):
             lambda i: fake_corrupt_streams,
         )
 
-        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
+        gps_source, streams, fit_laps = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
         db_conn.commit()
 
         assert gps_source == "fit"
         # Streams dict still returned for the metric pipeline.
         assert streams is not None
         assert "watts" in streams
+        # Laps from the same FIT call are propagated (empty list here, but
+        # not None — None would mean FIT was unavailable).
+        assert fit_laps == []
 
         rows = db_conn.execute(
             "SELECT lat, lon FROM ride_records WHERE ride_id = %s ORDER BY id",
@@ -500,14 +507,20 @@ def test_store_records_or_fallback_uses_streams_when_fit_unavailable(db_conn, mo
                        39.753, -108.713, 39.754, -108.714],
         }
 
-        monkeypatch.setattr(sync_module, "fetch_activity_fit_records", lambda i: [])
+        monkeypatch.setattr(
+            sync_module,
+            "fetch_activity_fit_all",
+            lambda i: {"laps": [], "records": []},
+        )
         monkeypatch.setattr(sync_module, "fetch_activity_streams", lambda i: clean_streams)
 
-        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
+        gps_source, streams, fit_laps = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
         db_conn.commit()
 
         assert gps_source == "fallback_streams"
         assert streams is not None
+        # No FIT records → laps are None (caller can re-try fetch_activity_fit_laps).
+        assert fit_laps is None
         rows = db_conn.execute(
             "SELECT lat, lon FROM ride_records WHERE ride_id = %s ORDER BY id",
             (ride_id,),
@@ -534,14 +547,19 @@ def test_store_records_or_fallback_returns_none_when_both_fail(db_conn, monkeypa
     ride_id = res["id"]
     icu_id = "i_fit_primary_test_4"
     try:
-        monkeypatch.setattr(sync_module, "fetch_activity_fit_records", lambda i: [])
+        monkeypatch.setattr(
+            sync_module,
+            "fetch_activity_fit_all",
+            lambda i: {"laps": [], "records": []},
+        )
         monkeypatch.setattr(sync_module, "fetch_activity_streams", lambda i: {})
 
-        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
+        gps_source, streams, fit_laps = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
         db_conn.commit()
 
         assert gps_source == "none"
         assert streams is None
+        assert fit_laps is None
         rows = db_conn.execute(
             "SELECT * FROM ride_records WHERE ride_id = %s",
             (ride_id,),

@@ -90,7 +90,7 @@ async def import_specific_activity(icu_id):
         # Campaign 20 D1 — FIT-records primary, streams fallback. Helper writes
         # ride_records itself and returns the streams dict (still needed below
         # for the metric pipeline's flat-list shape).
-        gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=conn)
+        gps_source, streams, fit_laps = _store_records_or_fallback(ride_id, icu_id, conn=conn)
         logger.info(
             "single_sync_per_record_stored",
             icu_id=icu_id,
@@ -166,10 +166,13 @@ async def import_specific_activity(icu_id):
             logger.warning("single_sync_no_streams", icu_id=icu_id)
             logger.info("single_sync_complete", icu_id=icu_id, sport=ride_data.get("sport"), tss=ride_data.get("tss"), has_power=False)
 
-        # Fetch and store device laps from FIT file
+        # Fetch and store device laps from FIT file. Phase 9 dedup: reuse
+        # the laps that _store_records_or_fallback already extracted from
+        # the same FIT download when available; fall back to a separate
+        # fetch otherwise.
         try:
             conn.execute("DELETE FROM ride_laps WHERE ride_id = %(id)s", {"id": ride_id})
-            laps = fetch_activity_fit_laps(icu_id)
+            laps = fit_laps if fit_laps is not None else fetch_activity_fit_laps(icu_id)
             if laps:
                 # Calculate NP per lap from stream power data
                 if streams and is_cycling and stream_map:

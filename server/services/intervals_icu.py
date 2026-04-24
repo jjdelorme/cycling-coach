@@ -271,23 +271,13 @@ def _open_fit(activity_id: str):
             pass
 
 
-def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
-    """Download the original FIT file from intervals.icu and extract device laps.
+def _lap_messages_to_dicts(activity_id: str, fit_laps) -> list[dict]:
+    """Convert fitparse ``lap`` messages into the flat dicts our DB consumes.
 
-    Returns the actual device-recorded laps (e.g. manual lap presses on a Garmin)
-    by parsing the original FIT file.
+    Extracted so ``fetch_activity_fit_laps`` and ``fetch_activity_fit_all``
+    (Phase 9 dedup) can share the same projection logic — only the FIT
+    download/open is different between them.
     """
-    with _open_fit(activity_id) as fitfile:
-        if fitfile is None:
-            return []
-        try:
-            fit_laps = list(fitfile.get_messages("lap"))
-        except Exception as e:
-            logger.warning(
-                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
-            )
-            return []
-
     laps = []
     for i, lap in enumerate(fit_laps):
         fields = {f.name: f.value for f in lap.fields}
@@ -333,6 +323,26 @@ def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
     return laps
 
 
+def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
+    """Download the original FIT file from intervals.icu and extract device laps.
+
+    Returns the actual device-recorded laps (e.g. manual lap presses on a Garmin)
+    by parsing the original FIT file.
+    """
+    with _open_fit(activity_id) as fitfile:
+        if fitfile is None:
+            return []
+        try:
+            fit_laps = list(fitfile.get_messages("lap"))
+        except Exception as e:
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            return []
+
+    return _lap_messages_to_dicts(activity_id, fit_laps)
+
+
 def _fit_timestamp_to_iso_utc(value) -> str | None:
     """Convert a fitparse ``record.timestamp`` value to an ISO-8601 UTC string.
 
@@ -354,6 +364,54 @@ def _fit_timestamp_to_iso_utc(value) -> str | None:
         # Already a string — pass through; the downstream column is TEXT.
         return value
     return None
+
+
+def _record_messages_to_dicts(activity_id: str, fit_records) -> list[dict]:
+    """Convert fitparse ``record`` messages into the flat dicts our DB consumes.
+
+    Extracted so ``fetch_activity_fit_records`` and
+    ``fetch_activity_fit_all`` (Phase 9 dedup) share the same projection
+    logic — only the FIT download/open is different between them.
+    """
+    records: list[dict] = []
+    for msg in fit_records:
+        fields = {f.name: f.value for f in msg.fields}
+
+        ts = _fit_timestamp_to_iso_utc(fields.get("timestamp"))
+        if ts is None:
+            # Defensive: a record with no timestamp is unusable downstream
+            # (no way to align it with the time-series in metrics).
+            continue
+
+        speed = fields.get("enhanced_speed")
+        if speed is None:
+            speed = fields.get("speed")
+
+        altitude = fields.get("enhanced_altitude")
+        if altitude is None:
+            altitude = fields.get("altitude")
+
+        records.append(
+            {
+                "timestamp_utc": ts,
+                "power": fields.get("power"),
+                "heart_rate": fields.get("heart_rate"),
+                "cadence": fields.get("cadence"),
+                "speed": speed,
+                "altitude": altitude,
+                "distance": fields.get("distance"),
+                "lat": _semicircles_to_degrees(fields.get("position_lat")),
+                "lon": _semicircles_to_degrees(fields.get("position_long")),
+                "temperature": fields.get("temperature"),
+            }
+        )
+
+    logger.info(
+        "icu_fit_records_extracted",
+        activity_id=activity_id,
+        record_count=len(records),
+    )
+    return records
 
 
 def fetch_activity_fit_records(activity_id: str) -> list[dict]:
@@ -405,45 +463,53 @@ def fetch_activity_fit_records(activity_id: str) -> list[dict]:
             )
             return []
 
-    records: list[dict] = []
-    for msg in fit_records:
-        fields = {f.name: f.value for f in msg.fields}
+    return _record_messages_to_dicts(activity_id, fit_records)
 
-        ts = _fit_timestamp_to_iso_utc(fields.get("timestamp"))
-        if ts is None:
-            # Defensive: a record with no timestamp is unusable downstream
-            # (no way to align it with the time-series in metrics).
-            continue
 
-        speed = fields.get("enhanced_speed")
-        if speed is None:
-            speed = fields.get("speed")
+def fetch_activity_fit_all(activity_id: str) -> dict:
+    """Download the intervals.icu FIT file once; return both lap and record extracts.
 
-        altitude = fields.get("enhanced_altitude")
-        if altitude is None:
-            altitude = fields.get("altitude")
+    The same FIT file is parsed twice (once for ``lap`` messages, once for
+    ``record`` messages) but downloaded only once via ``_open_fit``. Saves
+    one HTTP round-trip per ride compared with calling
+    ``fetch_activity_fit_laps`` and ``fetch_activity_fit_records``
+    back-to-back — the perf cost compounds on the bulk-sync hot path and
+    on the Phase 9 backfill sweep, where this helper is the call site.
 
-        records.append(
-            {
-                "timestamp_utc": ts,
-                "power": fields.get("power"),
-                "heart_rate": fields.get("heart_rate"),
-                "cadence": fields.get("cadence"),
-                "speed": speed,
-                "altitude": altitude,
-                "distance": fields.get("distance"),
-                "lat": _semicircles_to_degrees(fields.get("position_lat")),
-                "lon": _semicircles_to_degrees(fields.get("position_long")),
-                "temperature": fields.get("temperature"),
-            }
-        )
+    Returns:
+        ``{"laps": list[dict], "records": list[dict]}`` — both lists
+        have the same shape the single-purpose helpers emit. On any
+        download or parse failure the helper returns
+        ``{"laps": [], "records": []}`` (matches the empty-list sentinel
+        both single-purpose helpers already use).
+    """
+    with _open_fit(activity_id) as fitfile:
+        if fitfile is None:
+            return {"laps": [], "records": []}
+        try:
+            fit_laps = list(fitfile.get_messages("lap"))
+        except Exception as e:  # noqa: BLE001 — fitparse can raise many shapes
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            fit_laps = []
+        try:
+            fit_records = list(fitfile.get_messages("record"))
+        except fitparse.FitParseError as e:
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            fit_records = []
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            fit_records = []
 
-    logger.info(
-        "icu_fit_records_extracted",
-        activity_id=activity_id,
-        record_count=len(records),
-    )
-    return records
+    return {
+        "laps": _lap_messages_to_dicts(activity_id, fit_laps),
+        "records": _record_messages_to_dicts(activity_id, fit_records),
+    }
 
 
 def map_activity_to_ride(activity: dict) -> dict | None:
