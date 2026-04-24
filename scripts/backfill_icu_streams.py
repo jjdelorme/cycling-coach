@@ -2,8 +2,8 @@ import asyncio
 import logging
 import time
 from server.database import get_db
-from server.services.intervals_icu import fetch_activity_streams, is_configured
-from server.services.sync import _extract_streams, _store_streams, _backfill_start_location
+from server.services.intervals_icu import is_configured
+from server.services.sync import _extract_streams, _store_records_or_fallback
 from server.metrics import process_ride_samples
 from server.queries import get_latest_metric
 from server.ingest import get_benchmark_for_date
@@ -12,7 +12,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 async def backfill_icu_streams():
-    """Find ICU-synced rides missing stream data or metrics and fix them."""
+    """Find ICU-synced rides missing stream data or metrics and fix them.
+
+    FIT-primary, streams-fallback per Campaign 20 D1. ride_records is rewritten
+    from the ICU FIT file when available; falls back to the streams writer
+    (with the Phase 7 hardened parser) only when FIT is unavailable.
+    """
     if not is_configured():
         logger.error("Intervals.icu is not configured. Set API key and Athlete ID in Settings.")
         return
@@ -49,20 +54,28 @@ async def backfill_icu_streams():
         logger.info(f"Processing ride {ride_date} ({filename}) - {record_count} records, {pb_count} power bests...")
         
         try:
-            # Fetch streams
-            streams = fetch_activity_streams(icu_id)
-            if not streams:
-                logger.warning(f"No streams found for {icu_id}")
-                continue
-                
             with get_db() as conn:
-                # 1. Store streams if missing
+                # 1. Store per-record data (FIT-primary, streams-fallback).
+                #    The helper deletes existing ride_records first inside its
+                #    INSERT path so re-running this script is idempotent.
                 if record_count == 0:
-                    # Clear old records just in case
-                    conn.execute("DELETE FROM ride_records WHERE ride_id = %s", (ride_id,))
-                    _store_streams(ride_id, streams, conn=conn)
-                    _backfill_start_location(ride_id, streams, conn=conn)
-                    
+                    gps_source, streams = _store_records_or_fallback(
+                        ride_id, icu_id, conn=conn
+                    )
+                    logger.info(
+                        f"  per-record source for {icu_id}: {gps_source}"
+                    )
+                else:
+                    # Records already exist — only fetch streams here for the
+                    # metric-pipeline path below; do not rewrite ride_records.
+                    from server.services.intervals_icu import (
+                        fetch_activity_streams,
+                    )
+                    streams = fetch_activity_streams(icu_id)
+                if not streams:
+                    logger.warning(f"No streams found for {icu_id}")
+                    continue
+
                 # 2. Recalculate metrics
                 stream_map = _extract_streams(streams)
                 raw_powers = stream_map.get("watts", [])

@@ -1,5 +1,6 @@
 """intervals.icu API integration for syncing workouts and downloading rides."""
 
+import contextlib
 import hashlib
 import os
 import tempfile
@@ -219,11 +220,20 @@ def _semicircles_to_degrees(val):
 
 
 
-def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
-    """Download the original FIT file from intervals.icu and extract device laps.
+@contextlib.contextmanager
+def _open_fit(activity_id: str):
+    """Download the intervals.icu FIT file and yield a parsed ``fitparse.FitFile``.
 
-    Returns the actual device-recorded laps (e.g. manual lap presses on a Garmin)
-    by parsing the original FIT file.
+    The download + tempfile + parse + cleanup dance is identical for every
+    consumer (laps and per-record GPS), so it lives in one place. Yields:
+
+        * ``fitparse.FitFile`` instance when the download succeeded and the
+          file parsed cleanly.
+        * ``None`` when the download returned non-200 OR ``fitparse`` raised
+          (logged at WARNING). Callers should handle ``None`` by returning
+          their empty-list sentinel.
+
+    The temp file is always unlinked on exit, even on parse failure.
     """
     api_key, athlete_id = _get_credentials()
     if not (api_key and athlete_id):
@@ -233,24 +243,50 @@ def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
     resp = httpx.get(url, auth=("API_KEY", api_key), timeout=60.0)
 
     if resp.status_code != 200:
-        logger.warning("icu_fit_download_failed", activity_id=activity_id, status=resp.status_code)
-        return []
+        logger.warning(
+            "icu_fit_download_failed",
+            activity_id=activity_id,
+            status=resp.status_code,
+        )
+        yield None
+        return
 
     fd, tmp_path = tempfile.mkstemp(suffix=".fit")
+    fitfile = None
     try:
         os.write(fd, resp.content)
         os.close(fd)
-
-        fitfile = fitparse.FitFile(tmp_path)
-        fit_laps = list(fitfile.get_messages("lap"))
-    except Exception as e:
-        logger.warning("icu_fit_parse_failed", activity_id=activity_id, error=str(e))
-        return []
+        try:
+            fitfile = fitparse.FitFile(tmp_path)
+        except Exception as e:
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            fitfile = None
+        yield fitfile
     finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
+
+
+def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
+    """Download the original FIT file from intervals.icu and extract device laps.
+
+    Returns the actual device-recorded laps (e.g. manual lap presses on a Garmin)
+    by parsing the original FIT file.
+    """
+    with _open_fit(activity_id) as fitfile:
+        if fitfile is None:
+            return []
+        try:
+            fit_laps = list(fitfile.get_messages("lap"))
+        except Exception as e:
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            return []
 
     laps = []
     for i, lap in enumerate(fit_laps):
@@ -295,6 +331,119 @@ def fetch_activity_fit_laps(activity_id: str) -> list[dict]:
 
     logger.info("icu_fit_laps_extracted", activity_id=activity_id, lap_count=len(laps))
     return laps
+
+
+def _fit_timestamp_to_iso_utc(value) -> str | None:
+    """Convert a fitparse ``record.timestamp`` value to an ISO-8601 UTC string.
+
+    fitparse usually returns a ``datetime`` (the FIT spec stores timestamps
+    as seconds since the FIT epoch in UTC). Some malformed files have
+    naive datetimes; we explicitly tag those with UTC rather than emitting
+    a timezone-less ISO string. Returns ``None`` when the value is missing
+    or not a recognised type.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat()
+    if isinstance(value, str):
+        # Already a string — pass through; the downstream column is TEXT.
+        return value
+    return None
+
+
+def fetch_activity_fit_records(activity_id: str) -> list[dict]:
+    """Download the intervals.icu FIT file and extract per-second ``record`` messages.
+
+    Returns a list of dicts in the same flat shape ``parse_ride_json`` builds
+    today, ready for ``_store_records_from_fit`` (Phase 6) to consume::
+
+        {
+            "timestamp_utc": str | None,  # ISO-8601 UTC
+            "power":         int | None,
+            "heart_rate":    int | None,
+            "cadence":       int | None,
+            "speed":         float | None,  # m/s, raw (smoothed in Phase 8)
+            "altitude":      float | None,  # m
+            "distance":      float | None,  # m
+            "lat":           float | None,  # degrees
+            "lon":           float | None,  # degrees
+            "temperature":   float | None,
+        }
+
+    Field-source rules (Campaign 20 D1):
+      * ``speed``    = ``record.enhanced_speed`` ?? ``record.speed``
+      * ``altitude`` = ``record.enhanced_altitude`` ?? ``record.altitude``
+      * ``lat``/``lon`` are converted from semicircles via
+        ``_semicircles_to_degrees``.
+
+    Returns ``[]`` (never raises) when:
+      * the FIT file is unavailable (non-200),
+      * ``fitparse`` throws while opening the file, or
+      * the file contains zero ``record`` messages.
+
+    Records that are missing a ``timestamp`` field are skipped defensively
+    (extremely rare in practice).
+    """
+    with _open_fit(activity_id) as fitfile:
+        if fitfile is None:
+            return []
+        try:
+            fit_records = list(fitfile.get_messages("record"))
+        except fitparse.FitParseError as e:
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            return []
+        except Exception as e:
+            logger.warning(
+                "icu_fit_parse_failed", activity_id=activity_id, error=str(e)
+            )
+            return []
+
+    records: list[dict] = []
+    for msg in fit_records:
+        fields = {f.name: f.value for f in msg.fields}
+
+        ts = _fit_timestamp_to_iso_utc(fields.get("timestamp"))
+        if ts is None:
+            # Defensive: a record with no timestamp is unusable downstream
+            # (no way to align it with the time-series in metrics).
+            continue
+
+        speed = fields.get("enhanced_speed")
+        if speed is None:
+            speed = fields.get("speed")
+
+        altitude = fields.get("enhanced_altitude")
+        if altitude is None:
+            altitude = fields.get("altitude")
+
+        records.append(
+            {
+                "timestamp_utc": ts,
+                "power": fields.get("power"),
+                "heart_rate": fields.get("heart_rate"),
+                "cadence": fields.get("cadence"),
+                "speed": speed,
+                "altitude": altitude,
+                "distance": fields.get("distance"),
+                "lat": _semicircles_to_degrees(fields.get("position_lat")),
+                "lon": _semicircles_to_degrees(fields.get("position_long")),
+                "temperature": fields.get("temperature"),
+            }
+        )
+
+    logger.info(
+        "icu_fit_records_extracted",
+        activity_id=activity_id,
+        record_count=len(records),
+    )
+    return records
 
 
 def map_activity_to_ride(activity: dict) -> dict | None:

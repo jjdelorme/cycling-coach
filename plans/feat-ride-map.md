@@ -1458,14 +1458,19 @@ All 6 cases must pass. The pre-existing `tests/unit/test_fit_laps.py`
 must still pass (refactor regression guard).
 
 ### Phase 5 Definition of Done
-* `fetch_activity_fit_records` exists, is exported, has a docstring
+* [x] `fetch_activity_fit_records` exists, is exported, has a docstring
   matching D1's field semantics.
-* `fetch_activity_fit_laps` shares the FIT-download path with the
+* [x] `fetch_activity_fit_laps` shares the FIT-download path with the
   new function and still returns identical output (regression-tested).
-* Unit-test coverage for the 6 cases above.
-* No call site changes anywhere — `git grep
-  fetch_activity_fit_records server` returns only the definition and
-  its tests.
+* [x] Unit-test coverage for the 6 cases above (8 cases shipped — added
+  zero-records and missing-timestamp defensive cases).
+* [x] No call site changes anywhere — `git grep
+  fetch_activity_fit_records server` returns only the definition.
+
+**Status: ✅ Implemented in `server/services/intervals_icu.py` (refactored
+`_open_fit` context manager + new `fetch_activity_fit_records`) + new
+`tests/unit/test_intervals_icu_fit_records.py` (8 cases). All 18
+existing FIT-laps tests + 18 streams-latlng tests still green.**
 
 ---
 
@@ -1641,11 +1646,32 @@ psql $CYCLING_COACH_DATABASE_URL -c "SELECT lat, lon FROM ride_records WHERE rid
 ```
 
 ### Phase 6 Definition of Done
-* `_store_records_or_fallback` exists, has unit + integration coverage.
-* Both bulk sync and single re-sync go through it.
-* Logging emits `gps_source=fit|streams|none` for every ride synced.
-* The FIT-vs-corrupt-streams integration test is green.
-* No regression in existing `test_sync_latlng.py` cases.
+* [x] `_store_records_or_fallback` exists, has integration coverage
+  (`test_sync.py::test_store_records_from_fit_writes_one_row_per_record`,
+  `test_fit_primary_overrides_corrupt_streams_latlng`,
+  `test_store_records_or_fallback_uses_streams_when_fit_unavailable`,
+  `test_store_records_or_fallback_returns_none_when_both_fail`).
+* [x] Both bulk sync (`_download_rides`) and single re-sync
+  (`single_sync.import_specific_activity`) go through it. The operational
+  `scripts/backfill_icu_streams.py` was switched too (Step 6.E).
+* [x] Logging emits structured `gps_source` event with
+  `source=fit|streams|none` for every ride synced. Streams-fallback path
+  also emits `gps_source_fallback_streams`; both-failed path emits
+  `gps_source_none`.
+* [x] The FIT-vs-corrupt-streams integration test is green
+  (`test_fit_primary_overrides_corrupt_streams_latlng` confirms an 80-pt
+  lat-only Variant B streams payload is ignored when FIT records resolve).
+* [x] No regression in existing `test_sync_latlng.py` cases (18/18 still
+  green); existing two FIT-laps integration tests updated to also mock
+  `fetch_activity_fit_records=[]` so they remain on the streams-fallback
+  branch and continue asserting their original behaviour.
+
+**Status: ✅ Implemented.** New helpers in `server/services/sync.py`,
+call-site changes in `server/services/sync.py::_download_rides` and
+`server/services/single_sync.py::import_specific_activity`, plus a
+matching update in `scripts/backfill_icu_streams.py`. Step 6.G manual
+smoke is **deferred to operator** — Phases 5-7 are code-only per the
+team-lead brief.
 
 ---
 
@@ -1774,13 +1800,30 @@ pytest tests/unit/test_sync_latlng.py -v
 All existing 18 cases plus 4 new = 22 cases green.
 
 ### Phase 7 Definition of Done
-* `_normalize_latlng` returns `[]` for the lat-only variant.
-* `_store_streams` refuses to write rows that would trip the D4
-  signature.
-* Existing test suite untouched + 4 new green tests.
-* Two new structured-log channels (`latlng_lat_only_payload_detected`,
+* [x] `_normalize_latlng` returns `[]` for the lat-only variant
+  (n>=60, both halves statistically still latitudes).
+* [x] `_store_streams` refuses to write rows that would trip the D4
+  signature (guard runs after parser, before INSERT; non-GPS columns
+  are still written so power/HR/cadence aren't lost).
+* [x] Existing test suite untouched + 4 new green tests
+  (22/22 green in `tests/unit/test_sync_latlng.py`).
+* [x] Two new structured-log channels (`latlng_lat_only_payload_detected`,
   `streams_latlng_corruption_guard_triggered`) emit so we can
   monitor in Cloud Logging post-deploy.
+
+**Status: ✅ Implemented.** Plan placement note: the lat-only detector
+had to be hoisted to run BEFORE the existing concatenated-format
+branch (not between concat and alternating as the plan originally
+sketched), because the concatenated detector's `abs(r0 - r1) < 1°`
+trigger ALSO matches lat-only payloads (consecutive latitudes are
+always within 1° of each other) and would fire first. Gating the
+new detector on the same `r0 ≈ r1` proximity means legitimate
+alternating data — where lat and lon differ by far more than 1° for
+any real outdoor ride — is never inspected. The constants
+`MIN_GPS_RECORDS_FOR_DETECTION = 60` and
+`GPS_CORRUPTION_RATIO_THRESHOLD = 0.5` are defined once at module
+scope in `server/services/sync.py` for re-use by Phase 9 (backfill)
+and the `_store_streams` guard.
 
 ---
 
@@ -1891,6 +1934,16 @@ fields.
 * `tests/integration/test_backfill_corrupt_gps.py` — **new** —
   drives `run_backfill(dry_run=True)` and `run_backfill(dry_run=False)`
   against the test DB with monkeypatched ICU/FIT responses.
+* `server/services/intervals_icu.py` — **edit** — fold in the
+  FIT-download dedup that was deferred from Phase 5 (Q1 in the
+  Resolved Open Questions section). Add `fetch_activity_fit_all(icu_id)
+  -> {laps, records}` that downloads the FIT once and returns both,
+  then update `_store_records_or_fallback` to use it. Saves ~500 ms
+  per ride × N rides during the backfill sweep — that is the call
+  site where the perf cost actually compounds. Engineer punted from
+  Phase 5 (auditor accepted) on the basis that it buys nothing
+  material until the backfill runs; bundling here ties the
+  optimization to the work where it pays off.
 
 ### Step-by-step
 

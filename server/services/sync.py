@@ -20,6 +20,7 @@ from server.services.intervals_icu import (
     compute_sync_hash,
     fetch_activities,
     fetch_activity_fit_laps,
+    fetch_activity_fit_records,
     fetch_activity_streams,
     fetch_calendar_events,
     find_matching_workout,
@@ -29,6 +30,13 @@ from server.services.intervals_icu import (
 )
 
 logger = get_logger(__name__)
+
+# Campaign 20 D4 — corruption-detection signature constants. Three call
+# sites share this single source of truth: the streams-write guard below
+# (Phase 7), the historical backfill detector (Phase 9), and the frontend
+# safeguard (Phase 10 — duplicates the constants in TypeScript).
+MIN_GPS_RECORDS_FOR_DETECTION = 60
+GPS_CORRUPTION_RATIO_THRESHOLD = 0.5
 
 # In-memory registry of active sync runs and their subscribers
 _active_syncs: dict[str, dict] = {}
@@ -251,6 +259,45 @@ def _normalize_latlng(raw) -> list[tuple[float, float]]:
     n = len(raw)
     r0 = raw[0] if n >= 1 else None
     r1 = raw[1] if n >= 2 else None
+
+    # Phase 7 (Campaign 20) — "lat-only" Variant B detector. Observed on
+    # ride 3238 (2026-04-22): the ICU /streams endpoint sometimes returns
+    # only latitudes — every value across the whole array is in the
+    # latitude range, with no longitudes anywhere. Both the concatenated
+    # detector and the alternating-pairs fallback below would otherwise
+    # emit garbage (lat, lat) pairs from such a payload.
+    #
+    # This detector runs FIRST because the concatenated branch's
+    # `abs(r0 - r1) < 1°` trigger ALSO matches lat-only (consecutive
+    # latitudes are always within 1° of each other). We gate on the same
+    # proximity so legitimate alternating data — where r0 (lat) and r1
+    # (lon) differ by far more than 1° for any real outdoor ride — is
+    # never inspected here.
+    #
+    # Confidence: requires n >= 60 samples and a population-level test
+    # (mean of the second half is itself a latitude AND within 5° of the
+    # mean of the first half). Real concatenated payloads have a second
+    # half of longitudes — populations are statistically distinct.
+    if (n >= 60
+            and r0 is not None and r1 is not None
+            and r0 != 0.0 and r1 != 0.0
+            and abs(r0) <= 90 and abs(r1) <= 90
+            and abs(r0 - r1) < 1.0):
+        half = n // 2
+        first_half = [v for v in raw[:half] if isinstance(v, (int, float))]
+        second_half = [v for v in raw[half:] if isinstance(v, (int, float))]
+        if first_half and second_half:
+            avg_first = sum(first_half) / len(first_half)
+            avg_second = sum(second_half) / len(second_half)
+            if abs(avg_first - avg_second) < 5.0 and abs(avg_second) <= 90:
+                logger.warning(
+                    "latlng_lat_only_payload_detected",
+                    n=n,
+                    first_half_avg=round(avg_first, 3),
+                    second_half_avg=round(avg_second, 3),
+                )
+                return []
+
     # Detect concatenated [all_lats..., all_lons...] format: both raw[0] and
     # raw[1] must be non-None, non-zero (GPS fix, not the 0.0 Garmin no-lock
     # sentinel), in valid latitude range, and within 1° of each other
@@ -266,6 +313,7 @@ def _normalize_latlng(raw) -> list[tuple[float, float]]:
             for i in range(half)
             if raw[i] is not None and raw[half + i] is not None
         ]
+
     # Flat alternating floats — discard a trailing odd element and None pairs.
     return [
         (raw[i], raw[i + 1])
@@ -320,6 +368,28 @@ def _store_streams(ride_id: int, streams: dict | list, conn=None):
     # (see _normalize_latlng for both shapes).
     latlng_pairs = _normalize_latlng(latlng_raw)
 
+    # Belt-and-suspenders: if the parser returned pairs that nonetheless
+    # trip the D4 corruption signature, refuse to write them. The map will
+    # then render as "no GPS" (indoor placeholder), which is far better
+    # than rendering wrong GPS. The MIN_GPS_RECORDS gate avoids
+    # false-positives on tiny test fixtures and very short rides.
+    if len(latlng_pairs) >= MIN_GPS_RECORDS_FOR_DETECTION:
+        suspect = sum(
+            1
+            for lat, lon in latlng_pairs
+            if lat is not None
+            and lon is not None
+            and abs(lat - lon) < 1.0
+        )
+        if suspect / len(latlng_pairs) > GPS_CORRUPTION_RATIO_THRESHOLD:
+            logger.warning(
+                "streams_latlng_corruption_guard_triggered",
+                ride_id=ride_id,
+                total=len(latlng_pairs),
+                suspect=suspect,
+            )
+            latlng_pairs = []
+
     n = len(time_data)
     rows = []
     for i in range(n):
@@ -352,6 +422,160 @@ def _store_streams(ride_id: int, streams: dict | list, conn=None):
         with get_db() as c:
             _insert(c)
     logger.info("streams_stored", ride_id=ride_id, record_count=len(rows))
+
+
+def _store_records_from_fit(ride_id: int, fit_records: list[dict], conn) -> int:
+    """Insert FIT-derived per-record rows for ``ride_id``; returns count written.
+
+    Replaces any existing ``ride_records`` for this ride id (DELETE first,
+    then INSERT) so the call is safe to re-run during a re-sync. The caller
+    owns the transaction — no implicit ``commit`` here.
+
+    The input dicts are the flat shape returned by
+    ``server.services.intervals_icu.fetch_activity_fit_records`` (Phase 5).
+    Column order matches the existing ``_store_streams`` INSERT verbatim so
+    downstream selectors keep working.
+    """
+    conn.execute("DELETE FROM ride_records WHERE ride_id = ?", (ride_id,))
+
+    if not fit_records:
+        logger.info(
+            "gps_source",
+            ride_id=ride_id,
+            source="fit",
+            record_count=0,
+        )
+        return 0
+
+    rows = [
+        (
+            ride_id,
+            r.get("timestamp_utc"),
+            r.get("power"),
+            r.get("heart_rate"),
+            r.get("cadence"),
+            r.get("speed"),
+            r.get("altitude"),
+            r.get("distance"),
+            r.get("lat"),
+            r.get("lon"),
+            r.get("temperature"),
+        )
+        for r in fit_records
+    ]
+
+    conn.executemany(
+        "INSERT INTO ride_records (ride_id, timestamp_utc, power, heart_rate, cadence, "
+        "speed, altitude, distance, lat, lon, temperature) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+
+    logger.info(
+        "gps_source",
+        ride_id=ride_id,
+        source="fit",
+        record_count=len(rows),
+    )
+    return len(rows)
+
+
+def _store_records_or_fallback(
+    ride_id: int, icu_id: str, conn
+) -> tuple[str, dict | None]:
+    """Decide FIT-vs-streams for per-record GPS, write the records, return the
+    chosen source plus the streams dict (or ``None``) so callers that still
+    need the metric pipeline don't re-fetch.
+
+    Returns:
+        ``("fit", streams_dict)`` — FIT records were used (D1-primary path).
+            ``streams_dict`` is still fetched separately so the downstream
+            metric pipeline (which expects the streams flat-list shape) can
+            consume it. May be ``None`` if the streams call also failed.
+        ``("fallback_streams", streams_dict)`` — FIT was unavailable
+            (or returned ``[]``) and the streams writer was used as the
+            D1 fallback.
+        ``("none", None)`` — both FIT and streams failed; no per-record rows
+            were written. This is the rare degraded-but-tolerated path.
+
+    The decision-and-write happens in a single helper so both the bulk
+    ``_download_rides`` and the per-ride ``single_sync.import_specific_activity``
+    paths converge on identical behaviour.
+
+    Note: when FIT is the source we deliberately do NOT call
+    ``_backfill_start_location`` from streams — the streams ``latlng``
+    might be the corrupt lat-only Variant B that triggered Campaign 20.
+    Ride-level ``start_lat``/``start_lon`` is set later by
+    ``_backfill_start_from_laps`` (FIT lap GPS, authoritative).
+
+    Logging (D2 — provenance via logs, not schema): every successful per-record
+    write emits a single ``gps_source`` structured event with a ``source``
+    field whose value is one of ``"fit" | "fallback_streams" | "none"`` —
+    matches the function's return value exactly so a single Cloud Logging
+    filter ``jsonPayload.event="gps_source"`` covers all three sources.
+    """
+    # Step 1 — try FIT records first (D1-primary).
+    fit_records: list[dict] = []
+    try:
+        fit_records = fetch_activity_fit_records(icu_id) or []
+    except Exception as e:
+        logger.warning(
+            "fit_records_fetch_failed",
+            icu_id=icu_id,
+            error=str(e),
+        )
+        fit_records = []
+
+    if fit_records:
+        _store_records_from_fit(ride_id, fit_records, conn)
+
+        # Streams are still needed for the metric pipeline's flat-list shape
+        # (process_ride_samples expects power/HR/cadence as lists). Don't
+        # tear out the metrics path here — fetch streams in addition to
+        # writing records from FIT.
+        streams: dict | None = None
+        try:
+            streams = fetch_activity_streams(icu_id) or None
+        except Exception as e:
+            logger.warning(
+                "streams_fetch_after_fit_failed",
+                icu_id=icu_id,
+                error=str(e),
+            )
+            streams = None
+        return ("fit", streams)
+
+    # Step 2 — FIT unavailable. Fall back to streams (D1-fallback).
+    streams = None
+    try:
+        streams = fetch_activity_streams(icu_id) or None
+    except Exception as e:
+        logger.warning(
+            "streams_fetch_failed",
+            icu_id=icu_id,
+            error=str(e),
+        )
+        streams = None
+
+    if streams:
+        logger.warning(
+            "gps_source",
+            ride_id=ride_id,
+            source="fallback_streams",
+            reason="fit_unavailable",
+        )
+        _store_streams(ride_id, streams, conn=conn)
+        _backfill_start_location(ride_id, streams, conn=conn)
+        return ("fallback_streams", streams)
+
+    # Step 3 — both failed.
+    logger.warning(
+        "gps_source",
+        ride_id=ride_id,
+        source="none",
+        icu_id=icu_id,
+    )
+    return ("none", None)
 
 
 def _backfill_start_location(ride_id: int, streams, conn=None):
@@ -597,13 +821,16 @@ async def _download_rides(sync_id: str, log_lines: list[str], conn) -> tuple[int
                 stream_map = {}
                 try:
                     t_stream = time.monotonic()
-                    streams = await asyncio.to_thread(fetch_activity_streams, icu_id)
+                    # Campaign 20 D1 — FIT records are the primary source for
+                    # per-record GPS/power/HR/etc. Streams are the fallback when
+                    # the FIT file is unavailable. The helper writes ride_records
+                    # itself and returns the streams dict (still needed below for
+                    # the metric pipeline's flat-list shape).
+                    gps_source, streams = await asyncio.to_thread(
+                        _store_records_or_fallback, ride_db_id, icu_id, conn
+                    )
+                    log_lines.append(_tlog(f"  + stored per-record data via {gps_source} for {ride_date_str} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
                     if streams:
-                        _store_streams(ride_db_id, streams, conn=conn)
-                        # Backfill start_lat/start_lon from stream GPS data
-                        _backfill_start_location(ride_db_id, streams, conn=conn)
-                        log_lines.append(_tlog(f"  + stored stream data for {ride_date_str} ({(time.monotonic()-t_stream)*1000:.0f}ms)"))
-
                         # Step 3.A: Process ride samples for metrics and power bests
                         stream_map = _extract_streams(streams)
                         raw_powers = stream_map.get("watts", []) if is_cycling else []
