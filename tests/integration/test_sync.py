@@ -506,7 +506,7 @@ def test_store_records_or_fallback_uses_streams_when_fit_unavailable(db_conn, mo
         gps_source, streams = _store_records_or_fallback(ride_id, icu_id, conn=db_conn)
         db_conn.commit()
 
-        assert gps_source == "streams"
+        assert gps_source == "fallback_streams"
         assert streams is not None
         rows = db_conn.execute(
             "SELECT lat, lon FROM ride_records WHERE ride_id = %s ORDER BY id",

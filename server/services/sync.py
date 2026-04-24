@@ -492,8 +492,9 @@ def _store_records_or_fallback(
             ``streams_dict`` is still fetched separately so the downstream
             metric pipeline (which expects the streams flat-list shape) can
             consume it. May be ``None`` if the streams call also failed.
-        ``("streams", streams_dict)`` — FIT was unavailable (or returned ``[]``)
-            and the streams writer was used as the D1 fallback.
+        ``("fallback_streams", streams_dict)`` — FIT was unavailable
+            (or returned ``[]``) and the streams writer was used as the
+            D1 fallback.
         ``("none", None)`` — both FIT and streams failed; no per-record rows
             were written. This is the rare degraded-but-tolerated path.
 
@@ -506,6 +507,12 @@ def _store_records_or_fallback(
     might be the corrupt lat-only Variant B that triggered Campaign 20.
     Ride-level ``start_lat``/``start_lon`` is set later by
     ``_backfill_start_from_laps`` (FIT lap GPS, authoritative).
+
+    Logging (D2 — provenance via logs, not schema): every successful per-record
+    write emits a single ``gps_source`` structured event with a ``source``
+    field whose value is one of ``"fit" | "fallback_streams" | "none"`` —
+    matches the function's return value exactly so a single Cloud Logging
+    filter ``jsonPayload.event="gps_source"`` covers all three sources.
     """
     # Step 1 — try FIT records first (D1-primary).
     fit_records: list[dict] = []
@@ -552,16 +559,22 @@ def _store_records_or_fallback(
 
     if streams:
         logger.warning(
-            "gps_source_fallback_streams",
+            "gps_source",
             ride_id=ride_id,
+            source="fallback_streams",
             reason="fit_unavailable",
         )
         _store_streams(ride_id, streams, conn=conn)
         _backfill_start_location(ride_id, streams, conn=conn)
-        return ("streams", streams)
+        return ("fallback_streams", streams)
 
     # Step 3 — both failed.
-    logger.warning("gps_source_none", ride_id=ride_id, icu_id=icu_id)
+    logger.warning(
+        "gps_source",
+        ride_id=ride_id,
+        source="none",
+        icu_id=icu_id,
+    )
     return ("none", None)
 
 
