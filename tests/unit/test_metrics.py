@@ -240,6 +240,71 @@ def test_compute_rolling_best():
     res = compute_rolling_best(powers, 10)
     assert res is None
 
+
+# --- smooth_speed (Phase 8 / D3) -------------------------------------------
+
+from server.metrics import smooth_speed
+
+
+def test_smooth_speed_empty_returns_empty():
+    """Empty input returns an empty list (no crash, no fabrication)."""
+    assert smooth_speed([]) == []
+    assert smooth_speed([], window=5) == []
+
+
+def test_smooth_speed_passthrough_for_constant_signal():
+    """A flat constant signal must come back flat (within float tolerance)."""
+    inp = [5.0] * 20
+    out = smooth_speed(inp, window=5)
+    assert len(out) == 20
+    for v in out:
+        assert v is not None
+        assert abs(v - 5.0) < 1e-9
+
+
+def test_smooth_speed_single_spike_attenuated():
+    """A single 50 m/s spike inside a flat 5 m/s ride must be smoothed
+    much closer to 5 than to 50 in the centre sample."""
+    inp = [5.0] * 10 + [50.0] + [5.0] * 10
+    out = smooth_speed(inp, window=5)
+    centre = out[10]
+    assert centre is not None
+    # The mean over a 5-wide window centred on the spike is (4*5 + 50)/5 = 14.
+    # The strict requirement: closer to 5 than to 50.
+    assert abs(centre - 5.0) < abs(centre - 50.0)
+    # And materially attenuated from the raw spike.
+    assert centre < 20.0
+
+
+def test_smooth_speed_short_gap_interpolated():
+    """3 consecutive None inside an otherwise constant 5.0 series must be
+    linearly interpolated (gaps < 10 samples)."""
+    inp = [5.0] * 10 + [None, None, None] + [5.0] * 10
+    out = smooth_speed(inp, window=5)
+    assert len(out) == 23
+    for i in (10, 11, 12):
+        assert out[i] is not None
+        assert abs(out[i] - 5.0) < 1e-6
+
+
+def test_smooth_speed_long_gap_preserved_as_none():
+    """A gap of 12 consecutive None values must be preserved as None
+    (no fabrication across long stops)."""
+    inp = [5.0] * 10 + [None] * 12 + [5.0] * 10
+    out = smooth_speed(inp, window=5)
+    assert len(out) == 32
+    for i in range(10, 22):
+        assert out[i] is None
+
+
+def test_smooth_speed_window_size_validated():
+    """window <= 0 must raise ValueError."""
+    with pytest.raises(ValueError):
+        smooth_speed([1.0, 2.0, 3.0], window=0)
+    with pytest.raises(ValueError):
+        smooth_speed([1.0, 2.0, 3.0], window=-1)
+
+
 if __name__ == "__main__":
     # If run as script, we can still run some basic tests
     test_compute_rolling_best()

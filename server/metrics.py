@@ -153,8 +153,85 @@ def clean_ride_data(power_array, hr_array=None, cadence_array=None):
     cleaned_power = _clean_single_array(power_array, is_power=True)
     cleaned_hr = _clean_hr_array(hr_array) if hr_array is not None else None
     cleaned_cadence = _clean_single_array(cadence_array) if cadence_array is not None else None
-    
+
     return cleaned_power, cleaned_hr, cleaned_cadence
+
+
+def smooth_speed(speed_array, window: int = 5):
+    """Apply a centred uniform rolling-mean smoothing to a speed series.
+
+    - None / NaN treated as missing.
+    - Gaps < 10 samples linearly interpolated (matches ``clean_ride_data``
+      policy at ``metrics.py`` ~line 84).
+    - Gaps >= 10 samples preserved as ``None`` in the output (no
+      fabrication across long stops / sensor dropouts).
+    - Centred uniform rolling-mean of ``window`` samples (D3: window=5)
+      via ``scipy.ndimage.uniform_filter1d``, mirroring the existing
+      pattern at ``metrics.py:108``.
+
+    Returns a list of ``float | None`` matching the input length.
+    Window must be a positive integer; ``ValueError`` is raised otherwise.
+    """
+    if not isinstance(window, int) or window <= 0:
+        raise ValueError(f"smooth_speed: window must be a positive int, got {window!r}")
+
+    if speed_array is None or len(speed_array) == 0:
+        return []
+
+    # Convert to float array with NaN for missing values.
+    arr = np.array(
+        [float(x) if x is not None and not (isinstance(x, float) and math.isnan(x)) else np.nan
+         for x in speed_array],
+        dtype=float,
+    )
+    n = len(arr)
+    nans = np.isnan(arr)
+
+    # Identify long-gap (>= 10) NaN runs — these must be preserved as None.
+    long_gap_mask = np.zeros(n, dtype=bool)
+    for is_nan, group in groupby(enumerate(nans), key=lambda x: x[1]):
+        group_list = list(group)
+        if is_nan and len(group_list) >= 10:
+            for idx, _ in group_list:
+                long_gap_mask[idx] = True
+
+    # Linear-interpolate short gaps so the rolling mean does not eat the edges.
+    if np.any(nans) and np.any(~nans) and np.sum(~nans) >= 2:
+        x = np.arange(n)
+        mask = ~nans
+        f = interp1d(x[mask], arr[mask], kind="linear", bounds_error=False, fill_value="extrapolate")
+        # Only fill short-gap NaNs (< 10 contiguous).
+        for is_nan, group in groupby(enumerate(nans), key=lambda x: x[1]):
+            group_list = list(group)
+            if is_nan and len(group_list) < 10:
+                indices = [i for i, _ in group_list]
+                arr[indices] = f(indices)
+
+    # Apply the centred uniform smoothing. uniform_filter1d needs no NaNs;
+    # long-gap positions still hold NaN, so temporarily fill them with a
+    # neutral value (the nearest non-NaN) and then re-mask afterwards.
+    if np.any(np.isnan(arr)):
+        valid = ~np.isnan(arr)
+        if np.any(valid):
+            x = np.arange(n)
+            f_fill = interp1d(
+                x[valid], arr[valid], kind="nearest",
+                bounds_error=False, fill_value="extrapolate",
+            )
+            arr_filled = arr.copy()
+            arr_filled[~valid] = f_fill(x[~valid])
+        else:
+            # All NaN: nothing to smooth.
+            return [None] * n
+    else:
+        arr_filled = arr
+
+    smoothed = uniform_filter1d(arr_filled, size=window)
+
+    # Re-impose the long-gap holes.
+    out = [None if long_gap_mask[i] else float(smoothed[i]) for i in range(n)]
+    return out
+
 
 def calculate_np(power_array):
     """

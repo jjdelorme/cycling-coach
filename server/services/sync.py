@@ -14,7 +14,7 @@ from typing import Callable
 
 from server.database import get_db
 from server.logging_config import get_logger
-from server.metrics import calculate_np, process_ride_samples
+from server.metrics import calculate_np, process_ride_samples, smooth_speed
 from server.queries import get_latest_metric
 from server.services.intervals_icu import (
     compute_sync_hash,
@@ -359,7 +359,14 @@ def _store_streams(ride_id: int, streams: dict | list, conn=None):
     watts = stream_map.get("watts", [])
     hr = stream_map.get("heartrate", [])
     cadence = stream_map.get("cadence", [])
-    velocity = stream_map.get("velocity_smooth", [])
+    # Phase 8 (D3): own the speed smoothing rather than rely on ICU's
+    # undocumented `velocity_smooth` window. Prefer `velocity_smooth` if
+    # ICU returned it, else fall back to raw `velocity`. Then re-smooth
+    # locally with window=5 so the on-disk series is identical regardless
+    # of which source ICU happened to emit. Idempotent for already-smooth
+    # input (uniform_filter1d on a flat signal is a no-op).
+    velocity = stream_map.get("velocity_smooth") or stream_map.get("velocity") or []
+    velocity = smooth_speed(velocity, window=5)
     altitude = stream_map.get("altitude", [])
     distance = stream_map.get("distance", [])
     latlng_raw = stream_map.get("latlng", [])
@@ -447,6 +454,13 @@ def _store_records_from_fit(ride_id: int, fit_records: list[dict], conn) -> int:
         )
         return 0
 
+    # Phase 8 (D3): own the speed-smoothing pipeline rather than trust the
+    # raw FIT enhanced_speed, so the rendered ride speed series is
+    # consistent across rides and not dependent on Garmin firmware tuning.
+    # Window locked at 5 samples per D3.
+    raw_speeds = [r.get("speed") for r in fit_records]
+    smoothed_speeds = smooth_speed(raw_speeds, window=5)
+
     rows = [
         (
             ride_id,
@@ -454,14 +468,14 @@ def _store_records_from_fit(ride_id: int, fit_records: list[dict], conn) -> int:
             r.get("power"),
             r.get("heart_rate"),
             r.get("cadence"),
-            r.get("speed"),
+            smoothed_speeds[i],
             r.get("altitude"),
             r.get("distance"),
             r.get("lat"),
             r.get("lon"),
             r.get("temperature"),
         )
-        for r in fit_records
+        for i, r in enumerate(fit_records)
     ]
 
     conn.executemany(
