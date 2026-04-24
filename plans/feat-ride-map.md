@@ -2170,10 +2170,45 @@ records have `lat == lon` for every entry; navigate to the ride
 detail; assert the warning text "GPS data appears corrupted" is
 visible AND the `canvas.maplibregl-canvas` is NOT rendered.
 
-#### Step 10.E — Operator rollout (post-merge, post-deploy)
-*Pre-conditions:* v1.14.x containing Phases 5-9 deployed to prod and
-baked for ≥24h with no error spike.
-*Sequence:*
+#### Step 10.E — Data-migration rollout (post-merge, post-deploy)
+
+> **🚧 BLOCKED on Campaign 23 — `feat/data-migrations-framework`.**
+> Per user directive 2026-04-24, all data migrations must run through
+> the data-migrations framework being built on the
+> `feat/data-migrations-framework` branch (concurrent work, not yet
+> merged to main). Campaign 20 cannot be released to prod until that
+> branch lands. The Phase 9 backfill script
+> (`scripts/backfill_corrupt_gps.py`) is built and tested but will be
+> re-homed as a data migration under that framework as a post-C23
+> follow-up. The "operator-driven script" framing below is preserved
+> for historical reference; the actual rollout will use the framework's
+> migration runner instead of direct CLI invocation.
+
+*Pre-conditions:*
+1. `feat/data-migrations-framework` (Campaign 23) merged to main and
+   complete.
+2. `scripts/backfill_corrupt_gps.py` re-homed as a data migration
+   under that framework (post-C23 follow-up; out of C20 scope).
+3. v1.14.x (or later) containing Phases 5-10 + the re-homed migration
+   deployed to prod and baked ≥24 h with no error spike.
+
+*Sequence (subject to revision once C23 lands and the script is
+re-homed — keep both forms documented until then):*
+
+**Via the data-migrations framework** *(canonical path once C23 is
+complete):*
+1. Dry-run the C20-GPS migration via the framework's runner against
+   prod. Inspect the summary `total_corrupt`, `since_date`.
+2. If `total_corrupt > 100`, run a `--limit 50` slice first.
+3. Full write-mode run via the framework. Monitor Cloud Logging for
+   `gps_source` events: `source=fit` (good), `source=fallback_streams`
+   (degraded but acceptable), `source=none` (failure — investigate
+   per ride).
+4. Verify post-state with the SQL query in Phase 9.D.
+5. Spot-check 3 rides on the live map UI.
+
+**Direct script invocation** *(historical / fallback reference only —
+do NOT use unless the C23 framework is unavailable):*
 1. `python scripts/backfill_corrupt_gps.py --dry-run --allow-remote`
    from a workstation with prod credentials. Inspect the summary
    counts (`total_corrupt`).

@@ -16,13 +16,18 @@ This document serves as the top-level view of all active, planned, and completed
   - **Phase 1–4 (DONE):** `<RideMap>` component with MapLibre GL + OpenFreeMap; lazy-loaded; cursor-sync to timeline chart; lap + drag-zoom highlighting; indoor placeholder.
   - **Phase 5–7 (DONE, merged at `134064e`):** FIT-records fetch path + FIT-primary cutover for ICU sync + lat-only Variant B parser hardening with D4 corruption write-guard.
   - **Phase 8–10 (DONE, latest at `ab49f5a`):** local 5-sample speed smoothing + `backfill_corrupt_gps.py` (dry-run default, `--no-dry-run` to write, `--allow-remote` for prod) with bundled FIT-download dedup via `fetch_activity_fit_all` + frontend `<RideMap>` corruption banner that displaces a wrong polyline.
-  - **Operator follow-up — Step 10.E prod backfill (NOT yet run):**
-    - *Pre-condition:* v1.14.x containing Phases 5-10 deployed to prod and baked ≥24 h with no error spike.
-    - 1. `python scripts/backfill_corrupt_gps.py --dry-run --allow-remote` from a workstation with prod credentials. Inspect summary `total_corrupt`, `since_date`.
-    - 2. If `total_corrupt > 100`, run `--no-dry-run --allow-remote --limit 50` first to verify end-to-end before the full sweep.
-    - 3. `python scripts/backfill_corrupt_gps.py --no-dry-run --allow-remote`. Monitor Cloud Logging for `gps_source` events: `source=fit` (good), `source=fallback_streams` (degraded but acceptable), `source=none` (failure — investigate per ride).
-    - 4. Verify post-state with the SQL in Phase 9.D of `plans/feat-ride-map.md`.
-    - 5. Spot-check 3 rides on the live map UI.
+  - **🚧 RELEASE BLOCKED — depends on `feat/data-migrations-framework` (Campaign 23):** per user directive 2026-04-24, all data migrations must run through the data-migrations framework being built on the `feat/data-migrations-framework` branch (concurrent work, not yet merged to main). Campaign 20 cannot be released to prod until that branch lands. The Phase 9 backfill script (`scripts/backfill_corrupt_gps.py`) is built and tested but will be re-homed as a data migration once the framework is available.
+  - **Step 10.E prod backfill — re-scoped from "operator-driven" to "data-migration-driven" (NOT yet run):**
+    - *Pre-conditions:*
+      - 1. `feat/data-migrations-framework` (Campaign 23) merged to main and complete.
+      - 2. Phase 9's `scripts/backfill_corrupt_gps.py` re-homed as a data migration under that framework (post-Campaign-23 follow-up).
+      - 3. v1.14.x (or later) containing Phases 5-10 + the re-homed migration deployed to prod and baked ≥24 h with no error spike.
+    - *Sequence (subject to revision once the data-migrations framework lands and the script is re-homed):*
+      - 1. Dry-run via the data-migrations framework's runner against prod (workstation with prod credentials). Inspect summary `total_corrupt`, `since_date`.
+      - 2. If `total_corrupt > 100`, run a `--limit 50` slice first.
+      - 3. Full write-mode run via the framework. Monitor Cloud Logging for `gps_source` events: `source=fit` (good), `source=fallback_streams` (degraded but acceptable), `source=none` (failure — investigate per ride).
+      - 4. Verify post-state with the SQL in Phase 9.D of `plans/feat-ride-map.md`.
+      - 5. Spot-check 3 rides on the live map UI.
   - **Optional polish items** (not merge blockers, not operator-blocking): refresh stale mocks in `tests/integration/test_sync.py:169,297` to use `fetch_activity_fit_all`; add a `--color-warning` design token to replace the `yellow` stand-in in the corruption banner.
 
 ---
