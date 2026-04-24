@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { Map as MapIcon } from 'lucide-react'
 import type { RideRecord, RideLap } from '../types/api'
 import {
-  MAP_STYLE_URL,
+  MAP_STYLE,
   decimatePolyline,
   polylineBounds,
   lapRecordRange,
@@ -77,8 +77,15 @@ export default function RideMap({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: MAP_STYLE_URL,
+      style: MAP_STYLE,
       attributionControl: { compact: true },
+    })
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new maplibregl.FullscreenControl(), 'top-right')
+    // Surface tile / style failures so they're visible in DevTools rather
+    // than silently leaving the basemap blank.
+    map.on('error', (e) => {
+      console.error('[RideMap] MapLibre error:', e?.error || e)
     })
     mapRef.current = map
     mapLoadedRef.current = false

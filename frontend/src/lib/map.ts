@@ -1,14 +1,41 @@
 /**
  * Pure helpers for the Ride Map (Campaign 20).
  *
- * Kept free of any MapLibre / DOM imports so they unit-test without a
- * browser and don't bloat the main JS bundle.
+ * Kept free of any MapLibre / DOM imports (only types) so they unit-test
+ * without a browser and don't bloat the main JS bundle.
  */
+import type { StyleSpecification } from 'maplibre-gl'
 import type { RideRecord, RideLap } from '../types/api'
 
-export const MAP_STYLE_URL =
+// Carto Voyager raster tiles. Built on OSM data with trail names at z14+.
+// CDN-distributed, permissive CORS, no API key. Chosen over the OSM
+// "standard" tile server because some networks/CSPs block tile.osm.org
+// (and OSM's tile policy explicitly discourages app embedding).
+const DEFAULT_RASTER_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    basemap: {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors © CARTO',
+      maxzoom: 19,
+    },
+  },
+  layers: [{ id: 'basemap', type: 'raster', source: 'basemap' }],
+}
+
+// Override via `VITE_MAP_TILE_STYLE_URL` to point at a vector style URL
+// (e.g. `https://tiles.openfreemap.org/styles/liberty` or a paid
+// Thunderforest / Mapbox style URL).
+export const MAP_STYLE: string | StyleSpecification =
   (import.meta.env.VITE_MAP_TILE_STYLE_URL as string | undefined)
-  ?? 'https://tiles.openfreemap.org/styles/liberty'
+  ?? DEFAULT_RASTER_STYLE
 
 /**
  * Reduce records to at most maxPoints `[lon, lat]` pairs (GeoJSON order)
