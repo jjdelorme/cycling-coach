@@ -11,6 +11,30 @@ This document serves as the top-level view of all active, planned, and completed
   - **Phase A — Google Maps Provider:** Implement `GoogleMapsProvider` (Maps Geocoding API, `GEOCODER=google`, API key via `GEOCODER_GOOGLE_API_KEY` env var). The Protocol seam is already in place; this is ~100 LOC + tests.
   - **Phase B — Multi-Instance Cache:** Move the in-process Nominatim LRU cache to a Postgres-backed `geocoder_cache` table (TTL column, `ON CONFLICT DO UPDATE`). Eliminates per-instance cold-start hits against Nominatim when Cloud Run scales beyond one replica.
 
+- [ ] **Campaign 24: Integration Test Suite Repair** (`plans/fix-integration-test-suite.md` — to be created)
+  - *Status:* Planned — 10 pre-existing integration test failures discovered during svc-pgdb validation of Campaign 23's data-migrations framework on 2026-04-24. Verified to reproduce on `main` HEAD `07c044a` (v1.13.4); these are NOT regressions from Campaign 23. Run `CYCLING_COACH_DATABASE_URL=postgresql://postgres:dev@localhost:5432/coach_test pytest tests/integration/` to reproduce.
+  - **Cluster 1 (8 failures): `rides.date` referenced after migration 0006 dropped it**
+    - Affected tests: `test_timezone_queries.py::{test_ride_local_date_derivation, test_ride_local_date_utc, test_ride_date_filter_timezone_aware, test_ride_date_filter_excludes_wrong_timezone, test_pmc_groups_by_local_date, test_tss_aggregation_by_timezone}` + `test_nutrition_api.py::{test_daily_summary_with_rides, test_weekly_summary_with_rides}`.
+    - Error: `psycopg2.errors.UndefinedColumn: column "date" of relation "rides" does not exist`.
+    - Root cause: tests do `INSERT INTO rides (date, start_time, filename, ...)` but `migrations/0006_timezone_schema.sql:74` dropped the `date` column (`ALTER TABLE rides DROP COLUMN IF EXISTS date`) as part of the timezone-awareness rework. The migration's preamble explicitly states the prerequisite: *"All application code has been updated to stop reading rides.date"*. Commit `0d37011 fix(tests): resolve failing integration tests due to recent timezone schema migrations` addressed some sites but missed these 8.
+    - Fix: drop `date` from the column list and value tuple in each affected INSERT statement (`start_time` is sufficient — the queries derive local date via `(start_time AT TIME ZONE :tz)::DATE`).
+    - Effort: ~30 min mechanical.
+  - **Cluster 2 (1 failure): `body_measurements.date` is TEXT + `compute_daily_pmc` signature mismatch**
+    - Affected: `test_withings_integration.py::test_pmc_weight_priority_withings_over_ride`.
+    - Two chained problems surface in the same test:
+      1. `compute_daily_pmc(db_conn, since_date=test_date)` is called with `test_date: datetime.date`, but `server/ingest.py:448` does `datetime.fromisoformat(since_date)` which requires `str`. Raises `TypeError: fromisoformat: argument must be str`.
+      2. Cleanup `DELETE FROM body_measurements WHERE date=%s` with a `date` parameter against a `text` column yields `psycopg2.errors.UndefinedFunction: operator does not exist: text = date`.
+    - Decisions needed (call this in the campaign plan, don't pre-decide):
+      - For (1): broaden `compute_daily_pmc` signature to `date | str` (callers cleaner), OR make the test pass `test_date.isoformat()` (single-test fix).
+      - For (2): cast in SQL (`WHERE date = %s::text` test-only), OR ship a migration that ALTERs `body_measurements.date` to native `DATE` type (matches the rides/daily_metrics direction in 0006). The latter is the consistent move but touches every other read site.
+    - Effort: small if test-side fixes both; medium if column ALTER (must audit all other readers of `body_measurements.date`).
+  - **Cluster 3 (1 failure): `test_meal_plan_populated` returns empty `planned` dict**
+    - Affected: `test_meal_plan.py::test_meal_plan_populated`.
+    - Symptom: `assert "breakfast" in day["planned"]` fails because `day["planned"] == {}`. Endpoint returns HTTP 200, just with no planned meals in the response.
+    - Root cause unknown — needs investigation. Hypotheses: (a) missing seed data the test depends on; (b) real bug in meal-plan generation logic that returns empty for the seeded test user; (c) auth/user-context mismatch — the dev user has no planned meals in seed data and the endpoint silently returns empty rather than 404.
+    - Effort: unknown until first hour of investigation.
+  - *Test-environment caveat:* the dev machine where these were observed has a long-lived native Postgres (no podman/tmpfs container available), so the `coach_test` DB persists state across runs. However: Cluster 1 + 2 errors are schema/test-code mismatches (column missing, wrong type) — they reproduce on a fresh DB. Cluster 3's empty-`planned` could plausibly be state-related; verify against a freshly-migrated DB during investigation.
+
 ---
 
 ## Archived Campaigns
