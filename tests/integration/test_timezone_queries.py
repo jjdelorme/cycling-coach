@@ -12,7 +12,7 @@ def test_ride_local_date_derivation(db_conn):
     """A ride at 2026-04-09T03:00:00Z should appear as 2026-04-08 in America/Chicago (UTC-5 in April)."""
     db_conn.execute(
         "INSERT INTO rides (start_time, filename, sport, duration_s) "
-        "VALUES (%s, %s, %s, %s)",
+        "VALUES (%s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
         ("2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
     )
     db_conn.commit()
