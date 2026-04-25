@@ -22,8 +22,10 @@ This document serves as the top-level view of all active, planned, and completed
   - **Phase 5 — FIT-records fetch path:** `fetch_activity_fit_records()` parses FIT `record` messages we already download for laps. No call sites wired yet.
   - **Phase 6 — FIT-primary cutover:** `_store_records_or_fallback` makes ICU re-sync use FIT for per-record GPS/power/HR/cadence/altitude/distance/speed/temperature; streams remain the fallback when FIT is unavailable.
   - **Phase 7 — Streams-parser hardening:** `_normalize_latlng` detects the lat-only variant and returns `[]`; `_store_streams` defensive guard refuses to write rows that trip the corruption signature.
+    - **Coordination note (2026-04-25):** Campaign 23 (v1.14.0-beta) already addressed the typed-entry ICU shape (`{"type": "latlng", "data": [lats], "data2": [lons]}`) by zipping `data` + `data2` in `_extract_streams`, plus a defensive `ABS(lat-lon) >= 1.0` guard at the `_backfill_start_location` write site. C20 Phase 7 should re-scope around what's still broken after C23 lands — likely the legitimately lat-only-no-data2 shape (if it actually exists) vs. the `_store_streams` per-record write site (which C23 didn't add a guard at, only `_backfill_start_location`). Re-audit before implementing.
   - **Phase 8 — Local speed smoothing:** new `smooth_speed()` in `server/metrics.py` (5-sample uniform filter, NaN-aware); wired into both ingest paths.
   - **Phase 9 — Historical backfill script:** `scripts/backfill_corrupt_gps.py` (dry-run by default, `--allow-remote` for prod, `--limit` for resumability, `--since YYYY-MM-DD` defaulting to last 14 days) detects rides where `ABS(lat-lon) < 1°` for >50% of records and re-syncs them via the Phase 6 helpers.
+    - **Coordination note (2026-04-25):** complementary to Campaign 23's `0001_backfill_ride_start_geo` (which fixes `rides.start_lat/start_lon` only). C20 Phase 9 fixes per-record `ride_records.lat/lon`. Different tables, different scope. Once C20 lands, consider promoting the backfill script to a `data_migrations/0002_*.py` so it auto-applies on deploy under the framework C23 introduced, rather than requiring operator action.
   - **Phase 10 — Frontend safeguard + prod rollout:** `<RideMap>` detects the corruption signature client-side and renders a warning banner instead of a wrong polyline; operator runs the Phase 9 backfill against prod (default 14-day window — older rides exist on GCS as FIT-derived JSON and were never affected) after the v1.14.x release bakes for ≥24h.
   - *Status (2026-04-24):* All 5 pre-engineering open questions resolved by user. Plan unblocked — engineer can start Phase 5.
 
@@ -56,7 +58,7 @@ This document serves as the top-level view of all active, planned, and completed
 **Tracking Plan:** `plans/feat-rides-search.md`
 - *Merged to main (`7b97931`); released as v1.12.3 on 2026-04-21.*
 - *Post-ship GPS bugfixes (Syria bug — ICU latlng stream normalization + FIT lap fallback) released as v1.12.5-beta; location display granularity fix (zoom=12, state_code) released as v1.12.6-beta. All consolidated into v1.13.2 prod release on 2026-04-22.*
-- *Pending operator action: run `scripts/backfill_ride_start_geo.py --allow-remote` against prod DB to populate `start_lat/lon` for pre-Campaign-17 rides.*
+- *GPS backfill now auto-applies via Campaign 23's data-migration framework (`data_migrations/0001_backfill_ride_start_geo.py`); no operator follow-up required after v1.14.0-beta.*
 
 ### Campaign 16: Calendar Ride-Name Display (Completed)
 **Tracking Plan:** `plans/feat-calendar-ride-names.md`

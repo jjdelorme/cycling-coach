@@ -1,0 +1,182 @@
+[
+  {
+    "type": "time",
+    "name": null,
+    "valueType": "java.lang.Integer",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "anomalies": []
+  },
+  {
+    "type": "watts",
+    "name": null,
+    "valueType": "java.lang.Integer",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "anomalies": []
+  },
+  {
+    "type": "cadence",
+    "name": null,
+    "valueType": "java.lang.Integer",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "anomalies": []
+  },
+  {
+    "type": "heartrate",
+    "name": null,
+    "valueType": "java.lang.Integer",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      103,
+      104,
+      105,
+      107,
+      108,
+      109,
+      109,
+      110,
+      111,
+      112
+    ],
+    "anomalies": []
+  },
+  {
+    "type": "distance",
+    "name": null,
+    "valueType": "java.lang.Float",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "anomalies": []
+  },
+  {
+    "type": "altitude",
+    "name": null,
+    "valueType": "java.lang.Float",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      2879.4,
+      2880.6,
+      2881.8,
+      2882.8,
+      2883.6,
+      2885.2,
+      2887.2,
+      2889.2,
+      2891.4,
+      2894.8
+    ],
+    "anomalies": []
+  },
+  {
+    "type": "latlng",
+    "name": null,
+    "valueType": "java.lang.Float",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      null,
+      null,
+      36.59369,
+      36.59366,
+      null,
+      36.593594,
+      36.593555,
+      36.59353,
+      36.593506,
+      36.593468
+    ],
+    "data2": [
+      null,
+      null,
+      -105.449745,
+      -105.44976,
+      null,
+      -105.44977,
+      -105.44977,
+      -105.44977,
+      -105.449776,
+      -105.4498
+    ],
+    "anomalies": []
+  },
+  {
+    "type": "velocity_smooth",
+    "name": null,
+    "valueType": "java.lang.Float",
+    "valueTypeIsArray": false,
+    "custom": false,
+    "allNull": false,
+    "data": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "anomalies": []
+  }
+]

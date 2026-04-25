@@ -124,6 +124,34 @@ Schema changes are managed via numbered SQL migration files in `migrations/`, ap
 - Include a comment header explaining what the migration does and why.
 - Seed data (e.g., default workout templates) goes in migrations using `INSERT ... ON CONFLICT DO NOTHING`.
 
+## Data Migrations
+
+One-shot Python data backfills (the kind that can't be expressed as pure SQL — calls to external APIs, GCS reads, complex transformations) are managed via numbered Python files in `data_migrations/`, applied by `server/data_migrate.py`. Mirrors the schema-migration pattern but runs after it.
+
+### How it works
+- `data_migrations/` contains files like `0001_backfill_ride_start_geo.py`. Each module exports a `run(conn) -> dict` function. The dict is persisted as JSONB in the tracking table for forensics.
+- `server/data_migrate.py` applies pending modules in filename order, tracking applied modules in the `data_migrations` table (separate from `schema_migrations`).
+- Already-applied modules are skipped — re-runs are no-ops.
+- On deploy, Cloud Build runs `python -m server.data_migrate` after `python -m server.migrate` (both under one Cloud SQL Proxy in the merged `migrate` step).
+- The FastAPI app startup (`server/main.py`) also calls `run_data_migrations()` for local dev; failures are logged but non-fatal so dev-mode startup is resilient.
+
+### Adding a data migration
+1. Create a new file: `data_migrations/NNNN_short_description.py` (next sequential number after the highest existing).
+2. Export `def run(conn) -> dict:` returning a counts/summary dict (used in logging + persisted as `result` JSONB).
+3. Write idempotent logic — guard with `WHERE column IS NULL` or equivalent so a partial-then-retried run lands cleanly. The runner only records on success: a crash leaves the row unrecorded and re-runs will retry.
+4. Test locally: `python -m server.data_migrate` against your local Podman Postgres.
+5. **NEVER** modify an already-applied data migration. If a fix is needed, ship a new file.
+6. **NEVER** put SQL files in `data_migrations/` — that directory is Python-only. SQL goes in `migrations/`.
+
+### Conventions
+- Filenames: `NNNN_snake_case_description.py` (zero-padded 4-digit sequence number).
+- Each module owns one logical backfill / data op.
+- Include a docstring explaining what the migration does and why.
+- Honor `INTERVALS_ICU_DISABLED` (or `INTERVALS_ICU_DISABLE`) when the migration calls intervals.icu — return `{"skipped": True, "reason": "icu_disabled"}` so local dev that doesn't have ICU credentials still records the migration as applied and doesn't retry on every restart.
+
+### When NOT to use data migrations
+Data migrations are for "run once, ever, on this codebase." Admin tools (`scripts/sync_intervals.py`, `scripts/ingest.py`, etc.) that operators invoke on demand stay in `scripts/`. The test: would skipping this script leave the DB in a broken state? If yes, it's a data migration.
+
 ### Versioning
 The `VERSION` file is **not checked into git**.
 - **Production**: Cloud Build reads `$TAG_NAME`, writes it to the `VERSION` file, and passes it as a Docker build-arg. Both Vite and FastAPI will read this file if it exists.
