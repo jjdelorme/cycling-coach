@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.14.0] - 2026-04-25
+
+Consolidates `v1.13.5-beta` → `v1.13.7-beta`. Headline: **Campaign 22 (ADK tool serialization safety)** plus a cluster of nutritionist UX fixes and the agent-tool wiring regression discovered against the betas.
+
+### Features — Campaign 22: ADK Tool Serialization Safety
+- **feat(utils): `json_safe_tool` wrapper** — new `server/utils/adk.py` decorator that wraps any agent tool's return value through `pydantic_core.to_jsonable_python`, converting `date` / `datetime` / `UUID` / `Decimal` / nested structures into JSON-serializable forms before the ADK passes them to `json.dumps()`. Uses `functools.wraps` so the original signature, docstring, and type hints are preserved for Gemini schema generation. The wrapper now also raises a clear `TypeError` at registration time if handed an ADK tool *object* (anything with `_get_declaration()`) or any other non-function callable, so future misuse fails at import rather than on first chat.
+- **fix(adk): apply `json_safe_tool` dynamically to all agent tools** — both the Coaching agent (`server/coaching/agent.py`) and Nutritionist agent (`server/nutrition/agent.py`) now wrap every read tool with `json_safe_tool` and every write tool with `json_safe_tool(_permission_gate(fn))` at registration. ADK tool *objects* (`AgentTool`, `PreloadMemoryTool`) are appended unwrapped — they expose their own `_get_declaration()` and would crash `inspect.signature()` if the wrapper followed `__wrapped__` into a non-callable instance. This eliminates the `TypeError: Object of type date is not JSON serializable` class of crashes and removes the prior fragile workarounds (manual `_serialize_dates` recursion, scattered `::TEXT` SQL casts, `str(row['date'])` sprinkles) at the registration boundary.
+
+### Features — Nutritionist UX
+- **feat(nutrition-ui): "Plan This Day" plans in place** — the empty-state button on the meal-plan day detail no longer just opens the chat panel with a pre-filled prompt. It now invokes `/api/nutrition/chat` directly via `useNutritionistChat`, shows a spinner + "Planning…" label (with a one-line note explaining the agent is checking training load and dietary preferences and will take 10–20 seconds), and auto-refreshes the day view via the existing `['meal-plan-day']` query invalidation. The agent's response text is rendered inline below the button — with an alert icon when no plan was actually persisted (e.g. when the hallucinated-persistence guard fires).
+- **feat(nutrition-ui): show incoming context as a removable chip above the input** — when a `MacroCard`'s "Ask Nutritionist" button pre-loaded the chat with context, the entire context blob used to be dumped into the textarea. The context now surfaces as a read-only chip with an `X` button above the textarea; on send, the message body combines them as `Context:\n<chip>\n\nQuestion: <input>` so the agent sees the same content. Retry preserves the original sent payload while displaying just the user's question in the bubble.
+
+### Fixes
+- **fix(nutrition-agent): guard against hallucinated meal-plan persistence** — the agent was emitting prose like "I have persisted this plan to your dashboard" without actually calling `generate_meal_plan`, leaving the dashboard empty while the user believed the plan was saved. Two layered defenses: (1) strengthened `MEAL PLANNING PROTOCOL` system instruction with a `CRITICAL` header explaining the dashboard reads from the DB and chat text is invisible there, plus an explicit prohibition on persistence-claim phrases unless the corresponding write tool returned `status=success` in the same turn; (2) server-side guardrail in `chat()` that detects first-person/passive persistence claims tied to a plan/meal noun via two conservative regex patterns — if no write tool was called this turn but a claim was made, the response is replaced with an honest "did not save" message and a `nutritionist_hallucinated_persistence` warning is logged.
+- **fix(nutrition-ui): "Ask a question" works when the chat panel is already open** — clicking the per-meal "Ask a question" button while the chat was already open did nothing visible. The handoff state updated, but `NutritionistPanel`'s one-shot `sentInitialRef` short-circuited the consumer effect, so the new chip never appeared. Two-part fix: (1) `nutritionist-handoff.tsx` now exposes a `requestNonce` that increments on every `open()` call (React's `setState` dedupes by value, so without a nonce a repeat click on the same meal can't be detected); (2) `NutritionistPanel.tsx` consumes per-request — if the panel is empty it just swaps the chip in place; if a conversation is already in flight it starts a new session (clears messages/sessionId/input) and surfaces the chip in the fresh chat. The previous session is still listed in Recent Sessions, so no conversation is lost.
+
+### Tests
+- **422 unit tests pass** (was 418 in v1.13.4) — added coverage for `json_safe_tool` (date/datetime/UUID/Decimal/nested structures + 2 guard branches), `_claims_persistence` regex (8 positive + 9 benign cases), three `chat()` override paths (claim+no-write → override; claim+write → keep; no-claim → keep), and `test_*_agent_tools_are_all_introspectable` for both agents that mirrors ADK's `inspect.signature` traversal.
+- **230 integration tests pass on shared `svc-pgdb`** — fixed three pre-existing tests that were brittle outside the local Podman flow:
+  - `test_ride_local_date_derivation`: added `ON CONFLICT (filename) DO NOTHING` to its first INSERT to match every sibling test in the file.
+  - `test_get_pmc_metrics_by_date`: replaced hard-coded `ctl > 40` against the bundled seed with a behavior assertion — pick the date from the DB's actual `daily_metrics` rows and verify the `date=` parameter routes to *that* row.
+  - `test_mint_token_user_not_found`: set `JWT_SECRET` in the subprocess env so the user-lookup branch is reached (the CLI checks `JWT_SECRET` first and short-circuits).
+- **114 Playwright e2e specs pass** (2 pre-existing skips, 0 fail) — added `tests/e2e/09-agent-chat.spec.ts` with two smoke POSTs to `/api/coaching/chat` and `/api/nutrition/chat` so a 500 from schema generation now fails the e2e suite rather than a user click.
+
+### Notes
+- No schema or migration changes.
+- No new env vars or dependencies; `pydantic_core` was already pulled in transitively.
+- Audit confirmed `_WRITE_TOOLS` in both agents are clean callable functions; `google_search` is imported in both agent files but never added to the tools list (dead import — no current breakage, would be caught by the new `json_safe_tool` guard if anyone tried to enable it).
+
 ## [v1.13.4] - 2026-04-23
 
 Hotfix release for the prev/next-day navigation regression on ride/workout detail pages introduced by Campaign 18 in v1.13.0.

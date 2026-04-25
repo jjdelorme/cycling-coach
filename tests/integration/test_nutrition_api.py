@@ -180,10 +180,10 @@ def test_daily_summary_with_rides(client, db_conn):
     date = "2098-11-01"
     try:
         db_conn.execute(
-            "INSERT INTO rides (date, filename, sport, sub_sport, duration_s, "
+            "INSERT INTO rides (start_time, filename, sport, sub_sport, duration_s, "
             "total_calories, tss) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (date, f"test_ride_{date}.fit", "cycling", "road", 3600, 800, 70),
+            (f"{date} 10:00:00", f"test_ride_{date}.fit", "cycling", "road", 3600, 800, 70),
         )
         db_conn.commit()
 
@@ -202,10 +202,10 @@ def test_weekly_summary_with_rides(client, db_conn):
     date = "2098-11-03"  # a Wednesday
     try:
         db_conn.execute(
-            "INSERT INTO rides (date, filename, sport, sub_sport, duration_s, "
+            "INSERT INTO rides (start_time, filename, sport, sub_sport, duration_s, "
             "total_calories, tss) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (date, f"test_ride_{date}.fit", "cycling", "road", 5400, 1100, 95),
+            (f"{date} 10:00:00", f"test_ride_{date}.fit", "cycling", "road", 5400, 1100, 95),
         )
         db_conn.commit()
 

@@ -10,6 +10,7 @@ from google.adk.tools.preload_memory_tool import preload_memory_tool
 from google.adk.tools import google_search
 from google.genai import types
 
+from server.utils.adk import json_safe_tool
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION
 from server.database import get_setting
 from server.logging_config import get_logger, get_trace_id
@@ -246,8 +247,8 @@ def reset_runner():
 
 
 def _get_agent():
-    # Wrap write tools with permission gate
-    tools = [
+    # Regular function tools that need json wrapping
+    raw_tools = [
         get_pmc_metrics,
         get_recent_rides,
         get_upcoming_workouts,
@@ -262,13 +263,20 @@ def _get_agent():
         get_athlete_status,
         get_planned_workout_for_ride,
         get_athlete_nutrition_status,
-        AgentTool(agent=get_nutritionist_agent()),  # v2 — full agent delegation
         get_week_summary,
         list_workout_templates,
-        preload_memory_tool,
     ]
+
+    tools = [json_safe_tool(fn) for fn in raw_tools]
+
+    # Tool *objects* (not functions) -- ADK introspects these via their own
+    # _get_declaration(); wrapping with json_safe_tool would set __wrapped__
+    # to the non-callable instance and break inspect.signature().
+    tools.append(AgentTool(agent=get_nutritionist_agent()))
+    tools.append(preload_memory_tool)
+
     for fn in _WRITE_TOOLS:
-        tools.append(_permission_gate(fn))
+        tools.append(json_safe_tool(_permission_gate(fn)))
 
     return Agent(
         name="cycling_coach",

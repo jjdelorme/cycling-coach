@@ -82,3 +82,46 @@ def test_nutritionist_chat_accepts_audio_params():
     params = list(sig.parameters.keys())
     assert "audio_data" in params
     assert "audio_mime_type" in params
+
+
+def _assert_all_tools_introspectable(agent):
+    """Mimic what ADK does when building Gemini tool declarations.
+
+    For each tool, ADK either calls `_get_declaration()` on tool *objects*
+    (e.g. AgentTool, PreloadMemoryTool) or `inspect.signature(fn)` on
+    function tools. inspect.signature follows `__wrapped__` (set by
+    functools.wraps), so a wrapper around a non-callable instance crashes
+    with `TypeError: descriptor '__call__' for 'type' objects ...`.
+    This test mirrors that traversal so the failure mode is caught at
+    registration, not at first chat() call.
+    """
+    import inspect
+
+    failures = []
+    for t in agent.tools:
+        if hasattr(t, "_get_declaration"):
+            # Tool-object path -- ADK uses the object's own declaration.
+            continue
+        try:
+            inspect.signature(t)
+        except Exception as e:
+            name = getattr(t, "__name__", repr(t))
+            failures.append(f"{name}: {type(e).__name__}: {e}")
+    assert not failures, (
+        "ADK signature introspection would fail for: " + "; ".join(failures)
+    )
+
+
+def test_coach_agent_tools_are_all_introspectable():
+    """Regression: PreloadMemoryTool was wrapped with json_safe_tool, which
+    set __wrapped__ to a non-callable instance and crashed inspect.signature
+    on the first /api/coaching/chat call (analyze button). Tool objects must
+    be appended unwrapped, alongside AgentTool."""
+    from server.coaching.agent import _get_agent
+    _assert_all_tools_introspectable(_get_agent())
+
+
+def test_nutritionist_agent_tools_are_all_introspectable():
+    """Same guard for the nutritionist agent's tool list."""
+    from server.nutrition.agent import _get_agent
+    _assert_all_tools_introspectable(_get_agent())

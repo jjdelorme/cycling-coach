@@ -11,9 +11,9 @@ when deriving local dates from UTC start_time values stored as TEXT.
 def test_ride_local_date_derivation(db_conn):
     """A ride at 2026-04-09T03:00:00Z should appear as 2026-04-08 in America/Chicago (UTC-5 in April)."""
     db_conn.execute(
-        "INSERT INTO rides (date, start_time, filename, sport, duration_s) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        ("2026-04-09", "2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
+        "INSERT INTO rides (start_time, filename, sport, duration_s) "
+        "VALUES (%s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
+        ("2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
     )
     db_conn.commit()
 
@@ -30,9 +30,9 @@ def test_ride_local_date_utc(db_conn):
     """Same ride should appear as 2026-04-09 in UTC."""
     # Insert in case test_ride_local_date_derivation didn't run first
     db_conn.execute(
-        "INSERT INTO rides (date, start_time, filename, sport, duration_s) "
-        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
-        ("2026-04-09", "2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
+        "INSERT INTO rides (start_time, filename, sport, duration_s) "
+        "VALUES (%s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
+        ("2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
     )
     db_conn.commit()
 
@@ -49,9 +49,9 @@ def test_ride_date_filter_timezone_aware(db_conn):
     """Filtering by local date 2026-04-08 in Chicago should include the ride."""
     # Ensure test ride exists
     db_conn.execute(
-        "INSERT INTO rides (date, start_time, filename, sport, duration_s) "
-        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
-        ("2026-04-09", "2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
+        "INSERT INTO rides (start_time, filename, sport, duration_s) "
+        "VALUES (%s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
+        ("2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
     )
     db_conn.commit()
 
@@ -69,9 +69,9 @@ def test_ride_date_filter_excludes_wrong_timezone(db_conn):
     """Filtering by local date 2026-04-09 in Chicago should NOT include the ride
     (it's April 8 in Chicago)."""
     db_conn.execute(
-        "INSERT INTO rides (date, start_time, filename, sport, duration_s) "
-        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
-        ("2026-04-09", "2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
+        "INSERT INTO rides (start_time, filename, sport, duration_s) "
+        "VALUES (%s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
+        ("2026-04-09T03:00:00Z", "tz_test_1", "cycling", 3600),
     )
     db_conn.commit()
 
@@ -89,9 +89,9 @@ def test_pmc_groups_by_local_date(db_conn):
     """compute_daily_pmc should group rides by local date when given a timezone."""
     # Insert a ride with TSS at 03:00 UTC = 10:00 PM CDT on April 8
     db_conn.execute(
-        "INSERT INTO rides (date, start_time, filename, sport, duration_s, tss, ftp, weight) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
-        ("2026-04-09", "2026-04-09T03:00:00Z", "pmc_tz_test", "cycling", 3600, 80, 250, 75),
+        "INSERT INTO rides (start_time, filename, sport, duration_s, tss, ftp, weight) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
+        ("2026-04-09T03:00:00Z", "pmc_tz_test", "cycling", 3600, 80, 250, 75),
     )
     db_conn.commit()
 
@@ -113,15 +113,15 @@ def test_tss_aggregation_by_timezone(db_conn):
     when both fall within the same local calendar day."""
     # Ride 1: 2026-04-10T01:00:00Z = April 9 20:00 CDT
     db_conn.execute(
-        "INSERT INTO rides (date, start_time, filename, sport, duration_s, tss, ftp, weight) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
-        ("2026-04-10", "2026-04-10T01:00:00Z", "tz_agg_1", "cycling", 3600, 50, 250, 75),
+        "INSERT INTO rides (start_time, filename, sport, duration_s, tss, ftp, weight) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
+        ("2026-04-10T01:00:00Z", "tz_agg_1", "cycling", 3600, 50, 250, 75),
     )
     # Ride 2: 2026-04-10T04:00:00Z = April 9 23:00 CDT
     db_conn.execute(
-        "INSERT INTO rides (date, start_time, filename, sport, duration_s, tss, ftp, weight) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
-        ("2026-04-10", "2026-04-10T04:00:00Z", "tz_agg_2", "cycling", 3600, 30, 250, 75),
+        "INSERT INTO rides (start_time, filename, sport, duration_s, tss, ftp, weight) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (filename) DO NOTHING",
+        ("2026-04-10T04:00:00Z", "tz_agg_2", "cycling", 3600, 30, 250, 75),
     )
     db_conn.commit()
 
