@@ -13,6 +13,11 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 interface NutritionistHandoffValue {
   context?: string
   sessionId?: string
+  // Increments on every `open()` call so consumers can react to repeated
+  // opens even when the same context string is passed twice. React's
+  // `setState` dedupes by value, so without this an effect watching
+  // `context` alone would not re-fire for an identical follow-up click.
+  requestNonce: number
   open: (context?: string, sessionId?: string) => void
   clear: () => void
 }
@@ -20,21 +25,20 @@ interface NutritionistHandoffValue {
 const NutritionistHandoffContext = createContext<NutritionistHandoffValue | undefined>(undefined)
 
 export function NutritionistHandoffProvider({ children }: { children: ReactNode }) {
-  const [context, setContext] = useState<string | undefined>()
-  const [sessionId, setSessionId] = useState<string | undefined>()
+  const [state, setState] = useState<{ context?: string; sessionId?: string; requestNonce: number }>({
+    requestNonce: 0,
+  })
 
   const open = useCallback((ctx?: string, sid?: string) => {
-    setContext(ctx)
-    setSessionId(sid)
+    setState(prev => ({ context: ctx, sessionId: sid, requestNonce: prev.requestNonce + 1 }))
   }, [])
 
   const clear = useCallback(() => {
-    setContext(undefined)
-    setSessionId(undefined)
+    setState(prev => ({ context: undefined, sessionId: undefined, requestNonce: prev.requestNonce }))
   }, [])
 
   return (
-    <NutritionistHandoffContext.Provider value={{ context, sessionId, open, clear }}>
+    <NutritionistHandoffContext.Provider value={{ ...state, open, clear }}>
       {children}
     </NutritionistHandoffContext.Provider>
   )

@@ -1,8 +1,10 @@
-import { ChevronLeft, ChevronRight, UtensilsCrossed, MessageSquare } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronLeft, ChevronRight, UtensilsCrossed, MessageSquare, RefreshCw, AlertCircle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import MacroCard from './MacroCard'
 import { localDateStr } from '../lib/format'
+import { useNutritionistChat } from '../hooks/useApi'
 import type { MealPlanDay, PlannedMeal } from '../types/api'
 
 const MEAL_SLOTS = [
@@ -32,6 +34,24 @@ export default function MealPlanDayDetail({ day, onBack, onPrev, onNext, onOpenN
   const hasPlanned = plannedSlots.length > 0
   const hasActual = day.actual.length > 0
   const { day_totals: totals } = day
+
+  // In-place planning: ask the nutritionist to plan this day and let the
+  // existing chat mutation invalidate `meal-plan-day` so the view refreshes
+  // automatically. No chat panel needed.
+  const planMutation = useNutritionistChat()
+  const [planMessage, setPlanMessage] = useState<string | null>(null)
+
+  const handlePlanThisDay = async () => {
+    setPlanMessage(null)
+    try {
+      const res = await planMutation.mutateAsync({
+        message: `Create a meal plan for ${day.date} based on my training schedule and dietary preferences. Persist it via generate_meal_plan.`,
+      })
+      setPlanMessage(res.response)
+    } catch {
+      setPlanMessage('Planning failed. Please try again.')
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -227,13 +247,28 @@ export default function MealPlanDayDetail({ day, onBack, onPrev, onNext, onOpenN
           <p className="text-text-muted font-bold uppercase tracking-widest text-xs mb-1">
             No meals planned or logged
           </p>
-          {onOpenNutritionist && (
-            <button
-              onClick={() => onOpenNutritionist(`Create a meal plan for ${day.date} based on my training schedule.`)}
-              className="mt-3 px-4 py-2 bg-accent text-white rounded-lg text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all"
-            >
-              Plan This Day
-            </button>
+          <button
+            onClick={handlePlanThisDay}
+            disabled={planMutation.isPending}
+            className="mt-3 px-4 py-2 bg-accent text-white rounded-lg text-xs font-bold uppercase tracking-widest hover:opacity-90 disabled:opacity-50 disabled:cursor-wait transition-all flex items-center gap-2"
+          >
+            {planMutation.isPending && <RefreshCw size={12} className="animate-spin" />}
+            {planMutation.isPending ? 'Planning…' : 'Plan This Day'}
+          </button>
+          {planMutation.isPending && (
+            <p className="mt-2 text-[10px] text-text-muted italic">
+              The nutritionist is checking your training load and dietary preferences. This usually takes 10–20 seconds.
+            </p>
+          )}
+          {planMessage && !planMutation.isPending && (
+            <div className="mt-4 max-w-md mx-auto px-3 py-2 bg-surface border border-border rounded-md text-left">
+              <div className="flex items-start gap-2">
+                {!hasPlanned && <AlertCircle size={12} className="text-yellow shrink-0 mt-0.5" />}
+                <div className="prose prose-sm prose-invert max-w-none text-xs text-text-muted [&_p]:my-1 [&_strong]:text-green">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{planMessage}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}

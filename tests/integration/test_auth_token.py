@@ -83,9 +83,14 @@ class TestApiTokenWithEndpoints:
 
 class TestMintTokenCLI:
     def test_mint_token_user_not_found(self):
+        # JWT_SECRET is checked before user lookup; set it so the user-lookup
+        # branch is exercised regardless of the host env (svc-pgdb runs may
+        # not export JWT_SECRET; local Podman flow may).
+        env = os.environ.copy()
+        env["JWT_SECRET"] = "x" * 32
         result = subprocess.run(
             [sys.executable, "-m", "server", "mint-token", "--email", "nonexistent@example.com"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
         assert result.returncode != 0
         assert "No user" in result.stderr

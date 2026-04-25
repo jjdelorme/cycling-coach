@@ -205,6 +205,7 @@ export default function Layout() {
             viewContext={viewContext}
             nutritionistContext={handoff.context}
             nutritionistSessionId={handoff.sessionId}
+            nutritionistRequestNonce={handoff.requestNonce}
             defaultTab={activeTab === 'nutrition' ? 'nutritionist' : 'coach'}
           />
         )}

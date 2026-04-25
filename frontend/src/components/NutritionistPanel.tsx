@@ -11,21 +11,28 @@ import {
   User as UserIcon,
   ChevronRight,
   AlertCircle,
+  X,
+  Quote,
 } from 'lucide-react'
 
 interface Props {
   initialContext?: string
   initialSessionId?: string
+  // Increments every time the user clicks "Ask Nutritionist" (etc.) so we
+  // can react to a follow-up open even when initialContext is unchanged.
+  requestNonce?: number
 }
 
 interface Message {
   role: 'user' | 'assistant' | 'rate-limited'
-  content: string  // for 'rate-limited': stores original user message for retry
+  content: string  // for 'rate-limited': the full message that was sent to the agent (for retry)
+  display?: string // for 'rate-limited': what to show as the user bubble on retry
 }
 
-export default function NutritionistPanel({ initialContext, initialSessionId }: Props) {
+export default function NutritionistPanel({ initialContext, initialSessionId, requestNonce }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
+  const [pendingContext, setPendingContext] = useState<string | undefined>()
   const [sessionId, setSessionId] = useState<string | undefined>()
   const [loadingSession, setLoadingSession] = useState(false)
   const [showAllSessions, setShowAllSessions] = useState(false)
@@ -33,20 +40,37 @@ export default function NutritionistPanel({ initialContext, initialSessionId }: 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const chat = useNutritionistChat()
   const { data: sessions } = useNutritionSessions()
-  const sentInitialRef = useRef(false)
+  const consumedRequestRef = useRef<number | undefined>(undefined)
   const loadedSessionRef = useRef(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Pre-fill input with context if provided (from "Ask Nutritionist" on a MacroCard)
+  // Consume each open() request from the nutritionist-handoff provider:
+  //   - If the panel is empty (fresh chat), just swap the chip in place.
+  //   - If a conversation is already in flight, start a new session so the
+  //     new question is not tangled up with the previous thread, then show
+  //     the chip in the fresh chat.
+  // Tracks `requestNonce` rather than `initialContext` so a repeat click on
+  // the same meal still re-opens cleanly instead of being deduped to a no-op.
   useEffect(() => {
-    if (initialContext && !sentInitialRef.current) {
-      sentInitialRef.current = true
-      setInput(initialContext)
+    if (!initialContext) return
+    if (requestNonce === undefined || requestNonce === consumedRequestRef.current) return
+    consumedRequestRef.current = requestNonce
+
+    if (messages.length > 0) {
+      setMessages([])
+      setSessionId(undefined)
+      setInput('')
     }
-  }, [initialContext])
+    setPendingContext(initialContext)
+    textareaRef.current?.focus()
+    // Intentionally omit `messages` from deps: the messages array changes
+    // constantly during chat, but we only want to act when a new request
+    // arrives. The branch above reads the current value at request time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestNonce, initialContext])
 
   // Auto-load session if initialSessionId is provided (from quick-log "Chat about this")
   useEffect(() => {
@@ -68,36 +92,39 @@ export default function NutritionistPanel({ initialContext, initialSessionId }: 
     }
   }, [initialSessionId])
 
-  const sendMessage = async (msg: string) => {
-    if (!msg.trim() || chat.isPending) return
-    setMessages(prev => [...prev, { role: 'user', content: msg.trim() }])
+  const sendMessage = async (displayMsg: string, agentMsg?: string) => {
+    if (!displayMsg.trim() || chat.isPending) return
+    const toSend = (agentMsg ?? displayMsg).trim()
+    setMessages(prev => [...prev, { role: 'user', content: displayMsg.trim() }])
 
     try {
-      const res = await chat.mutateAsync({ message: msg.trim(), session_id: sessionId })
+      const res = await chat.mutateAsync({ message: toSend, session_id: sessionId })
       setSessionId(res.session_id)
       setMessages(prev => [...prev, { role: 'assistant', content: res.response }])
     } catch (err) {
       const isRateLimit = err instanceof Error && err.message.toLowerCase().includes('rate limit')
       setMessages(prev => [...prev,
         isRateLimit
-          ? { role: 'rate-limited' as const, content: msg.trim() }
+          ? { role: 'rate-limited' as const, content: toSend, display: displayMsg.trim() }
           : { role: 'assistant', content: 'Error getting response. Please try again.' }
       ])
     }
   }
 
-  const retryMessage = async (originalMsg: string) => {
+  const retryMessage = async (failed: Message) => {
+    const toSend = failed.content
+    const displayMsg = failed.display ?? failed.content
     setMessages(prev => prev.filter(m => m.role !== 'rate-limited'))
-    setMessages(prev => [...prev, { role: 'user', content: originalMsg }])
+    setMessages(prev => [...prev, { role: 'user', content: displayMsg }])
     try {
-      const res = await chat.mutateAsync({ message: originalMsg, session_id: sessionId })
+      const res = await chat.mutateAsync({ message: toSend, session_id: sessionId })
       setSessionId(res.session_id)
       setMessages(prev => [...prev, { role: 'assistant', content: res.response }])
     } catch (err) {
       const isRateLimit = err instanceof Error && err.message.toLowerCase().includes('rate limit')
       setMessages(prev => [...prev,
         isRateLimit
-          ? { role: 'rate-limited' as const, content: originalMsg }
+          ? { role: 'rate-limited' as const, content: toSend, display: displayMsg }
           : { role: 'assistant', content: 'Error getting response. Please try again.' }
       ])
     }
@@ -105,10 +132,14 @@ export default function NutritionistPanel({ initialContext, initialSessionId }: 
 
   const send = () => {
     if (!input.trim()) return
-    const msg = input.trim()
+    const displayMsg = input.trim()
+    const agentMsg = pendingContext
+      ? `Context:\n${pendingContext}\n\nQuestion: ${displayMsg}`
+      : displayMsg
     setInput('')
+    setPendingContext(undefined)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    sendMessage(msg)
+    sendMessage(displayMsg, agentMsg)
   }
 
   return (
@@ -187,7 +218,7 @@ export default function NutritionistPanel({ initialContext, initialSessionId }: 
                 <div>
                   <p className="text-text-muted text-xs mb-2">The AI model is currently busy.</p>
                   <button
-                    onClick={() => retryMessage(m.content)}
+                    onClick={() => retryMessage(m)}
                     disabled={chat.isPending}
                     className="flex items-center gap-1.5 text-xs font-bold text-green hover:opacity-80 disabled:opacity-40 transition-opacity"
                   >
@@ -243,6 +274,24 @@ export default function NutritionistPanel({ initialContext, initialSessionId }: 
 
       {/* Input area */}
       <div className="p-5 bg-surface-low border-t border-border">
+        {pendingContext && (
+          <div className="mb-2 flex items-start gap-2 px-3 py-2 bg-surface border-l-2 border-accent rounded-md text-xs text-text-muted shadow-sm">
+            <Quote size={12} className="text-accent shrink-0 mt-0.5" />
+            <div
+              className="flex-1 whitespace-pre-wrap line-clamp-3 leading-snug"
+              title={pendingContext}
+            >
+              {pendingContext}
+            </div>
+            <button
+              onClick={() => setPendingContext(undefined)}
+              aria-label="Remove context"
+              className="shrink-0 text-text-muted hover:text-text transition-colors p-0.5 -mr-0.5 -mt-0.5"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
         <div className="relative group">
           <textarea
             ref={textareaRef}
@@ -253,7 +302,7 @@ export default function NutritionistPanel({ initialContext, initialSessionId }: 
               e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px'
             }}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            placeholder="Ask your nutritionist..."
+            placeholder={pendingContext ? 'Type your question about this...' : 'Ask your nutritionist...'}
             rows={1}
             className="w-full bg-surface text-text border border-border rounded-xl px-4 py-3.5 pr-12 text-sm placeholder:text-text-muted/40 focus:outline-none focus:border-green focus:ring-1 focus:ring-green/20 transition-all shadow-sm resize-none overflow-y-auto"
             style={{ maxHeight: 150 }}

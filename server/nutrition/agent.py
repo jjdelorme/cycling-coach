@@ -1,6 +1,7 @@
 """ADK-based Nutritionist agent setup."""
 
 import functools
+import re
 import time
 import threading
 
@@ -9,6 +10,7 @@ from google.adk.runners import Runner
 from google.adk.tools import google_search
 from google.genai import types
 
+from server.utils.adk import json_safe_tool
 from server.config import GEMINI_MODEL, GCP_PROJECT, GCP_LOCATION
 from server.database import get_setting
 from server.logging_config import get_logger, get_trace_id
@@ -62,6 +64,30 @@ _WRITE_TOOLS = {
 
 # Thread-local storage for current user role during agent execution
 _current_user_role = threading.local()
+
+# Conservative patterns: only fire on first-person past-tense or passive
+# persistence claims coupled with a plan/meal/dashboard noun. Avoids false
+# positives like "this would be saved" or "you can save it via the button."
+_PERSIST_VERB = (
+    r"(?:persisted|saved|added|created|logged|updated|written|put|pushed)"
+)
+_PERSIST_NOUN = r"(?:plan|meal|dashboard|planner|schedule|calendar)"
+
+_CLAIM_VERB_THEN_NOUN = re.compile(
+    rf"(?:i(?:'ve|\s*have)?\s*{_PERSIST_VERB}|"
+    rf"(?:has|have)\s+been\s+{_PERSIST_VERB})"
+    rf"[^.]{{0,80}}?{_PERSIST_NOUN}",
+    re.IGNORECASE,
+)
+_CLAIM_NOUN_THEN_VERB = re.compile(
+    rf"{_PERSIST_NOUN}[^.]{{0,40}}?(?:has|have)\s+been\s+{_PERSIST_VERB}",
+    re.IGNORECASE,
+)
+
+
+def _claims_persistence(text: str) -> bool:
+    """Heuristic: does the response claim a plan/meal was written?"""
+    return bool(_CLAIM_VERB_THEN_NOUN.search(text) or _CLAIM_NOUN_THEN_VERB.search(text))
 
 
 def _permission_gate(fn):
@@ -183,7 +209,9 @@ NEVER ask the athlete whether they have a ride planned or what their training lo
 Use the data from those tools to give specific, data-driven advice without interrogating the athlete.
 
 MEAL PLANNING PROTOCOL:
-When creating meal plans:
+CRITICAL: Whenever you design, suggest, or revise a meal plan for one or more days, you MUST call generate_meal_plan (for batches) or replace_planned_meal (for a single slot) to persist it. The athlete's dashboard reads from the database — your chat text is NOT visible in their planning tool. If you describe meals in prose without calling a write tool, the work is lost and the athlete will see no plan.
+
+Workflow when creating meal plans:
 1. Call get_upcoming_training_load to see planned rides and estimated caloric burn
 2. Call get_dietary_preferences to check dietary constraints and preferences
 3. Call get_planned_meals to see what's already planned (avoid duplicating)
@@ -191,9 +219,10 @@ When creating meal plans:
    - Heavy days (TSS > 80): increase carbs, add pre_workout/post_workout meals
    - Moderate days (TSS 40-80): standard macro targets
    - Rest days: reduce carbs, maintain protein at 1.6-2.0 g/kg
-5. Call generate_meal_plan to persist — NEVER just verbally suggest meals
-6. Provide agent_notes explaining training context for each meal
-7. Valid meal_slot values: breakfast, lunch, dinner, snack_am, snack_pm, pre_workout, post_workout
+5. Call generate_meal_plan with one entry per (date, meal_slot). Provide agent_notes explaining training context for each meal.
+6. ONLY AFTER the tool returns success, summarize what you persisted. Phrases like "I have persisted", "saved to your dashboard", "added to your plan" are FORBIDDEN unless the corresponding write tool was just called and returned status=success in this same turn.
+
+Valid meal_slot values: breakfast, lunch, dinner, snack_am, snack_pm, pre_workout, post_workout.
 Use replace_planned_meal for single-slot changes, clear_meal_plan to remove plans.
 
 NO LAWYERLY DISCLAIMERS:
@@ -237,7 +266,7 @@ def reset_runner():
 
 
 def _get_agent():
-    tools = [
+    raw_tools = [
         get_meal_history,
         get_daily_macros,
         get_weekly_summary,
@@ -249,8 +278,11 @@ def _get_agent():
         get_dietary_preferences,
         ask_clarification,
     ]
+    
+    tools = [json_safe_tool(fn) for fn in raw_tools]
+    
     for fn in _WRITE_TOOLS:
-        tools.append(_permission_gate(fn))
+        tools.append(json_safe_tool(_permission_gate(fn)))
 
     return Agent(
         name="nutritionist",
@@ -412,5 +444,23 @@ async def chat(
 
     requires_clarification = "ask_clarification" in tool_calls
     meal_saved = "save_meal_analysis" in tool_calls
+
+    # Hallucinated-persistence guard: if the agent's reply claims a meal/plan was
+    # written but no write tool was actually invoked this turn, replace the text
+    # so the athlete is not misled into thinking their dashboard updated.
+    write_tool_names = {fn.__name__ for fn in _WRITE_TOOLS}
+    called_write_tool = any(t in write_tool_names for t in tool_calls)
+    if response_text and not called_write_tool and _claims_persistence(response_text):
+        logger.warning(
+            "nutritionist_hallucinated_persistence",
+            session_id=session_id,
+            tool_calls=tool_calls,
+            trace_id=trace_id,
+        )
+        response_text = (
+            "I drafted a plan but did not actually save it to your dashboard "
+            "(the write tool was not called). Please ask me again — e.g. "
+            "\"go ahead and save that plan\" — and I will persist it."
+        )
 
     return response_text or "I couldn't generate a response. Please try again.", requires_clarification, meal_saved

@@ -460,7 +460,7 @@ def _build_meal_plan_day(date: str, planned_rows: list[dict], actual_rows: list[
         planned_by_slot[r["meal_slot"]] = {
             "id": r["id"],
             "user_id": r.get("user_id", "athlete"),
-            "date": r["date"],
+            "date": str(r["date"]),
             "meal_slot": r["meal_slot"],
             "name": r["name"],
             "description": r.get("description"),
@@ -549,11 +549,11 @@ async def get_meal_plan(
     # Group by date
     planned_by_date: dict[str, list] = {}
     for r in planned_rows:
-        planned_by_date.setdefault(r["date"], []).append(r)
+        planned_by_date.setdefault(str(r["date"]), []).append(r)
 
     actual_by_date: dict[str, list] = {}
     for r in actual_rows:
-        actual_by_date.setdefault(r["date"], []).append(r)
+        actual_by_date.setdefault(str(r["date"]), []).append(r)
 
     # Build response for each day in range
     result_days = []

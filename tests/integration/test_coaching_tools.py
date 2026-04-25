@@ -12,10 +12,28 @@ def test_get_pmc_metrics():
     assert result["ctl"] >= 0
 
 
-def test_get_pmc_metrics_by_date():
+def test_get_pmc_metrics_by_date(db_conn):
+    """The date parameter must route to that specific historical row.
+
+    Don't hard-code a CTL threshold — the value differs between the bundled
+    seed file and the shared svc-pgdb (which is only seeded when empty).
+    Pick a date that actually exists in this DB's daily_metrics, then verify
+    the response echoes that date with a sane numeric CTL.
+    """
     from server.coaching.tools import get_pmc_metrics
-    result = get_pmc_metrics("2026-03-21")
-    assert result["ctl"] > 40  # Should have meaningful fitness
+
+    row = db_conn.execute(
+        "SELECT date::TEXT AS date, ctl FROM daily_metrics "
+        "WHERE ctl IS NOT NULL ORDER BY date DESC LIMIT 1 OFFSET 30"
+    ).fetchone()
+    assert row is not None, "Need at least 30+ days of daily_metrics for this test"
+
+    result = get_pmc_metrics(row["date"])
+    assert result.get("date") == row["date"]
+    assert isinstance(result.get("ctl"), (int, float))
+    assert result["ctl"] >= 0
+    # The date param must select THAT row, not the most recent one
+    assert abs(float(result["ctl"]) - float(row["ctl"])) < 0.01
 
 
 def test_get_recent_rides():
