@@ -11,6 +11,18 @@ This document serves as the top-level view of all active, planned, and completed
   - **Phase A — Google Maps Provider:** Implement `GoogleMapsProvider` (Maps Geocoding API, `GEOCODER=google`, API key via `GEOCODER_GOOGLE_API_KEY` env var). The Protocol seam is already in place; this is ~100 LOC + tests.
   - **Phase B — Multi-Instance Cache:** Move the in-process Nominatim LRU cache to a Postgres-backed `geocoder_cache` table (TTL column, `ON CONFLICT DO UPDATE`). Eliminates per-instance cold-start hits against Nominatim when Cloud Run scales beyond one replica.
 
+- [ ] **Campaign 20: Ride Map with Synced Timeline Cursor + GPS Data-Quality Foundation** (`plans/feat-ride-map.md`)
+  - *Status:* **Phases 1–4 (map UI) shipped on `feat/ride-map` worktree (audit PASS WITH NOTES). Phases 5–10 (GPS data-quality) PLANNED 2026-04-22 — same branch, same release.**
+  - **Why expanded:** real-world testing of the C20 map exposed that ICU's `latlng` stream returns a lat-only payload variant (e.g. ride 3238 length=7003 odd) that the Campaign 17 parser fix did not cover. Per-record `ride_records.lat/lon` are corrupted on every ICU-synced ride hit by this variant — map renders a wrong polyline. User directive: fold the fix into C20, ship in the same release.
+  - **Phase 1–4 (DONE):** `<RideMap>` component with MapLibre GL + OpenFreeMap; lazy-loaded; cursor-sync to timeline chart; lap + drag-zoom highlighting; indoor placeholder.
+  - **Phase 5 — FIT-records fetch path:** `fetch_activity_fit_records()` parses FIT `record` messages we already download for laps. No call sites wired yet.
+  - **Phase 6 — FIT-primary cutover:** `_store_records_or_fallback` makes ICU re-sync use FIT for per-record GPS/power/HR/cadence/altitude/distance/speed/temperature; streams remain the fallback when FIT is unavailable.
+  - **Phase 7 — Streams-parser hardening:** `_normalize_latlng` detects the lat-only variant and returns `[]`; `_store_streams` defensive guard refuses to write rows that trip the corruption signature.
+  - **Phase 8 — Local speed smoothing:** new `smooth_speed()` in `server/metrics.py` (5-sample uniform filter, NaN-aware); wired into both ingest paths.
+  - **Phase 9 — Historical backfill script:** `scripts/backfill_corrupt_gps.py` (dry-run by default, `--allow-remote` for prod, `--limit` for resumability, `--since YYYY-MM-DD` defaulting to last 14 days) detects rides where `ABS(lat-lon) < 1°` for >50% of records and re-syncs them via the Phase 6 helpers.
+  - **Phase 10 — Frontend safeguard + prod rollout:** `<RideMap>` detects the corruption signature client-side and renders a warning banner instead of a wrong polyline; operator runs the Phase 9 backfill against prod (default 14-day window — older rides exist on GCS as FIT-derived JSON and were never affected) after the v1.14.x release bakes for ≥24h.
+  - *Status (2026-04-24):* All 5 pre-engineering open questions resolved by user. Plan unblocked — engineer can start Phase 5.
+
 ---
 
 ## Archived Campaigns
