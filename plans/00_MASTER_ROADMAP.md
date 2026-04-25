@@ -38,31 +38,6 @@ This document serves as the top-level view of all active, planned, and completed
     - **Toggle persistence:** Per-ride, per-session, or stored in user settings?
   - *Note:* Click-to-pin is no longer a separate concern — the existing drag-to-select-zoom on the chart already serves that role and is wired up to the map in Campaign 20 Phase 4.
 
-- [ ] **Campaign 24: Integration Test Suite Repair** (`plans/fix-integration-test-suite.md` — to be created)
-  - *Status:* Planned — pre-existing integration test failures discovered during svc-pgdb validation of Campaign 23 on 2026-04-24. Verified to reproduce on `main` (the version of `main` we forked from); these are NOT regressions from Campaign 23. Re-validate the failure list after this branch merges — `25ecde7 fix(tests): make 3 integration tests robust to shared-DB and host env` on main partially overlaps. Run `CYCLING_COACH_DATABASE_URL=postgresql://postgres:dev@localhost:5432/coach_test pytest tests/integration/` to reproduce after merge.
-  - **Cluster 1 (8 failures, mostly fixed by main's `25ecde7`): `rides.date` referenced after migration 0006 dropped it**
-    - Originally affected: `test_timezone_queries.py::{test_ride_local_date_derivation, test_ride_local_date_utc, test_ride_date_filter_timezone_aware, test_ride_date_filter_excludes_wrong_timezone, test_pmc_groups_by_local_date, test_tss_aggregation_by_timezone}` + `test_nutrition_api.py::{test_daily_summary_with_rides, test_weekly_summary_with_rides}`.
-    - Error: `psycopg2.errors.UndefinedColumn: column "date" of relation "rides" does not exist`.
-    - Root cause: tests INSERT `(date, start_time, filename, ...)` but `migrations/0006_timezone_schema.sql:74` dropped the `date` column.
-    - **Status after main merge:** all 6 `test_timezone_queries.py` sites now correctly INSERT without `date` (verified post-merge). The 2 `test_nutrition_api.py` sites need re-checking — were not touched by `25ecde7`.
-    - Fix (residual): drop `date` from the 2 remaining INSERT sites if still present.
-    - Effort: ≤15 min mechanical.
-  - **Cluster 2 (1 failure): `body_measurements.date` is TEXT + `compute_daily_pmc` signature mismatch**
-    - Affected: `test_withings_integration.py::test_pmc_weight_priority_withings_over_ride`.
-    - Two chained problems surface in the same test:
-      1. `compute_daily_pmc(db_conn, since_date=test_date)` is called with `test_date: datetime.date`, but `server/ingest.py:448` does `datetime.fromisoformat(since_date)` which requires `str`. Raises `TypeError: fromisoformat: argument must be str`.
-      2. Cleanup `DELETE FROM body_measurements WHERE date=%s` with a `date` parameter against a `text` column yields `psycopg2.errors.UndefinedFunction: operator does not exist: text = date`.
-    - Decisions needed (call this in the campaign plan, don't pre-decide):
-      - For (1): broaden `compute_daily_pmc` signature to `date | str` (callers cleaner), OR make the test pass `test_date.isoformat()` (single-test fix).
-      - For (2): cast in SQL (`WHERE date = %s::text` test-only), OR ship a migration that ALTERs `body_measurements.date` to native `DATE` type (matches the rides/daily_metrics direction in 0006). The latter is the consistent move but touches every other read site.
-    - Effort: small if test-side fixes both; medium if column ALTER (must audit all other readers of `body_measurements.date`).
-  - **Cluster 3 (1 failure): `test_meal_plan_populated` returns empty `planned` dict**
-    - Affected: `test_meal_plan.py::test_meal_plan_populated`.
-    - Symptom: `assert "breakfast" in day["planned"]` fails because `day["planned"] == {}`. Endpoint returns HTTP 200, just with no planned meals in the response.
-    - Root cause unknown — needs investigation. Hypotheses: (a) missing seed data the test depends on; (b) real bug in meal-plan generation logic that returns empty for the seeded test user; (c) auth/user-context mismatch — the dev user has no planned meals in seed data and the endpoint silently returns empty rather than 404.
-    - Effort: unknown until first hour of investigation.
-  - *Test-environment caveat:* the dev machine where these were observed has a long-lived native Postgres (no podman/tmpfs container available), so the `coach_test` DB persists state across runs. However: Cluster 1 + 2 errors are schema/test-code mismatches (column missing, wrong type) — they reproduce on a fresh DB. Cluster 3's empty-`planned` could plausibly be state-related; verify against a freshly-migrated DB during investigation.
-
 ---
 
 ## Archived Campaigns
